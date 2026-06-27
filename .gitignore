@@ -8,5 +8,8 @@ wheels/
 
 .ipynb_checkpoints/
 
+# Data files
+.csv
+
 # Virtual environments
 .venv
