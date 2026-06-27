@@ -9,7 +9,7 @@ wheels/
 .ipynb_checkpoints/
 
 # Data files
-.csv
+*.csv
 
 # Virtual environments
 .venv
