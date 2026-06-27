@@ -1439,6 +1439,19 @@ wheels = [
 ]
 
 [[package]]
+name = "refractiveindex"
+version = "1.0.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pyyaml" },
+    { name = "scipy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/2f/e6/8b6332703ea41bbc585eb2bc731bd0b8c433144f3d72e87b7ad1e2d7a514/refractiveindex-1.0.3.tar.gz", hash = "sha256:da1ab15d412eab62b749d06921173e2d2ff42c32b343249326d7fbccd8312827", size = 8239, upload-time = "2026-06-19T00:29:44.229Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/58/84/08a606874fae61e86aeccfea44dbb06e2a36fd2e05adb97f079bc3b98089/refractiveindex-1.0.3-py3-none-any.whl", hash = "sha256:76cc72392771140aa5e689763e911a907b8304bfd3f06f3394b097cbbbfe772e", size = 9277, upload-time = "2026-06-19T00:29:43.147Z" },
+]
+
+[[package]]
 name = "requests"
 version = "2.34.2"
 source = { registry = "https://pypi.org/simple" }
@@ -1602,6 +1615,7 @@ dependencies = [
     { name = "numpy" },
     { name = "pandas" },
     { name = "pyside6" },
+    { name = "refractiveindex" },
 ]
 
 [package.dev-dependencies]
@@ -1617,6 +1631,7 @@ requires-dist = [
     { name = "numpy", specifier = ">=2.5.0" },
     { name = "pandas", specifier = ">=3.0.3" },
     { name = "pyside6", specifier = ">=6.11.1" },
+    { name = "refractiveindex", specifier = ">=1.0.3" },
 ]
 
 [package.metadata.requires-dev]

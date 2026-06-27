@@ -71,27 +71,27 @@ class DataFile:
 
     @property
     def n_frames(self) -> int:
-        return self._raw_df["frame"].nunique()
+        return self._raw_df["Frame"].nunique()
 
     @property
     def wavelength(self) -> np.ndarray:
         """Unique wavelength axis (assumes all frames share the same axis)."""
-        return np.sort(self._raw_df["wavelength"].unique())
+        return np.sort(self._raw_df["Wavelength"].unique())
 
     # ---- frame access / averaging --------------------------------------
     def frame(self, frame_id) -> pd.DataFrame:
         """Return a single frame's data, sorted by wavelength."""
-        sub = self._raw_df[self._raw_df["frame"] == frame_id]
+        sub = self._raw_df[self._raw_df["Frame"] == frame_id]
         if sub.empty:
             raise ValueError(f"No frame '{frame_id}' in {self.path.name}")
-        return sub.sort_values("wavelength").reset_index(drop=True)
+        return sub.sort_values("Wavelength").reset_index(drop=True)
 
     def average_spectrum(self) -> pd.DataFrame:
         """Mean intensity per wavelength across frames, with std as a noise estimate."""
-        grouped = self._raw_df.groupby("wavelength")["intensity"]
+        grouped = self._raw_df.groupby("Wavelength")["Intensity"]
         result = grouped.agg(["mean", "std", "count"]).reset_index()
-        result = result.rename(columns={"mean": "intensity", "std": "intensity_std"})
-        return result.sort_values("wavelength").reset_index(drop=True)
+        result = result.rename(columns={"mean": "Intensity", "std": "Intensity_std"})
+        return result.sort_values("Wavelength").reset_index(drop=True)
 
     def __repr__(self) -> str:
         return f"DataFile({self.path.name}, n_frames={self.n_frames}, metadata={self.metadata})"
