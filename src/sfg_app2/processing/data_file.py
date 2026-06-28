@@ -1,5 +1,5 @@
-# src/sfg_app2/processing/data_file.py
 from __future__ import annotations
+
 
 from pathlib import Path
 from typing import Optional
@@ -7,8 +7,13 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
+from sfg_app2.processing.despike import remove_outliers_movmedian
+from .spectrum_data import SpectrumDataMixin
+from .processed_spectrum import ProcessedSpectrum
 
-class DataFile:
+
+
+class DataFile(SpectrumDataMixin):
     """A single SFG spectroscopy data file: raw frame data + metadata.
 
     Expects a CSV with columns: Frame, Wavelength, Intensity.
@@ -29,6 +34,7 @@ class DataFile:
         self.metadata = self._parse_filename_metadata(self.path, filename_fields)
         if metadata:
             self.metadata.update(metadata)  # manual values always win
+        self.history: list[str] = []
 
     # ---- loading ----------------------------------------------------
     @staticmethod
@@ -63,35 +69,20 @@ class DataFile:
 
         return metadata
 
-    # ---- raw data access ----------------------------------------------
-    @property
-    def raw_data(self) -> pd.DataFrame:
-        """Unmodified frame/wavelength/intensity data, exactly as loaded."""
-        return self._raw_df
-
-    @property
-    def n_frames(self) -> int:
-        return self._raw_df["Frame"].nunique()
-
-    @property
-    def wavelength(self) -> np.ndarray:
-        """Unique wavelength axis (assumes all frames share the same axis)."""
-        return np.sort(self._raw_df["Wavelength"].unique())
-
-    # ---- frame access / averaging --------------------------------------
-    def frame(self, frame_id) -> pd.DataFrame:
-        """Return a single frame's data, sorted by wavelength."""
-        sub = self._raw_df[self._raw_df["Frame"] == frame_id]
-        if sub.empty:
-            raise ValueError(f"No frame '{frame_id}' in {self.path.name}")
-        return sub.sort_values("Wavelength").reset_index(drop=True)
-
-    def average_spectrum(self) -> pd.DataFrame:
-        """Mean intensity per wavelength across frames, with std as a noise estimate."""
-        grouped = self._raw_df.groupby("Wavelength")["Intensity"]
-        result = grouped.agg(["mean", "std", "count"]).reset_index()
-        result = result.rename(columns={"mean": "Intensity", "std": "Intensity_std"})
-        return result.sort_values("Wavelength").reset_index(drop=True)
+    # ------------------------------------------
+    
+    def remove_cosmic_rays(self, window: int = 5, threshold_factor: float = 3.0) -> ProcessedSpectrum:
+        cleaned_frames = []
+        for frame_id, group in self._raw_df.groupby("Frame"):
+            group = group.sort_values("Wavelength").copy()
+            group["Intensity"] = remove_outliers_movmedian(
+                group["Intensity"].to_numpy(), window, threshold_factor
+            )
+            cleaned_frames.append(group)
+        cleaned_df = pd.concat(cleaned_frames, ignore_index=True)
+        return ProcessedSpectrum(
+            cleaned_df, metadata=self.metadata, history=self.history + ["remove_cosmic_rays"]
+        )
 
     def __repr__(self) -> str:
         return f"DataFile({self.path.name}, n_frames={self.n_frames}, metadata={self.metadata})"
