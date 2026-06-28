@@ -2,12 +2,11 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from sfg_app2.processing.processed_spectrum import ProcessedSpectrum
 
 
 class SpectrumDataMixin:
-    """Shared read-only access to frame/wavelength data.
-    Requires self._raw_df with columns: frame, wavelength, intensity.
+    """Shared read-only access to Frame/Wavelength data.
+    Requires self._raw_df with columns: Frame, Wavelength, Intensity.
     """
 
     @property
@@ -28,7 +27,9 @@ class SpectrumDataMixin:
             raise ValueError(f"No frame '{frame_id}' found")
         return sub.sort_values("Wavelength").reset_index(drop=True)
 
-    def average_spectrum(self) -> ProcessedSpectrum:
+    def average_spectrum(self):
+        from sfg_app2.processing.processed_spectrum import ProcessedSpectrum
+        
         grouped = self._raw_df.groupby("Wavelength")["Intensity"]
         result = grouped.agg(["mean", "std", "count"]).reset_index()
         result = result.rename(columns={"mean": "Intensity", "std": "Intensity_std"})
