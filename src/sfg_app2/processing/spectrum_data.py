@@ -1,7 +1,9 @@
 from __future__ import annotations
 import numpy as np
 import pandas as pd
+import logging
 
+logger = logging.getLogger(__name__)
 
 
 class SpectrumDataMixin:
@@ -41,4 +43,30 @@ class SpectrumDataMixin:
             result[["Frame", "Wavelength", "Intensity", "Intensity_std", "count"]],
             metadata=self.metadata,
             history=self.history + ["average_spectrum"],
+        )
+    
+    def upconvert_to_wavenumber(self, upconversion_wavelength: float):
+        """Add a Wavenumber (cm^-1) column derived from Wavelength (nm) and
+        the upconversion wavelength, via energy conservation:
+            wavenumber_IR = (1e7 / Wavelength) - (1e7 / upconversion_wavelength)
+        Returns a new ProcessedSpectrum; does not modify self.
+        """
+        from .processed_spectrum import ProcessedSpectrum  # deferred, avoids circular import
+
+        if "upconvert_to_wavenumber" in self.history:
+            logger.warning(
+                "Spectrum has already been upconverted once (history=%s). "
+                "Applying it again will overwrite the existing Wavenumber column "
+                "based on the *original* Wavelength column, not a double conversion — "
+                "but check this is actually what you intend.",
+                self.history,
+            )
+
+        df = self.data.copy()
+        df["Wavenumber"] = (1e7 / df["Wavelength"]) - (1e7 / upconversion_wavelength)
+
+        return ProcessedSpectrum(
+            df,
+            metadata=self.metadata,
+            history=self.history + [f"upconvert_to_wavenumber({upconversion_wavelength})"],
         )
