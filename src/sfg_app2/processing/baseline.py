@@ -50,7 +50,7 @@ def subtract_background(
     bg_lookup = pd.Series(bg_adjusted, index=bg_wavelength)
 
     corrected_frames = []
-    for frame_id, group in signal.raw_data.groupby("Frame"):
+    for frame_id, group in signal.data.groupby("Frame"):
         group = group.sort_values("Wavelength").copy()
         # exact-axis match assumed; .loc raises clearly if a wavelength is missing
         group["Intensity"] = group["Intensity"].to_numpy() - bg_lookup.loc[group["Wavelength"]].to_numpy()

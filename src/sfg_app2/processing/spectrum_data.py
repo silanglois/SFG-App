@@ -10,7 +10,7 @@ class SpectrumDataMixin:
     """
 
     @property
-    def raw_data(self) -> pd.DataFrame:
+    def data(self) -> pd.DataFrame:
         return self._raw_df
 
     @property
@@ -29,7 +29,7 @@ class SpectrumDataMixin:
 
     def average_spectrum(self):
         from sfg_app2.processing.processed_spectrum import ProcessedSpectrum
-        
+
         grouped = self._raw_df.groupby("Wavelength")["Intensity"]
         result = grouped.agg(["mean", "std", "count"]).reset_index()
         result = result.rename(columns={"mean": "Intensity", "std": "Intensity_std"})
