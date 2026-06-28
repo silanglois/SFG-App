@@ -29,37 +29,45 @@ def _resolve_offset(wavelength: np.ndarray, offset: OffsetSpec) -> np.ndarray:
     return np.polyval(offset, wavelength)
 
 
-def subtract_background(
-    signal,                  # DataFile or ProcessedSpectrum
-    background,             # DataFile or ProcessedSpectrum
-    offset: OffsetSpec = None,
-) -> ProcessedSpectrum:
-    """Subtract a (possibly offset) background from each frame of the signal.
-
-    The background is averaged across its own frames first, regardless of
-    how many frames it has relative to the signal, since a single reference
-    background is what's physically being subtracted.
+def apply_offset(background, offset: OffsetSpec = None) -> ProcessedSpectrum:
+    """Apply an offset to a background spectrum and return it as a
+    plottable ProcessedSpectrum, without subtracting from anything.
+    Useful for visually checking the offset before calling subtract_background.
     """
-    bg_avg = background.average_spectrum().frame(1)  # wavelength, intensity, ...
+    bg_avg = background.average_spectrum().frame(1)
     bg_wavelength = bg_avg["Wavelength"].to_numpy()
     bg_intensity = bg_avg["Intensity"].to_numpy()
 
     offset_values = _resolve_offset(bg_wavelength, offset)
-    bg_adjusted = bg_intensity + offset_values
+    adjusted = bg_intensity + offset_values
 
-    bg_lookup = pd.Series(bg_adjusted, index=bg_wavelength)
+    df = pd.DataFrame({
+        "Frame": 1,
+        "Wavelength": bg_wavelength,
+        "Intensity": adjusted,
+    })
+
+    return ProcessedSpectrum(
+        df,
+        metadata=background.metadata,
+        history=background.history + [f"apply_offset(offset={offset})"],
+    )
+
+
+def subtract_background(signal, background, offset: OffsetSpec = None) -> ProcessedSpectrum:
+    bg_adjusted = apply_offset(background, offset)
+    bg_lookup = pd.Series(
+        bg_adjusted.data["Intensity"].to_numpy(),
+        index=bg_adjusted.data["Wavelength"].to_numpy(),
+    )
 
     corrected_frames = []
     for frame_id, group in signal.data.groupby("Frame"):
         group = group.sort_values("Wavelength").copy()
-        # exact-axis match assumed; .loc raises clearly if a wavelength is missing
         group["Intensity"] = group["Intensity"].to_numpy() - bg_lookup.loc[group["Wavelength"]].to_numpy()
         corrected_frames.append(group)
 
     corrected_df = pd.concat(corrected_frames, ignore_index=True)
-
     return ProcessedSpectrum(
-        corrected_df,
-        metadata=signal.metadata,
-        history=signal.history + ["subtract_background"],
+        corrected_df, metadata=signal.metadata, history=signal.history + ["subtract_background"]
     )
