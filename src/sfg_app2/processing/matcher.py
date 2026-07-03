@@ -1,6 +1,6 @@
 from __future__ import annotations
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable, Optional
 
 import pandas as pd
@@ -17,7 +17,14 @@ DEFAULT_SAMPLE_KEY = "sample"
 # ── Role detection ──────────────────────────────────────────────────────────
 
 def default_role_fn(datafile) -> str:
-    """Default: 'bg' anywhere in the filename stem → background, else signal."""
+    """Check metadata['role'] first (set by load_datafiles),
+    fall back to filename stem check for files loaded manually."""
+    role = datafile.metadata.get("role")
+    if role == "bg":
+        return "background"
+    if role == "ref":
+        return "reference"
+    # fallback for files not loaded via load_datafiles
     return "background" if "bg" in datafile.path.stem.lower() else "signal"
 
 
@@ -69,6 +76,19 @@ class MatchedSet:
         )
 
 
+# ── matching configuration ───────────────────────────────────────────────────
+
+@dataclass
+class MatchingConfig:
+    """Matching rules for one role (background or reference).
+
+    required_keys : must match exactly — mismatch disqualifies the candidate
+    optional_keys : compared only if both files have a real value
+    """
+    required_keys: list[str] = field(default_factory=lambda: ["sample","polarization"])
+    optional_keys: list[str] = field(default_factory=lambda: ["center wavelength", "acquisition time"])
+
+
 # ── Matcher ──────────────────────────────────────────────────────────────────
 
 class DataFileMatcher:
@@ -99,16 +119,19 @@ class DataFileMatcher:
         files: list,
         role_fn: Callable = None,
         reference_names: list[str] = None,
-        required_keys: list[str] = None,
-        optional_keys: list[str] = None,
+        background_config: MatchingConfig = None,
+        reference_config: MatchingConfig = None,
         timestamp_key: str = DEFAULT_TIMESTAMP_KEY,
         sample_key: str = DEFAULT_SAMPLE_KEY,
     ):
         self.files = files
         self.role_fn = role_fn or default_role_fn
         self.reference_names = [n.lower() for n in (reference_names or [])]
-        self.required_keys = required_keys or DEFAULT_REQUIRED_KEYS
-        self.optional_keys = optional_keys or DEFAULT_OPTIONAL_KEYS
+        self.background_config = background_config or MatchingConfig()
+        self.reference_config = reference_config or MatchingConfig(
+            required_keys=["polarization"],      # references are rarer,
+            optional_keys=["center wavelength"]  # so loosen the match
+        )
         self.timestamp_key = timestamp_key
         self.sample_key = sample_key
         self._unmatched: list = []
@@ -139,24 +162,17 @@ class DataFileMatcher:
                 signals.append(f)
         return signals, backgrounds, references, ref_backgrounds
 
-    def _is_compatible(self, target, candidate) -> bool:
-        """Return True if target and candidate are compatible for matching.
-
-        Required keys must match exactly (case-insensitive, whitespace-stripped).
-        Optional keys are only compared if both files have a non-None, non-empty value.
-        """
+    def _is_compatible(self, target, candidate, config: MatchingConfig) -> bool:
         def normalize(val):
             return str(val).strip().lower() if val is not None else None
 
-        # required: both must have value, must match
-        for key in self.required_keys:
+        for key in config.required_keys:
             t_val = normalize(target.metadata.get(key))
             c_val = normalize(candidate.metadata.get(key))
             if t_val != c_val:
                 return False
 
-        # optional: only compared if both have a real value
-        for key in self.optional_keys:
+        for key in config.optional_keys:
             t_val = normalize(target.metadata.get(key))
             c_val = normalize(candidate.metadata.get(key))
             if t_val and c_val and t_val != c_val:
@@ -178,11 +194,11 @@ class DataFileMatcher:
             )
             return None
 
-    def _find_closest(self, target, candidates: list):
+    def _find_closest(self, target, candidates: list, config: MatchingConfig):
         if target is None:
             return None
 
-        compatible = [c for c in candidates if self._is_compatible(target, c)]
+        compatible = [c for c in candidates if self._is_compatible(target, c, config)]
 
         if not compatible:
             return None
@@ -220,10 +236,10 @@ class DataFileMatcher:
 
         results = []
         for signal in signals:
-            bg = self._find_closest(signal, backgrounds)
-            ref = self._find_closest(signal, references)
-            ref_bg = self._find_closest(ref, ref_backgrounds) if ref else None
-
+            bg = self._find_closest(signal, backgrounds, self.background_config)
+            ref = self._find_closest(signal, references, self.reference_config)
+            ref_bg = self._find_closest(ref, ref_backgrounds, self.background_config) if ref else None
+        
             if bg is None:
                 logger.warning(
                     "No background match found for %s. "
@@ -250,7 +266,7 @@ class DataFileMatcher:
                 signal=signal,
                 background=bg,
                 reference=ref,
-                reference_background=ref_bg,
-            ))
+                reference_background=ref_bg
+                ))
 
         return results
