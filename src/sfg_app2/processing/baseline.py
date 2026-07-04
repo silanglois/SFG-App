@@ -5,8 +5,7 @@ import numpy as np
 import pandas as pd
 
 from .processed_spectrum import ProcessedSpectrum
-
-OffsetSpec = Union[None, float, list[float], Callable[[np.ndarray], np.ndarray]]
+from .utils import OffsetSpec
 
 
 def _resolve_offset(wavelength: np.ndarray, offset: OffsetSpec) -> np.ndarray:

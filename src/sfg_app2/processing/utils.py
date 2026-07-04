@@ -1,8 +1,12 @@
 from __future__ import annotations
+from typing import Callable, Union
 import logging
 from pathlib import Path
+import numpy as np
 
 from .data_file import DataFile
+
+OffsetSpec = Union[None, float, list[float], Callable[[np.ndarray], np.ndarray]]
 
 logger = logging.getLogger(__name__)
 

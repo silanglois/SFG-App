@@ -2,6 +2,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import logging
+import matplotlib.pyplot as plt
 
 logger = logging.getLogger(__name__)
 
@@ -70,3 +71,56 @@ class SpectrumDataMixin:
             metadata=self.metadata,
             history=self.history + [f"upconvert_to_wavenumber({upconversion_wavelength})"],
         )
+
+    def plot(
+        self,
+        ax=None,
+        frame_id=None,
+        x: str = "Wavelength",
+        label: str = None,
+        **kwargs
+    ) -> plt.Axes:
+        """Plot Intensity vs x-axis column (default: Wavelength).
+
+        Parameters
+        ----------
+        ax : matplotlib Axes, optional
+            Axes to plot on. Uses current axes if None.
+        frame_id : int, optional
+            Plot a single frame. Plots all frames if None.
+        x : str
+            Column to use as x-axis. Use "Wavenumber" after upconversion.
+        label : str, optional
+            Custom legend label. Auto-generates "Frame N" if None.
+        **kwargs
+            Passed directly to matplotlib plot().
+        """
+        if ax is None:
+            ax = plt.gca()
+
+        if x not in self.data.columns:
+            raise ValueError(
+                f"Column '{x}' not found. Available columns: {list(self.data.columns)}. "
+                f"Have you called .upconvert_to_wavenumber() yet?"
+            )
+
+        if frame_id is not None:
+            data = self.frame(frame_id)
+            ax.plot(
+                data[x], data["Intensity"],
+                label=label or f"Frame {frame_id}",
+                **kwargs
+            )
+        else:
+            frame_ids = self.data["Frame"].unique()
+            for fid in frame_ids:
+                data = self.frame(fid)
+                ax.plot(
+                    data[x], data["Intensity"],
+                    label=label if len(frame_ids) == 1 else (label or f"Frame {fid}"),
+                    **kwargs
+                )
+
+        ax.set_xlabel(x)
+        ax.set_ylabel("Intensity")
+        return ax
