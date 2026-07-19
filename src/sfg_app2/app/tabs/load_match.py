@@ -1,4 +1,3 @@
-# src/sfg_app2/app/tabs/load_match.py
 from __future__ import annotations
 import logging
 from pathlib import Path
@@ -57,6 +56,9 @@ class LoadMatchTab(QWidget):
         self.ui.automatchButton.clicked.connect(self._on_auto_match)
         self.ui.startprocessingButton.clicked.connect(self._on_start_processing)
         self.match_table.table_changed.connect(self._on_table_changed)
+        self.file_list_widget.remove_requested.connect(self._on_remove_files)
+        self.file_list_widget.metadata_requested.connect(self._on_review_metadata)
+        self.file_list_widget.plot_requested.connect(self._on_plot_files)
 
     def _set_buttons_enabled(self, files_loaded: bool, matched: bool):
         self.ui.reviewmetadataButton.setEnabled(files_loaded)
@@ -238,3 +240,60 @@ class LoadMatchTab(QWidget):
                 self, "No New Files",
                 f"All {len(skipped)} selected file(s) are already loaded."
             )
+
+    # ── Context Menu Handlers ─────────────────────────────────────────
+
+    def _on_remove_files(self, paths: list[str]):
+        # check which are in the match table
+        table_paths = self.match_table._table_model.all_paths_used()
+        in_table = [p for p in paths if p in table_paths]
+
+        if in_table:
+            names = "\n".join(Path(p).name for p in in_table)
+            reply = QMessageBox.question(
+                self,
+                "Files in Match Table",
+                f"The following file(s) are assigned in the match table "
+                f"and will be removed from both:\n\n{names}\n\nContinue?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if reply == QMessageBox.StandardButton.No:
+                return
+
+        # remove from table first
+        for path in in_table:
+            model = self.match_table._table_model
+            for row in range(model.rowCount()):
+                for col in range(model.columnCount()):
+                    if model.data(model.createIndex(row, col),
+                                Qt.ItemDataRole.UserRole) == path:
+                        model.clear_cell(row, col)
+
+        # remove from file list and registry
+        path_set = set(paths)
+        self._files = [f for f in self._files if str(f.path) not in path_set]
+        for p in path_set:
+            self._file_registry.pop(p, None)
+        self._individual_file_paths = [
+            p for p in self._individual_file_paths if str(p) not in path_set
+        ]
+
+        self._refresh_file_list()
+        self._on_table_changed()
+        logger.info("Removed %d file(s).", len(paths))
+
+    def _on_review_metadata(self, paths: list[str]):
+        from sfg_app2.app.dialogs.metadata_edit_dialog import MetadataEditDialog
+        files = [self._file_registry[p] for p in paths if p in self._file_registry]
+        if not files:
+            return
+        dialog = MetadataEditDialog(files, parent=self)
+        dialog.exec()
+
+    def _on_plot_files(self, paths: list[str]):
+        from sfg_app2.app.dialogs.plot_dialog import PlotDialog
+        files = [self._file_registry[p] for p in paths if p in self._file_registry]
+        if not files:
+            return
+        dialog = PlotDialog(files, parent=self)
+        dialog.exec()

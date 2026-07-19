@@ -1,19 +1,56 @@
 from __future__ import annotations
-from PySide6.QtWidgets import QListWidget, QListWidgetItem, QAbstractItemView
-from PySide6.QtCore import Qt, QMimeData, QByteArray
+from PySide6.QtWidgets import (
+    QListWidget, QListWidgetItem, QAbstractItemView, QMenu
+)
+from PySide6.QtCore import Qt, QMimeData, QByteArray, Signal
 from PySide6.QtGui import QDrag, QColor, QFont
 
 MIME_FILE = "application/sfg-app-file"
 
 
 class FileListWidget(QListWidget):
-    """Drag-enabled file list with visual used/unused marking."""
+    remove_requested = Signal(list)    # list of path strings
+    metadata_requested = Signal(list)
+    plot_requested = Signal(list)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setDragEnabled(True)
-        self.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self._used_paths: set[str] = set()
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.customContextMenuRequested.connect(self._on_context_menu)
+
+    # ── Context menu ──────────────────────────────────────────────────────────
+
+    def _on_context_menu(self, pos):
+        selected = self._selected_paths()
+        if not selected:
+            return
+        n = len(selected)
+        label = f"{n} file{'s' if n > 1 else ''}"
+
+        menu = QMenu(self)
+        plot_action = menu.addAction(f"Plot {label}")
+        metadata_action = menu.addAction(f"Review/Edit metadata — {label}")
+        menu.addSeparator()
+        remove_action = menu.addAction(f"Remove {label}")
+
+        action = menu.exec(self.viewport().mapToGlobal(pos))
+        if action == plot_action:
+            self.plot_requested.emit(selected)
+        elif action == metadata_action:
+            self.metadata_requested.emit(selected)
+        elif action == remove_action:
+            self.remove_requested.emit(selected)
+
+    def _selected_paths(self) -> list[str]:
+        return [
+            item.data(Qt.ItemDataRole.UserRole)
+            for item in self.selectedItems()
+        ]
+
+    # ── File management (unchanged from before) ───────────────────────────────
 
     def add_file(self, path: str, display_name: str):
         item = QListWidgetItem(display_name)
@@ -21,7 +58,6 @@ class FileListWidget(QListWidget):
         self.addItem(item)
 
     def set_files(self, files: list):
-        """Repopulate from a list of DataFile objects."""
         self.clear()
         self._used_paths.clear()
         for f in files:
@@ -36,12 +72,11 @@ class FileListWidget(QListWidget):
         self._update_item_style(path)
 
     def sync_used(self, used_paths: set[str]):
-        """Sync all used markers at once — call after any table change."""
         for i in range(self.count()):
             item = self.item(i)
             path = item.data(Qt.ItemDataRole.UserRole)
-            old_used = path in self._used_paths
             new_used = path in used_paths
+            old_used = path in self._used_paths
             if old_used != new_used:
                 if new_used:
                     self._used_paths.add(path)
