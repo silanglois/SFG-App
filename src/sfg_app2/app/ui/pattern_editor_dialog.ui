@@ -128,6 +128,9 @@
          <layout class="QHBoxLayout" name="horizontalLayout_4">
           <item>
            <widget class="QListWidget" name="fieldsListWidget">
+            <property name="contextMenuPolicy">
+             <enum>Qt::DefaultContextMenu</enum>
+            </property>
             <property name="dragEnabled">
              <bool>true</bool>
             </property>
@@ -196,7 +199,7 @@
         <item>
          <widget class="QLineEdit" name="previewFilenameLineEdit">
           <property name="text">
-           <string>sample_ssp_800nm_2024-01-15.csv</string>
+           <string>sample_ssp_3um_10s_1458.csv</string>
           </property>
          </widget>
         </item>

@@ -24,7 +24,18 @@ KNOWN_FIELDS = [
     "date",
     "concentration",
     "potential",
+    "temperature",
 ]
+
+class NoScrollComboBox(QComboBox):
+    """QComboBox that ignores scroll wheel events and right-click context
+    menus, passing both up to the parent QListWidget."""
+
+    def wheelEvent(self, event):
+        event.ignore()
+
+    def contextMenuEvent(self, event):
+        event.ignore()
 
 
 class MetadataPatternsDialog(QDialog):
@@ -56,6 +67,25 @@ class MetadataPatternsDialog(QDialog):
         fw.setDefaultDropAction(Qt.MoveAction)
         fw.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         fw.model().rowsMoved.connect(self._on_fields_reordered)
+        fw.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        fw.customContextMenuRequested.connect(self._on_fields_context_menu)
+
+    def _on_fields_context_menu(self, position):
+        from PySide6.QtWidgets import QMenu
+        fw = self.ui.fieldsListWidget
+        item = fw.itemAt(position)
+        if item is None:
+            return   # right-clicked on empty space, no menu needed
+
+        menu = QMenu(self)
+        delete_action = menu.addAction("Delete")
+        action = menu.exec(fw.viewport().mapToGlobal(position))
+
+        if action == delete_action:
+            row = fw.row(item)
+            fw.takeItem(row)
+            self._save_current_fields_to_pattern()
+            self._update_preview()
 
     def _connect_signals(self):
         # saved patterns list
@@ -262,7 +292,7 @@ class MetadataPatternsDialog(QDialog):
         fw.setItemWidget(item, combo)
 
     def _make_field_combo(self, current_field: str) -> QComboBox:
-        combo = QComboBox()
+        combo = NoScrollComboBox()
         combo.setEditable(True)
         combo.addItems(KNOWN_FIELDS)
         combo.addItem("other...")
@@ -302,7 +332,7 @@ class MetadataPatternsDialog(QDialog):
         self._update_preview()
 
     def _on_add_field(self):
-        self._append_field_row("sample")
+        self._append_field_row("")
         self._save_current_fields_to_pattern()
         self._update_preview()
 

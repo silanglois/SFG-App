@@ -121,6 +121,7 @@ class Ui_Dialog(object):
         self.horizontalLayout_4.setObjectName(u"horizontalLayout_4")
         self.fieldsListWidget = QListWidget(self.widget_2)
         self.fieldsListWidget.setObjectName(u"fieldsListWidget")
+        self.fieldsListWidget.setContextMenuPolicy(Qt.DefaultContextMenu)
         self.fieldsListWidget.setDragEnabled(True)
         self.fieldsListWidget.setDragDropMode(QAbstractItemView.InternalMove)
 
@@ -224,7 +225,7 @@ class Ui_Dialog(object):
         self.moveDownButton.setText(QCoreApplication.translate("Dialog", u"\u2193", None))
         self.addFieldButton.setText(QCoreApplication.translate("Dialog", u"+ Add field", None))
         self.label_4.setText(QCoreApplication.translate("Dialog", u"Preview filename", None))
-        self.previewFilenameLineEdit.setText(QCoreApplication.translate("Dialog", u"sample_ssp_800nm_2024-01-15.csv", None))
+        self.previewFilenameLineEdit.setText(QCoreApplication.translate("Dialog", u"sample_ssp_3um_10s_1458.csv", None))
         self.label_5.setText(QCoreApplication.translate("Dialog", u"Parsed result", None))
     # retranslateUi
 

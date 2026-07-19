@@ -11,7 +11,7 @@ OffsetSpec = Union[None, float, list[float], Callable[[np.ndarray], np.ndarray]]
 logger = logging.getLogger(__name__)
 
 # suffixes that indicate file role but are not metadata fields
-DEFAULT_ROLE_SUFFIXES = {"bg", "ref"}
+DEFAULT_ROLE_SUFFIXES = {"bg", "bkg", "background", "darkbg", "irbg", "irbkg"}
 
 
 def _strip_role_suffix(stem: str, role_suffixes: set[str]) -> tuple[str, str | None]:
