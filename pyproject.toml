@@ -12,6 +12,7 @@ dependencies = [
     "matplotlib>=3.11.0",
     "numpy>=2.5.0",
     "pandas>=3.0.3",
+    "platformdirs>=4.10.0",
     "pyside6>=6.11.1",
     "refractiveindex>=1.0.3",
 ]

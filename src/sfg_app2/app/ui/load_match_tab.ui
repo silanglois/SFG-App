@@ -19,7 +19,11 @@
      <property name="orientation">
       <enum>Qt::Horizontal</enum>
      </property>
-     <widget class="QListView" name="loadedfilesListView"/>
+     <widget class="QListView" name="loadedfilesListView">
+      <property name="selectionMode">
+       <enum>QAbstractItemView::ExtendedSelection</enum>
+      </property>
+     </widget>
      <widget class="QTableView" name="matchedfilesTableView"/>
     </widget>
    </item>

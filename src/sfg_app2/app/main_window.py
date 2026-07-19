@@ -2,6 +2,7 @@ from __future__ import annotations
 import logging
 from PySide6.QtWidgets import QFileDialog, QMainWindow, QVBoxLayout
 from sfg_app2.app.ui.ui_main_window import Ui_MainWindow
+from sfg_app2.app.utils.pattern_manager import PatternManager
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +20,9 @@ class MainWindow(QMainWindow):
         self._init_tabs()
         self._connect_menu()
         self._lock_tabs_from(1)   # only Load/Match tab enabled at start
+
+        from sfg_app2.app.utils.pattern_manager import PatternManager
+        self.pattern_manager = PatternManager()
 
     # ── Tab setup ─────────────────────────────────────────────────────────────
 
@@ -90,7 +94,9 @@ class MainWindow(QMainWindow):
         )
 
     def _on_set_metadata_patterns(self):
-        self.statusBar().showMessage("Set metadata patterns — not yet implemented")
+        from sfg_app2.app.dialogs.metadata_patterns_dialog import MetadataPatternsDialog
+        dialog = MetadataPatternsDialog(self.pattern_manager, parent=self)
+        dialog.exec()
 
     def _on_about(self):
         self.statusBar().showMessage("SFG-App — about dialog not yet implemented")
