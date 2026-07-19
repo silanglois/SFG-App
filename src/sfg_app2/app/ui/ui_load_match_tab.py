@@ -15,9 +15,9 @@ from PySide6.QtGui import (QBrush, QColor, QConicalGradient, QCursor,
     QFont, QFontDatabase, QGradient, QIcon,
     QImage, QKeySequence, QLinearGradient, QPainter,
     QPalette, QPixmap, QRadialGradient, QTransform)
-from PySide6.QtWidgets import (QApplication, QHBoxLayout, QHeaderView, QListView,
-    QPushButton, QSizePolicy, QSpacerItem, QSplitter,
-    QTableView, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QAbstractItemView, QApplication, QHBoxLayout, QHeaderView,
+    QListView, QPushButton, QSizePolicy, QSpacerItem,
+    QSplitter, QTableView, QVBoxLayout, QWidget)
 
 class Ui_loadmatchTab(object):
     def setupUi(self, loadmatchTab):
@@ -31,6 +31,7 @@ class Ui_loadmatchTab(object):
         self.splitter.setOrientation(Qt.Horizontal)
         self.loadedfilesListView = QListView(self.splitter)
         self.loadedfilesListView.setObjectName(u"loadedfilesListView")
+        self.loadedfilesListView.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.splitter.addWidget(self.loadedfilesListView)
         self.matchedfilesTableView = QTableView(self.splitter)
         self.matchedfilesTableView.setObjectName(u"matchedfilesTableView")

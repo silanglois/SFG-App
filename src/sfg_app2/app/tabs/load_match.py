@@ -22,6 +22,8 @@ class LoadMatchTab(QWidget):
         self.ui.setupUi(self)
 
         self._files: list = []          # loaded DataFile objects
+        self._loaded_folder: Path | None = None  # set only by load_from_folder
+        self._individual_file_paths: list[Path] = [] # set only by load_individual_files
         self._matched: list = []        # MatchedSet list after auto-match
         self._file_list_model = QStringListModel()
         self.ui.loadedfilesListView.setModel(self._file_list_model)
@@ -44,21 +46,22 @@ class LoadMatchTab(QWidget):
     # ── File loading ──────────────────────────────────────────────────────────
 
     def load_from_folder(self, folder: str | Path):
-        """Called by MainWindow when the user picks a folder via the menu."""
         try:
-            self._files = load_datafiles(
+            new_files = load_datafiles(
                 folder,
-                patterns=[
-                    ["sample", "polarization", "center_wavelength",
-                     "acquisition_time", "timestamp", "date"],
-                    ["sample", "concentration", "potential", "polarization",
-                     "center_wavelength", "acquisition_time", "timestamp", "date"],
-                ],
+                patterns=self._get_active_patterns(),
             )
+            self._loaded_folder = Path(folder)
+            added, skipped = self._merge_files(new_files)
             self._refresh_file_list()
-            self.ui.reviewmetadataButton.setEnabled(True)
-            self.ui.automatchButton.setEnabled(True)
-            logger.info("Loaded %d files from %s.", len(self._files), folder)
+            if skipped:
+                logger.info(
+                    "%d duplicate(s) skipped from folder load.", len(skipped)
+                )
+            if self._files:
+                self.ui.reviewmetadataButton.setEnabled(True)
+                self.ui.automatchButton.setEnabled(True)
+            logger.info("Loaded %d new files from %s.", len(added), folder)
         except Exception as e:
             QMessageBox.critical(self, "Load Error", str(e))
             logger.error("Failed to load files: %s", e)
@@ -67,15 +70,131 @@ class LoadMatchTab(QWidget):
         names = [f.path.name for f in self._files]
         self._file_list_model.setStringList(names)
 
+    def load_individual_files(self, paths: list[str]):
+        """Load individual files and merge into existing file list,
+        skipping duplicates by resolved absolute path."""
+        from sfg_app2.processing.data_file import DataFile
+        from sfg_app2.processing.utils import _strip_role_suffix, DEFAULT_ROLE_SUFFIXES
+
+        newly_loaded = []
+        for path_str in paths:
+            path = Path(path_str)
+            try:
+                # use same pattern logic as load_datafiles
+                # pull active patterns from pattern_manager if available
+                patterns = self._get_active_patterns()
+                clean_stem, role = _strip_role_suffix(path.stem, DEFAULT_ROLE_SUFFIXES)
+                n_parts = len(clean_stem.split("_"))
+                pattern_map = {len(p): p for p in patterns}
+                fields = pattern_map.get(n_parts)
+                extra_metadata = {"role": role} if role else {}
+                newly_loaded.append(
+                    DataFile(path, filename_fields=fields, metadata=extra_metadata)
+                )
+            except Exception as e:
+                logger.warning("Could not load %s: %s — skipping.", path.name, e)
+
+        added, skipped = self._merge_files(newly_loaded)
+        self._individual_file_paths.extend(f.path for f in added)
+        self._refresh_file_list()
+
+        if skipped:
+            logger.info(
+                "%d file(s) skipped as duplicates: %s",
+                len(skipped), [p.name for p in skipped]
+            )
+        if added:
+            self.ui.reviewmetadataButton.setEnabled(True)
+            self.ui.automatchButton.setEnabled(True)
+
+        self._report_merge_result(added, skipped)
+
+    def _merge_files(self, new_files: list) -> tuple[list, list]:
+        """Merge new DataFile objects into self._files, skipping duplicates.
+        Returns (added, skipped) lists.
+        """
+        existing_paths = {f.path.resolve() for f in self._files}
+        added, skipped = [], []
+        for f in new_files:
+            if f.path.resolve() in existing_paths:
+                skipped.append(f.path)
+            else:
+                self._files.append(f)
+                existing_paths.add(f.path.resolve())
+                added.append(f)
+        return added, skipped
+
+    def _get_active_patterns(self) -> list[list[str]]:
+        """Pull active patterns from MainWindow's PatternManager if available,
+        fall back to hardcoded defaults."""
+        try:
+            main = self.window()
+            if hasattr(main, "pattern_manager"):
+                return main.pattern_manager.active_patterns
+        except Exception:
+            pass
+        return [
+            ["sample", "polarization", "center_wavelength",
+            "acquisition_time", "timestamp", "date"],
+            ["sample", "concentration", "potential", "polarization",
+            "center_wavelength", "acquisition_time", "timestamp", "date"],
+        ]
+
+    def _report_merge_result(self, added: list, skipped: list):
+        """Show a brief status message — only pops a dialog if there were skips."""
+        from PySide6.QtWidgets import QMessageBox
+        if skipped and added:
+            QMessageBox.information(
+                self, "Files Loaded",
+                f"{len(added)} file(s) added.\n"
+                f"{len(skipped)} duplicate(s) skipped:\n"
+                + "\n".join(p.name for p in skipped)
+            )
+        elif skipped and not added:
+            QMessageBox.warning(
+                self, "No New Files",
+                f"All {len(skipped)} selected file(s) are already loaded."
+            )
+        # if no skips, statusBar message in main_window is enough — no popup needed
+
     # ── Button handlers ───────────────────────────────────────────────────────
 
     def _on_update(self):
-        """Reload files from the same folder — refreshes if files changed on disk."""
-        if not self._files:
-            QMessageBox.information(self, "No folder loaded", "Load a folder first via File → Load files from folder.")
+        if not self._files and self._loaded_folder is None and not self._individual_file_paths:
+            QMessageBox.information(
+                self, "Nothing loaded",
+                "Load a folder or individual files first."
+            )
             return
-        folder = self._files[0].path.parent
-        self.load_from_folder(folder)
+
+        self._files = []   # clear, then reload from tracked sources
+
+        if self._loaded_folder:
+            try:
+                folder_files = load_datafiles(
+                    self._loaded_folder,
+                    patterns=self._get_active_patterns(),
+                )
+                added, _ = self._merge_files(folder_files)
+                logger.info("Update: reloaded %d files from folder.", len(added))
+            except Exception as e:
+                QMessageBox.critical(self, "Update Error", str(e))
+                logger.error("Failed to reload folder: %s", e)
+
+        if self._individual_file_paths:
+            # re-load only the individually selected files, skip any that no longer exist
+            still_exist = [p for p in self._individual_file_paths if p.exists()]
+            missing = [p for p in self._individual_file_paths if not p.exists()]
+            if missing:
+                logger.warning(
+                    "Update: %d individually loaded file(s) no longer exist: %s",
+                    len(missing), [p.name for p in missing]
+                )
+            self._individual_file_paths = still_exist   # drop missing from tracking
+            self.load_individual_files([str(p) for p in still_exist])
+
+        self._refresh_file_list()
+        logger.info("Update complete: %d files total.", len(self._files))
 
     def _on_review_metadata(self):
         # placeholder — will open a dialog showing metadata per file

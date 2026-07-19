@@ -77,7 +77,16 @@ class MainWindow(QMainWindow):
     # ── Menu handlers (stubs — fill in as you build each feature) ────────────
 
     def _on_load_files(self):
-        self.statusBar().showMessage("Load file(s) — not yet implemented")
+        from PySide6.QtWidgets import QFileDialog
+        paths, _ = QFileDialog.getOpenFileNames(
+            self,
+            "Select file(s)",
+            "",
+            "CSV files (*.csv);;All files (*.*)",
+        )
+        if paths:
+            self.load_match_tab.load_individual_files(paths)
+            self.statusBar().showMessage(f"Added {len(paths)} file(s).")
 
     def _on_load_folder(self):
         folder = QFileDialog.getExistingDirectory(self, "Select data folder")
