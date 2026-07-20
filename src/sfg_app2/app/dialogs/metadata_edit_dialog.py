@@ -4,7 +4,7 @@ import logging
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QTableWidget,
     QTableWidgetItem, QPushButton, QLabel, QDialogButtonBox,
-    QHeaderView
+    QHeaderView, QLineEdit, QMessageBox
 )
 from PySide6.QtCore import Qt
 
@@ -55,6 +55,22 @@ class MetadataEditDialog(QDialog):
         nav_layout.addWidget(self._next_button)
         layout.addLayout(nav_layout)
 
+        # metadata editing
+        add_field_layout = QHBoxLayout()
+        self._new_key_edit = QLineEdit()
+        self._new_key_edit.setPlaceholderText("Field name...")
+        self._new_val_edit = QLineEdit()
+        self._new_val_edit.setPlaceholderText("Value...")
+        self._add_field_button = QPushButton("+ Add field")
+        self._add_field_button.clicked.connect(self._on_add_field)
+        add_field_layout.addWidget(self._new_key_edit)
+        add_field_layout.addWidget(self._new_val_edit)
+        add_field_layout.addWidget(self._add_field_button)
+        layout.insertLayout(2, add_field_layout)
+
+        self._new_key_edit.returnPressed.connect(self._on_add_field)
+        self._new_val_edit.returnPressed.connect(self._on_add_field)
+
         # ok / cancel
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok |
@@ -67,6 +83,46 @@ class MetadataEditDialog(QDialog):
         self._load_current()
 
     # ── Navigation ────────────────────────────────────────────────────────────
+
+    def _on_add_field(self):
+        key = self._new_key_edit.text().strip()
+        val = self._new_val_edit.text().strip()
+
+        if not key:
+            self._new_key_edit.setFocus()
+            return
+
+        # check for duplicate key — offer to overwrite existing
+        for row in range(self._table.rowCount()):
+            existing_key = self._table.item(row, 0).text()
+            if existing_key.lower() == key.lower():
+                reply = QMessageBox.question(
+                    self,
+                    "Field already exists",
+                    f"Field \"{existing_key}\" already exists. Overwrite its value?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                )
+                if reply == QMessageBox.StandardButton.Yes:
+                    self._table.item(row, 1).setText(val)
+                    self._new_key_edit.clear()
+                    self._new_val_edit.clear()
+                    self._on_item_changed()
+                return
+
+        # new key — append a row
+        self._table.blockSignals(True)
+        row = self._table.rowCount()
+        self._table.insertRow(row)
+        key_item = QTableWidgetItem(key)
+        key_item.setFlags(key_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+        self._table.setItem(row, 0, key_item)
+        self._table.setItem(row, 1, QTableWidgetItem(val))
+        self._table.blockSignals(False)
+
+        self._new_key_edit.clear()
+        self._new_val_edit.clear()
+        self._on_item_changed()
+        self._table.scrollToBottom()
 
     def _on_prev(self):
         self._save_current()

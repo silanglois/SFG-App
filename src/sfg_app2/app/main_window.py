@@ -73,8 +73,19 @@ class MainWindow(QMainWindow):
         self.ui.actionSet_metadata_patterns.triggered.connect(self._on_set_metadata_patterns)
         self.ui.actionAbout.triggered.connect(self._on_about)
         self.ui.actionDocs_tutorials.triggered.connect(self._on_docs)
+        self.ui.actionUse_metadata_patterns.toggled.connect(self._on_toggle_metadata_patterns)
+        self.ui.actionUse_metadata_patterns.setChecked(False)
 
-    # ── Menu handlers (stubs — fill in as you build each feature) ────────────
+    # ── Menu handlers ────────────
+    
+    def _on_toggle_metadata_patterns(self, checked: bool):
+        self.statusBar().showMessage(
+            f"Metadata patterns {'enabled' if checked else 'disabled'}"
+        )
+
+    @property
+    def use_metadata_patterns(self) -> bool:
+        return self.ui.actionUse_metadata_patterns.isChecked()
 
     def _on_load_files(self):
         from PySide6.QtWidgets import QFileDialog

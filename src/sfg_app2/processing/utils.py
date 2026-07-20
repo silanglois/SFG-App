@@ -56,24 +56,22 @@ def load_datafiles(
     if role_suffixes is None:
         role_suffixes = DEFAULT_ROLE_SUFFIXES
 
-    pattern_map = {len(p): p for p in patterns}
+    pattern_map = {len(p): p for p in patterns} if patterns else {}
     files = []
 
     for path in sorted(Path(folder).glob(glob)):
         clean_stem, role = _strip_role_suffix(path.stem, role_suffixes)
         n_parts = len(clean_stem.split("_"))
-        fields = pattern_map.get(n_parts)
+        fields = pattern_map.get(n_parts) if pattern_map else None
 
-        if fields is None:
+        if pattern_map and fields is None:
             logger.warning(
-                "%s has %d metadata parts after stripping role suffix — "
-                "no pattern matched %s. Loading without filename_fields.",
+                "%s has %d metadata parts — no pattern matched %s. "
+                "Loading without filename_fields.",
                 path.name, n_parts, list(pattern_map.keys()),
             )
 
-        # store role in manual metadata so matcher can use it later
         extra_metadata = {"role": role} if role else {}
-
         files.append(DataFile(path, filename_fields=fields, metadata=extra_metadata))
 
     logger.info(

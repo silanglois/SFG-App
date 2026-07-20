@@ -90,8 +90,8 @@ class LoadMatchTab(QWidget):
                 patterns = self._get_active_patterns()
                 clean_stem, role = _strip_role_suffix(path.stem, DEFAULT_ROLE_SUFFIXES)
                 n_parts = len(clean_stem.split("_"))
-                pattern_map = {len(p): p for p in patterns}
-                fields = pattern_map.get(n_parts)
+                pattern_map = {len(p): p for p in patterns} if patterns else {}
+                fields = pattern_map.get(n_parts) if pattern_map else None
                 extra_metadata = {"role": role} if role else {}
                 newly_loaded.append(DataFile(path, filename_fields=fields, metadata=extra_metadata))
             except Exception as e:
@@ -128,6 +128,25 @@ class LoadMatchTab(QWidget):
         # enable start processing if at least one row has a signal
         has_rows = self.match_table._table_model.rowCount() > 0
         self._set_buttons_enabled(files_loaded=bool(self._files), matched=has_rows)
+
+    def _get_active_patterns(self) -> list[list[str]] | None:
+        """Returns active patterns if the toggle is on, None otherwise.
+        None signals load_datafiles to skip pattern parsing entirely.
+        """
+        try:
+            main = self.window()
+            if hasattr(main, "use_metadata_patterns") and not main.use_metadata_patterns:
+                return None
+            if hasattr(main, "pattern_manager"):
+                return main.pattern_manager.active_patterns
+        except Exception:
+            pass
+        return [
+            ["sample", "polarization", "center_wavelength",
+            "acquisition_time", "timestamp", "date"],
+            ["sample", "concentration", "potential", "polarization",
+            "center_wavelength", "acquisition_time", "timestamp", "date"],
+        ]
 
     # ── Button handlers ───────────────────────────────────────────────────────
 
