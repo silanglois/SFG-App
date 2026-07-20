@@ -18,19 +18,20 @@ from PySide6.QtGui import (QBrush, QColor, QConicalGradient, QCursor,
 from PySide6.QtWidgets import (QAbstractButton, QAbstractItemView, QApplication, QDialog,
     QDialogButtonBox, QFrame, QHBoxLayout, QLabel,
     QLineEdit, QListWidget, QListWidgetItem, QPushButton,
-    QSizePolicy, QSpacerItem, QTextEdit, QVBoxLayout,
-    QWidget)
+    QSizePolicy, QSpacerItem, QSplitter, QTextEdit,
+    QVBoxLayout, QWidget)
 
 class Ui_Dialog(object):
     def setupUi(self, Dialog):
         if not Dialog.objectName():
             Dialog.setObjectName(u"Dialog")
-        Dialog.resize(676, 539)
+        Dialog.resize(652, 532)
         self.verticalLayout = QVBoxLayout(Dialog)
         self.verticalLayout.setObjectName(u"verticalLayout")
-        self.horizontalLayout_3 = QHBoxLayout()
-        self.horizontalLayout_3.setObjectName(u"horizontalLayout_3")
-        self.widget = QWidget(Dialog)
+        self.splitter = QSplitter(Dialog)
+        self.splitter.setObjectName(u"splitter")
+        self.splitter.setOrientation(Qt.Horizontal)
+        self.widget = QWidget(self.splitter)
         self.widget.setObjectName(u"widget")
         self.verticalLayout_2 = QVBoxLayout(self.widget)
         self.verticalLayout_2.setObjectName(u"verticalLayout_2")
@@ -92,10 +93,8 @@ class Ui_Dialog(object):
 
         self.verticalLayout_2.addWidget(self.activeLengthsLabel)
 
-
-        self.horizontalLayout_3.addWidget(self.widget)
-
-        self.widget_2 = QWidget(Dialog)
+        self.splitter.addWidget(self.widget)
+        self.widget_2 = QWidget(self.splitter)
         self.widget_2.setObjectName(u"widget_2")
         self.verticalLayout_3 = QVBoxLayout(self.widget_2)
         self.verticalLayout_3.setObjectName(u"verticalLayout_3")
@@ -188,11 +187,9 @@ class Ui_Dialog(object):
 
         self.verticalLayout_3.addWidget(self.parsedResultTextEdit)
 
+        self.splitter.addWidget(self.widget_2)
 
-        self.horizontalLayout_3.addWidget(self.widget_2)
-
-
-        self.verticalLayout.addLayout(self.horizontalLayout_3)
+        self.verticalLayout.addWidget(self.splitter)
 
         self.buttonBox = QDialogButtonBox(Dialog)
         self.buttonBox.setObjectName(u"buttonBox")
