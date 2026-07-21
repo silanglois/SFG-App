@@ -31,14 +31,15 @@ class MainWindow(QMainWindow):
         # Tab 1: Load/Match
         # Import here to avoid circular imports at module level
         from sfg_app2.app.tabs.load_match import LoadMatchTab
+        from sfg_app2.app.tabs.process_review import ProcessReviewTab
+
         self.load_match_tab = LoadMatchTab()
         self._replace_tab(0, self.load_match_tab, "Load / Match")
         self.load_match_tab.matching_complete.connect(self._on_matching_complete)
 
-        # future tabs — add here as you build them
-        # from sfg_app2.app.tabs.parameters import ParametersTab
-        # self.parameters_tab = ParametersTab()
-        # self._replace_tab(1, self.parameters_tab, "Processing Parameters")
+        self.process_review_tab = ProcessReviewTab()
+        self._replace_tab(1, self.process_review_tab, "Process / Review")
+        self.process_review_tab.processing_complete.connect(self._on_processing_complete)
 
     def _replace_tab(self, index: int, widget, label: str):
         """Swap a whole tab (used when the tab has no placeholder child)."""
@@ -59,9 +60,16 @@ class MainWindow(QMainWindow):
 
     def _on_matching_complete(self, matched_sets: list):
         self.matched_sets = matched_sets
+        self.process_review_tab.set_matched_sets(matched_sets)
         logger.info("Matching complete: %d matched sets.", len(matched_sets))
         self.statusBar().showMessage(f"Matched {len(matched_sets)} file sets.")
         self.unlock_tab(1)
+
+
+    def _on_processing_complete(self, results: dict):
+        self.processed_results = results
+        self.statusBar().showMessage(f"{len(results)} set(s) processed.")
+        # unlock further tabs here when they exist
 
     # ── Menu connections ──────────────────────────────────────────────────────
 
