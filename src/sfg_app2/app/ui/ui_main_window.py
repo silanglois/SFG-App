@@ -56,9 +56,26 @@ class Ui_MainWindow(object):
         self.horizontalLayout.addWidget(self.loadmatchTabcontent)
 
         self.mainTabWidget.addTab(self.loadmatchTab, "")
-        self.tab_2 = QWidget()
-        self.tab_2.setObjectName(u"tab_2")
-        self.mainTabWidget.addTab(self.tab_2, "")
+        self.processingTab = QWidget()
+        self.processingTab.setObjectName(u"processingTab")
+        self.horizontalLayout_2 = QHBoxLayout(self.processingTab)
+        self.horizontalLayout_2.setObjectName(u"horizontalLayout_2")
+        self.widget = QWidget(self.processingTab)
+        self.widget.setObjectName(u"widget")
+
+        self.horizontalLayout_2.addWidget(self.widget)
+
+        self.mainTabWidget.addTab(self.processingTab, "")
+        self.processedResultsTab = QWidget()
+        self.processedResultsTab.setObjectName(u"processedResultsTab")
+        self.horizontalLayout_3 = QHBoxLayout(self.processedResultsTab)
+        self.horizontalLayout_3.setObjectName(u"horizontalLayout_3")
+        self.widget_2 = QWidget(self.processedResultsTab)
+        self.widget_2.setObjectName(u"widget_2")
+
+        self.horizontalLayout_3.addWidget(self.widget_2)
+
+        self.mainTabWidget.addTab(self.processedResultsTab, "")
 
         self.verticalLayout.addWidget(self.mainTabWidget)
 
@@ -90,7 +107,7 @@ class Ui_MainWindow(object):
 
         self.retranslateUi(MainWindow)
 
-        self.mainTabWidget.setCurrentIndex(0)
+        self.mainTabWidget.setCurrentIndex(1)
 
 
         QMetaObject.connectSlotsByName(MainWindow)
@@ -106,7 +123,8 @@ class Ui_MainWindow(object):
         self.actionDocs_tutorials.setText(QCoreApplication.translate("MainWindow", u"Docs & tutorials", None))
         self.actionIgnore_selected_files.setText(QCoreApplication.translate("MainWindow", u"Ignore selected files", None))
         self.mainTabWidget.setTabText(self.mainTabWidget.indexOf(self.loadmatchTab), QCoreApplication.translate("MainWindow", u"Load/Match", None))
-        self.mainTabWidget.setTabText(self.mainTabWidget.indexOf(self.tab_2), QCoreApplication.translate("MainWindow", u"Tab 2", None))
+        self.mainTabWidget.setTabText(self.mainTabWidget.indexOf(self.processingTab), QCoreApplication.translate("MainWindow", u"Processing/Review", None))
+        self.mainTabWidget.setTabText(self.mainTabWidget.indexOf(self.processedResultsTab), QCoreApplication.translate("MainWindow", u"Processed Results", None))
         self.menuFile.setTitle(QCoreApplication.translate("MainWindow", u"File", None))
         self.menuPreferences.setTitle(QCoreApplication.translate("MainWindow", u"Preferences", None))
         self.menuHelp.setTitle(QCoreApplication.translate("MainWindow", u"Help", None))

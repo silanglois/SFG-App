@@ -42,7 +42,12 @@ class DataFile(SpectrumDataMixin):
     # ---- loading ----------------------------------------------------
     @staticmethod
     def _load_csv(path: Path) -> pd.DataFrame:
-        raw = pd.read_csv(path)
+        try:
+            raw = pd.read_csv(path)
+        except (pd.errors.ParserError, pd.errors.EmptyDataError, UnicodeDecodeError) as e:
+            raise UnrecognizedFormatError(
+                f"{path.name}: could not be parsed as CSV ({e})"
+            ) from e
 
         # Case 1: already long format
         missing_long = set(DataFile.REQUIRED_COLUMNS) - set(raw.columns)
@@ -94,7 +99,10 @@ class DataFile(SpectrumDataMixin):
             )
 
         return long_df[["Frame", "Wavelength", "Intensity"]]
+
+
     # ---- batch loading -------------------------------------------------
+
     @classmethod
     def load_many(
         cls,

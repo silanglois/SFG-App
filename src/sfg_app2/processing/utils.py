@@ -4,7 +4,7 @@ import logging
 from pathlib import Path
 import numpy as np
 
-from .data_file import DataFile
+from .data_file import DataFile, UnrecognizedFormatError
 
 OffsetSpec = Union[None, float, list[float], Callable[[np.ndarray], np.ndarray]]
 
@@ -29,35 +29,16 @@ def _strip_role_suffix(stem: str, role_suffixes: set[str]) -> tuple[str, str | N
 
 def load_datafiles(
     folder: str | Path,
-    patterns: list[list[str]],
+    patterns: list[list[str]] | None = None,
     glob: str = "*.csv",
     role_suffixes: set[str] = None,
-) -> list[DataFile]:
-    """Load all matching files from a folder, picking the filename_fields
-    pattern that best fits each file's metadata part count.
-
-    Role suffixes (e.g. 'bg', 'ref') are stripped before part counting
-    so they don't interfere with pattern matching, and stored separately
-    under metadata['role'].
-
-    Parameters
-    ----------
-    folder : str or Path
-        Folder to search.
-    patterns : list of list[str]
-        filename_fields lists to try, matched by part count — first match wins.
-        e.g. [["sample", "polarization", "date"],
-               ["sample", "potential", "polarization", "date"]]
-    glob : str
-        Glob pattern for file discovery. Default: "*.csv".
-    role_suffixes : set[str], optional
-        Suffixes to strip before part counting. Defaults to {"bg", "ref"}.
-    """
+) -> list:
     if role_suffixes is None:
         role_suffixes = DEFAULT_ROLE_SUFFIXES
 
     pattern_map = {len(p): p for p in patterns} if patterns else {}
     files = []
+    skipped = []
 
     for path in sorted(Path(folder).glob(glob)):
         clean_stem, role = _strip_role_suffix(path.stem, role_suffixes)
@@ -72,15 +53,21 @@ def load_datafiles(
             )
 
         extra_metadata = {"role": role} if role else {}
-        files.append(DataFile(path, filename_fields=fields, metadata=extra_metadata))
+
+        try:
+            files.append(DataFile(path, filename_fields=fields, metadata=extra_metadata))
+        except UnrecognizedFormatError as e:
+            logger.warning("Skipping %s: %s", path.name, e)
+            skipped.append(path.name)
+        except Exception as e:
+            logger.warning("Skipping %s due to unexpected error: %s", path.name, e)
+            skipped.append(path.name)
 
     logger.info(
-        "Loaded %d files from %s (%d backgrounds, %d with no pattern match).",
-        len(files),
-        Path(folder).name,
-        sum(1 for f in files if f.metadata.get("role") == "bg"),
-        sum(1 for f in files if f.metadata.get("filename_parts") is not None
-            and pattern_map.get(len(f.metadata.get("filename_parts", []))) is None),
+        "Loaded %d files from %s (%d skipped).",
+        len(files), Path(folder).name, len(skipped),
     )
+    if skipped:
+        logger.warning("Skipped files: %s", skipped)
 
     return files

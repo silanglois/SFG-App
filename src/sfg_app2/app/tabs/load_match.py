@@ -9,6 +9,7 @@ from sfg_app2.app.ui.ui_load_match_tab import Ui_loadmatchTab
 from sfg_app2.app.widgets.file_list_widget import FileListWidget
 from sfg_app2.app.widgets.match_table import MatchTableView
 from sfg_app2.processing.utils import load_datafiles
+from sfg_app2.processing.data_file import UnrecognizedFormatError
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +95,8 @@ class LoadMatchTab(QWidget):
                 fields = pattern_map.get(n_parts) if pattern_map else None
                 extra_metadata = {"role": role} if role else {}
                 newly_loaded.append(DataFile(path, filename_fields=fields, metadata=extra_metadata))
+            except UnrecognizedFormatError as e:
+                logger.warning("Skipping %s: %s", path.name, e)
             except Exception as e:
                 logger.warning("Could not load %s: %s — skipping.", path.name, e)
 
