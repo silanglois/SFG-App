@@ -19,7 +19,8 @@ class MainWindow(QMainWindow):
 
         self._init_tabs()
         self._connect_menu()
-        self._lock_tabs_from(1)   # only Load/Match tab enabled at start
+        self._lock_tabs_from(1)
+        self.ui.mainTabWidget.setTabEnabled(2, True)
 
         from sfg_app2.app.utils.pattern_manager import PatternManager
         self.pattern_manager = PatternManager()
@@ -41,7 +42,6 @@ class MainWindow(QMainWindow):
 
         self.processed_results_tab = ProcessedResultsTab()
         self._replace_tab(2, self.processed_results_tab, "Results")
-        self.ui.mainTabWidget.setTabEnabled(2, True)
 
     def _replace_tab(self, index: int, widget, label: str):
         """Swap a whole tab (used when the tab has no placeholder child)."""
