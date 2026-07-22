@@ -307,22 +307,20 @@ class ProcessedResultsTab(QWidget):
         if not paths:
             return
 
-        import pandas as pd
-        from sfg_app2.processing.processed_spectrum import ProcessedSpectrum
-
-        added = 0
+        added, skipped, failed = 0, 0, 0
         for path_str in paths:
             path = Path(path_str)
             try:
-                df = pd.read_csv(path)
-                # ensure Frame column exists
-                if "Frame" not in df.columns:
-                    df.insert(0, "Frame", 1)
+                header_lines, provenance, metadata = self._parse_export_header(path)
+                df = self._load_csv_skip_comments(path)
+
                 spectrum = ProcessedSpectrum(
                     df,
-                    metadata={"source_filename": path.name},
-                    history=["loaded_from_file"],
+                    metadata=metadata,
+                    history=provenance.get("history_list", ["loaded_from_file"]),
                 )
+                spectrum.provenance = provenance
+
                 label = path.stem
                 if not self._entry_exists(label):
                     self._entries.append(SpectrumEntry(spectrum, label))
@@ -332,12 +330,125 @@ class ProcessedResultsTab(QWidget):
                     added += 1
                 else:
                     logger.info("Skipping duplicate: %s", label)
+                    skipped += 1
             except Exception as e:
                 logger.warning("Could not load %s: %s", path.name, e)
+                failed += 1
 
         if added:
             self._refresh_plot()
-        logger.info("Added %d spectrum/spectra from file.", added)
+
+        msg_parts = []
+        if added:
+            msg_parts.append(f"{added} added")
+        if skipped:
+            msg_parts.append(f"{skipped} duplicate(s) skipped")
+        if failed:
+            msg_parts.append(f"{failed} failed (check terminal)")
+        if msg_parts:
+            self.statusBar_message(", ".join(msg_parts) + ".")
+
+
+    def statusBar_message(self, msg: str):
+        """Post a message to MainWindow status bar if accessible."""
+        try:
+            self.window().statusBar().showMessage(msg)
+        except Exception:
+            pass
+
+
+    @staticmethod
+    def _load_csv_skip_comments(path: Path) -> "pd.DataFrame":
+        """Load CSV, skipping # comment lines in the header."""
+        import pandas as pd
+        return pd.read_csv(path, comment="#")
+
+
+    @staticmethod
+    def _parse_export_header(path: Path) -> tuple[list[str], dict, dict]:
+        """Parse the # comment header written by _write_csv_with_provenance.
+        Returns (raw_header_lines, provenance_dict, metadata_dict).
+        Gracefully returns empty dicts if the file has no such header.
+        """
+        header_lines = []
+        provenance: dict = {}
+        metadata: dict = {}
+
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                if not line.startswith("#"):
+                    break
+                header_lines.append(line.rstrip())
+
+        if not header_lines:
+            metadata["source_filename"] = path.name
+            return header_lines, provenance, metadata
+
+        # parse key: value pairs from comment lines
+        raw: dict[str, str] = {}
+        current_section = None
+        for line in header_lines:
+            content = line.lstrip("# ").strip()
+            if not content or content.startswith("---"):
+                current_section = content.strip("- ").lower() if "---" in content else None
+                continue
+            if ":" in content:
+                k, _, v = content.partition(":")
+                raw[k.strip().lower()] = v.strip()
+
+        # source files → provenance
+        provenance["signal"]               = raw.get("signal", "N/A")
+        provenance["background"]           = raw.get("background", "N/A")
+        provenance["reference"]            = raw.get("reference", "N/A")
+        provenance["reference_background"] = raw.get("reference background", "N/A")
+
+        # history string → list
+        history_str = raw.get("history", "")
+        provenance["history_list"] = (
+            [s.strip() for s in history_str.split("→")]
+            if history_str else ["loaded_from_file"]
+        )
+
+        # processing params → nested provenance
+        provenance["despike"] = {
+            "applied":          raw.get("despike", "").lower() == "applied",
+            "window":           raw.get("window"),
+            "threshold_factor": raw.get("threshold_factor"),
+        }
+        provenance["background_subtraction"] = {
+            "applied":       raw.get("background subtraction", "").lower() == "applied",
+            "signal_offset": raw.get("signal offset"),
+            "ref_offset":    raw.get("ref offset"),
+        }
+        provenance["normalization"] = {
+            "applied": raw.get("normalization", "").lower() == "applied",
+        }
+        provenance["upconversion"] = {
+            "applied":        raw.get("upconversion", "").lower() == "applied",
+            "wavelength_nm":  raw.get("wavelength"),
+        }
+
+        # sample metadata
+        metadata["source_filename"] = path.name
+        metadata["label"]           = raw.get("label", path.stem)
+        metadata["exported"]        = raw.get("exported")
+
+        # any remaining keys under "sample metadata" section go into metadata
+        in_meta = False
+        for line in header_lines:
+            content = line.lstrip("#").strip()
+            if "sample metadata" in content.lower():
+                in_meta = True
+                continue
+            if in_meta and content.startswith("---"):
+                in_meta = False
+            if in_meta and ":" in content:
+                k, _, v = content.partition(":")
+                k = k.strip().lstrip("#").strip()
+                if k and not k.startswith("---"):
+                    metadata[k] = v.strip()
+
+        return header_lines, provenance, metadata
 
     # ── Export ────────────────────────────────────────────────────────────────
 
