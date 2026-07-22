@@ -41,6 +41,31 @@ def process_matched(matched: MatchedSet, config: PipelineConfig) -> ProcessedSpe
     """Run the full pipeline on one MatchedSet using the provided config.
     Returns the final ProcessedSpectrum.
     """
+    provenance = {
+        "signal":               matched.signal.path.name if matched.signal else None,
+        "background":           matched.background.path.name if matched.background else None,
+        "reference":            matched.reference.path.name if matched.reference else None,
+        "reference_background": matched.reference_background.path.name
+                                if matched.reference_background else None,
+        "despike": {
+            "applied":           config.run_despike,
+            "window":            config.despike_window,
+            "threshold_factor":  config.despike_threshold,
+        },
+        "background_subtraction": {
+            "applied":      config.run_background,
+            "signal_offset": str(config.bg_offset),
+            "ref_offset":    str(config.ref_bg_offset),
+        },
+        "normalization": {
+            "applied": config.run_normalize,
+        },
+        "upconversion": {
+            "applied":            config.run_upconvert,
+            "wavelength_nm":      config.upconversion_wavelength,
+        },
+    }
+
     signal = matched.signal
     background = matched.background
     reference = matched.reference
@@ -104,6 +129,8 @@ def process_matched(matched: MatchedSet, config: PipelineConfig) -> ProcessedSpe
         else:
             signal = signal.upconvert_to_wavenumber(config.upconversion_wavelength)
 
+    signal.provenance = provenance
+    
     return signal
 
 

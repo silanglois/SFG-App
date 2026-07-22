@@ -27,6 +27,13 @@ CURATED_COLORMAPS = [
     "turbo", "rainbow",
 ]
 
+def _build_provenance_from_history(spectrum: ProcessedSpectrum) -> dict:
+    """Fallback provenance for spectra not processed via pipeline."""
+    return {
+        "source": spectrum.metadata.get("source_filename", "unknown"),
+        "history": spectrum.history,
+        "note": "Loaded directly from file — full provenance unavailable.",
+    }
 
 def _all_colormaps() -> list[str]:
     all_mpl = sorted(
@@ -343,20 +350,104 @@ class ProcessedResultsTab(QWidget):
         if not folder:
             return
 
-        exported = 0
+        exported, failed = 0, 0
         for entry in entries:
             try:
                 out_path = Path(folder) / f"{entry.label}.csv"
-                entry.spectrum.data.to_csv(out_path, index=False)
+                self._write_csv_with_provenance(entry, out_path)
                 exported += 1
                 logger.info("Exported %s → %s", entry.label, out_path)
             except Exception as e:
                 logger.warning("Could not export %s: %s", entry.label, e)
+                failed += 1
 
-        QMessageBox.information(
-            self, "Export complete",
-            f"{exported} file(s) exported to {folder}."
+        msg = f"{exported} file(s) exported to {folder}."
+        if failed:
+            msg += f"\n{failed} file(s) failed — check terminal for details."
+        QMessageBox.information(self, "Export complete", msg)
+
+
+    def _write_csv_with_provenance(self, entry: SpectrumEntry, out_path: Path):
+        """Write a CSV with a commented provenance header, readable by pandas
+        via pd.read_csv(path, comment='#').
+        """
+        import json
+        from datetime import datetime
+
+        spectrum = entry.spectrum
+        provenance = getattr(spectrum, "provenance", None) or \
+                    _build_provenance_from_history(spectrum)
+
+        header_lines = [
+            f"# SFG-App export",
+            f"# Label:       {entry.label}",
+            f"# Exported:    {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            f"# History:     {' → '.join(spectrum.history)}",
+            "#",
+            "# --- Source files ---",
+            f"# Signal:               {provenance.get('signal', 'N/A')}",
+            f"# Background:           {provenance.get('background', 'N/A')}",
+            f"# Reference:            {provenance.get('reference', 'N/A')}",
+            f"# Reference background: {provenance.get('reference_background', 'N/A')}",
+            "#",
+            "# --- Processing parameters ---",
+        ]
+
+        # despike
+        despike = provenance.get("despike", {})
+        if despike.get("applied"):
+            header_lines += [
+                f"# Despike:              applied",
+                f"#   window:             {despike.get('window', 'N/A')}",
+                f"#   threshold_factor:   {despike.get('threshold_factor', 'N/A')}",
+            ]
+        else:
+            header_lines.append("# Despike:              not applied")
+
+        # background subtraction
+        bg = provenance.get("background_subtraction", {})
+        if bg.get("applied"):
+            header_lines += [
+                f"# Background subtraction: applied",
+                f"#   signal offset:      {bg.get('signal_offset', 'None')}",
+                f"#   ref offset:         {bg.get('ref_offset', 'None')}",
+            ]
+        else:
+            header_lines.append("# Background subtraction: not applied")
+
+        # normalization
+        norm = provenance.get("normalization", {})
+        header_lines.append(
+            f"# Normalization:        {'applied' if norm.get('applied') else 'not applied'}"
         )
+
+        # upconversion
+        upconv = provenance.get("upconversion", {})
+        if upconv.get("applied"):
+            header_lines += [
+                f"# Upconversion:         applied",
+                f"#   wavelength:         {upconv.get('wavelength_nm', 'N/A')} nm",
+            ]
+        else:
+            header_lines.append("# Upconversion:         not applied")
+
+        # sample metadata
+        if spectrum.metadata:
+            header_lines += [
+                "#",
+                "# --- Sample metadata ---",
+            ]
+            for k, v in spectrum.metadata.items():
+                if v is not None:
+                    header_lines.append(f"#   {k:<25} {v}")
+
+        header_lines.append("#")
+
+        # write header + data
+        with open(out_path, "w", newline="", encoding="utf-8") as f:
+            for line in header_lines:
+                f.write(line + "\n")
+            spectrum.data.to_csv(f, index=False)
 
     def _on_export_selected(self):
         self._export_entries(self._selected_entries())
