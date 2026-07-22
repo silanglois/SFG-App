@@ -4,7 +4,7 @@ import pandas as pd
 def remove_outliers_movmedian(
     values: np.ndarray,
     window: int,
-    threshold_factor: float = 3.0,
+    threshold_factor: float = 500.0,
 ) -> np.ndarray:
     """Python equivalent of MATLAB's filloutliers(..., "linear", "movmedian", window, ThresholdFactor=tf)."""
     s = pd.Series(values)
@@ -24,7 +24,7 @@ def remove_outliers_movmedian(
 def detect_spikes(
     values: np.ndarray,
     window: int,
-    threshold_factor: float = 3.0,
+    threshold_factor: float = 500.0,
 ) -> np.ndarray:
     """Return a boolean mask — True where a spike is detected.
     Same logic as remove_outliers_movmedian but returns the mask only.

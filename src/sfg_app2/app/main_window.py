@@ -27,11 +27,9 @@ class MainWindow(QMainWindow):
     # ── Tab setup ─────────────────────────────────────────────────────────────
 
     def _init_tabs(self):
-        """Replace placeholder widgets with real tab content."""
-        # Tab 1: Load/Match
-        # Import here to avoid circular imports at module level
         from sfg_app2.app.tabs.load_match import LoadMatchTab
         from sfg_app2.app.tabs.process_review import ProcessReviewTab
+        from sfg_app2.app.tabs.processed_results import ProcessedResultsTab
 
         self.load_match_tab = LoadMatchTab()
         self._replace_tab(0, self.load_match_tab, "Load / Match")
@@ -40,6 +38,10 @@ class MainWindow(QMainWindow):
         self.process_review_tab = ProcessReviewTab()
         self._replace_tab(1, self.process_review_tab, "Process / Review")
         self.process_review_tab.processing_complete.connect(self._on_processing_complete)
+
+        self.processed_results_tab = ProcessedResultsTab()
+        self._replace_tab(2, self.processed_results_tab, "Results")
+        self.ui.mainTabWidget.setTabEnabled(2, True)
 
     def _replace_tab(self, index: int, widget, label: str):
         """Swap a whole tab (used when the tab has no placeholder child)."""
@@ -68,8 +70,10 @@ class MainWindow(QMainWindow):
 
     def _on_processing_complete(self, results: dict):
         self.processed_results = results
+        self.processed_results_tab.add_results(results)
         self.statusBar().showMessage(f"{len(results)} set(s) processed.")
-        # unlock further tabs here when they exist
+        self.ui.mainTabWidget.setTabEnabled(2, True)  # belt and suspenders
+        self.ui.mainTabWidget.setCurrentIndex(2)
 
     # ── Menu connections ──────────────────────────────────────────────────────
 
