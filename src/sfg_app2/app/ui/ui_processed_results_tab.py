@@ -147,6 +147,8 @@ class Ui_Form(object):
 
         self.horizontalLayout_2.addWidget(self.frame_2)
 
+        self.verticalLayout_5 = QVBoxLayout()
+        self.verticalLayout_5.setObjectName(u"verticalLayout_5")
         self.frame_3 = QFrame(self.visualizationParamsGroupBox)
         self.frame_3.setObjectName(u"frame_3")
         sizePolicy.setHeightForWidth(self.frame_3.sizePolicy().hasHeightForWidth())
@@ -168,7 +170,14 @@ class Ui_Form(object):
         self.verticalLayout_3.addWidget(self.offsetSpectraSpinner)
 
 
-        self.horizontalLayout_2.addWidget(self.frame_3)
+        self.verticalLayout_5.addWidget(self.frame_3)
+
+        self.verticalSpacer = QSpacerItem(0, 0, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding)
+
+        self.verticalLayout_5.addItem(self.verticalSpacer)
+
+
+        self.horizontalLayout_2.addLayout(self.verticalLayout_5)
 
         self.horizontalSpacer = QSpacerItem(40, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
 

@@ -261,11 +261,22 @@
           </spacer>
          </item>
          <item>
-          <widget class="QPushButton" name="processAllButton">
-           <property name="text">
-            <string>▶ Process All</string>
-           </property>
-          </widget>
+          <layout class="QVBoxLayout" name="verticalLayout_6">
+           <item>
+            <widget class="QPushButton" name="processSelectedButton">
+             <property name="text">
+              <string>▶ Process Selected</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="processAllButton">
+             <property name="text">
+              <string>▶ Process All</string>
+             </property>
+            </widget>
+           </item>
+          </layout>
          </item>
         </layout>
        </item>

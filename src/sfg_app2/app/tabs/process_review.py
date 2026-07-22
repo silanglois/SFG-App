@@ -1,4 +1,3 @@
-# src/sfg_app2/app/tabs/process_review.py
 from __future__ import annotations
 import logging
 
@@ -176,6 +175,7 @@ class ProcessReviewTab(QWidget):
         self.ui.processAllButton.clicked.connect(self._on_process_all)
         self.ui.bgCorrectionGroupBox.toggled.connect(lambda _: self._refresh_plot())
         self.ui.reviewReferencesButton.clicked.connect(self._on_review_references)
+        self.ui.processSelectedButton.clicked.connect(self._on_process_selected)
 
         # despike panel
         self._despike_window_spin.valueChanged.connect(self._on_despike_params_changed)
@@ -680,20 +680,42 @@ class ProcessReviewTab(QWidget):
 
     # ── Process all ───────────────────────────────────────────────────────────
 
+    def _on_process_selected(self):
+        selected_rows = [
+            self.ui.matchedSetsListWidget.row(item)
+            for item in self.ui.matchedSetsListWidget.selectedItems()
+        ]
+        if not selected_rows:
+            QMessageBox.information(
+                self, "Nothing selected",
+                "Select one or more sets from the list first."
+            )
+            return
+        selected_sets = [self._matched_sets[i] for i in selected_rows
+                        if i < len(self._matched_sets)]
+        self._run_processing(selected_sets, selected_rows)
+
     def _on_process_all(self):
+        self._run_processing(
+            self._matched_sets,
+            list(range(len(self._matched_sets)))
+        )
+
+    def _run_processing(self, sets: list, indices: list[int]):
+        """Shared processing logic for both process-selected and process-all."""
         from sfg_app2.processing.pipeline import PipelineConfig, process_batch
         sig_offset, ref_offset = self._current_offsets()
         wl = self.ui.upconversionSpinBox.value()
 
         configs = {}
-        for i in range(len(self._matched_sets)):
+        for i in indices:
             m = self._matched_sets[i]
             if not m.signal:
                 continue
             cfg_sig = self._get_despike_cfg(i, "signal")
             configs[m.signal.path.name] = PipelineConfig(
                 run_despike=True,
-                despike_window=cfg_sig["window"],           # pipeline despiked signal
+                despike_window=cfg_sig["window"],
                 despike_threshold=cfg_sig["threshold"],
                 run_background=True,
                 bg_offset=sig_offset,
@@ -716,11 +738,11 @@ class ProcessReviewTab(QWidget):
         )
 
         try:
-            results = process_batch(self._matched_sets, default_cfg, configs)
+            results = process_batch(sets, default_cfg, configs)
             self.processing_complete.emit(results)
             QMessageBox.information(
                 self, "Processing complete",
-                f"{len(results)} set(s) processed successfully.",
+                f"{len(results)}/{len(sets)} set(s) processed successfully.",
             )
         except Exception as e:
             QMessageBox.critical(self, "Processing error", str(e))

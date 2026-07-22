@@ -189,10 +189,20 @@ class Ui_Form(object):
 
         self.horizontalLayout_2.addItem(self.horizontalSpacer_2)
 
+        self.verticalLayout_6 = QVBoxLayout()
+        self.verticalLayout_6.setObjectName(u"verticalLayout_6")
+        self.processSelectedButton = QPushButton(self.rightPanelWidget)
+        self.processSelectedButton.setObjectName(u"processSelectedButton")
+
+        self.verticalLayout_6.addWidget(self.processSelectedButton)
+
         self.processAllButton = QPushButton(self.rightPanelWidget)
         self.processAllButton.setObjectName(u"processAllButton")
 
-        self.horizontalLayout_2.addWidget(self.processAllButton)
+        self.verticalLayout_6.addWidget(self.processAllButton)
+
+
+        self.horizontalLayout_2.addLayout(self.verticalLayout_6)
 
 
         self.verticalLayout_3.addLayout(self.horizontalLayout_2)
@@ -295,6 +305,7 @@ class Ui_Form(object):
         self.averagedStepRadio.setText(QCoreApplication.translate("Form", u"Averaged", None))
         self.bgSubtractedStepRadio.setText(QCoreApplication.translate("Form", u"BG Subtracted", None))
         self.normalizedStepRadio.setText(QCoreApplication.translate("Form", u"Normalized", None))
+        self.processSelectedButton.setText(QCoreApplication.translate("Form", u"\u25b6 Process Selected", None))
         self.processAllButton.setText(QCoreApplication.translate("Form", u"\u25b6 Process All", None))
         self.bgCorrectionGroupBox.setTitle(QCoreApplication.translate("Form", u"Background Correction", None))
         self.signalOffsetCombo.setItemText(0, QCoreApplication.translate("Form", u"None", None))
