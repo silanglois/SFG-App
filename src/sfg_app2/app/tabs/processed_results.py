@@ -10,7 +10,7 @@ import matplotlib as mpl
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QListWidgetItem, QFileDialog,
-    QMessageBox, QAbstractItemView, QInputDialog
+    QMessageBox, QAbstractItemView, QInputDialog, QMenu
 )
 
 from sfg_app2.app.ui.ui_processed_results_tab import Ui_Form
@@ -110,6 +110,8 @@ class ProcessedResultsTab(QWidget):
         self.ui.colormapStartSpinner.valueChanged.connect(self._refresh_plot)
         self.ui.colormapStopSpinner.valueChanged.connect(self._refresh_plot)
         self.ui.offsetSpectraSpinner.valueChanged.connect(self._refresh_plot)
+        self.ui.spectraList.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.ui.spectraList.customContextMenuRequested.connect(self._on_context_menu)
 
     # ── Public API — called by MainWindow ─────────────────────────────────────
 
@@ -361,3 +363,60 @@ class ProcessedResultsTab(QWidget):
 
     def _on_export_all(self):
         self._export_entries(self._ordered_entries())
+
+    # ── Context menu ─────────────────────────────────
+
+    def _on_context_menu(self, pos):
+        item = self.ui.spectraList.itemAt(pos)
+        if item is None:
+            return
+
+        selected = self._selected_entries()
+        if not selected:
+            return
+
+        n = len(selected)
+        label = f"{n} spectrum/spectra" if n > 1 else f"\"{selected[0].label}\""
+
+        menu = QMenu(self)
+        metadata_action = menu.addAction(f"Review / Edit metadata — {label}")
+        menu.addSeparator()
+        remove_action = menu.addAction(f"Remove {label}")
+
+        action = menu.exec(self.ui.spectraList.viewport().mapToGlobal(pos))
+
+        if action == metadata_action:
+            self._on_review_metadata(selected)
+        elif action == remove_action:
+            self._on_remove(selected)
+
+
+    def _on_review_metadata(self, entries: list[SpectrumEntry]):
+        from sfg_app2.app.dialogs.metadata_edit_dialog import MetadataEditDialog
+        # MetadataEditDialog expects objects with a .metadata dict and optional .path
+        # wrap each entry's spectrum, which has .metadata already
+        spectra = [e.spectrum for e in entries]
+        # attach label as a stand-in for path.name so the dialog header is readable
+        for e, s in zip(entries, spectra):
+            if not hasattr(s, "path"):
+                s._display_name = e.label   # temporary attr for dialog display
+        dialog = MetadataEditDialog(spectra, parent=self)
+        dialog.exec()
+
+
+    def _on_remove(self, entries: list[SpectrumEntry]):
+        n = len(entries)
+        label = f"{n} spectrum/spectra" if n > 1 else f"\"{entries[0].label}\""
+        reply = QMessageBox.question(
+            self, "Remove",
+            f"Remove {label} from the results list?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply == QMessageBox.StandardButton.No:
+            return
+
+        labels_to_remove = {e.label for e in entries}
+        self._entries = [e for e in self._entries if e.label not in labels_to_remove]
+        self._rebuild_list()
+        self._refresh_plot()
+        logger.info("Removed %d spectrum/spectra from results.", n)

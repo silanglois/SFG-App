@@ -136,7 +136,13 @@ class MetadataEditDialog(QDialog):
 
     def _load_current(self):
         f = self._files[self._current]
-        self._file_label.setText(f.path.name)
+        if hasattr(f, "path"):
+            display = f.path.name
+        elif hasattr(f, "_display_name"):
+            display = f._display_name
+        else:
+            display = str(f)
+        self._file_label.setText(display)
         self._counter_label.setText(
             f"{self._current + 1} / {len(self._files)}"
         )
@@ -174,7 +180,16 @@ class MetadataEditDialog(QDialog):
 
     def _on_ok(self):
         self._save_current()
-        for idx, metadata in self._edits.items():
-            self._files[idx].metadata.update(metadata)
-            logger.info("Metadata updated for %s.", self._files[idx].path.name)
+        for idx, edited_metadata in self._edits.items():
+            f = self._files[idx]
+            if hasattr(f, "_parsed_metadata") and hasattr(f, "set_manual_metadata"):
+                # DataFile — preserve parsed vs manual distinction
+                for key, value in edited_metadata.items():
+                    original_val = f._parsed_metadata.get(key)
+                    if value != str(original_val) if original_val is not None else True:
+                        f.set_manual_metadata(key, value)
+            else:
+                # ProcessedSpectrum or anything else — plain dict update
+                f.metadata.update(edited_metadata)
+                logger.info("Metadata updated for %s.", getattr(f, "label", str(idx)))
         self.accept()
