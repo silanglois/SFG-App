@@ -18,7 +18,7 @@
     <item>
      <widget class="QTabWidget" name="mainTabWidget">
       <property name="currentIndex">
-       <number>1</number>
+       <number>3</number>
       </property>
       <widget class="QWidget" name="loadmatchTab">
        <attribute name="title">
@@ -47,6 +47,16 @@
        <layout class="QHBoxLayout" name="horizontalLayout_3">
         <item>
          <widget class="QWidget" name="widget_2" native="true"/>
+        </item>
+       </layout>
+      </widget>
+      <widget class="QWidget" name="postProcessingTab">
+       <attribute name="title">
+        <string>Post Processing</string>
+       </attribute>
+       <layout class="QHBoxLayout" name="horizontalLayout_4">
+        <item>
+         <widget class="QWidget" name="widget_3" native="true"/>
         </item>
        </layout>
       </widget>
@@ -112,7 +122,7 @@
   </action>
   <action name="actionSet_metadata_patterns">
    <property name="text">
-    <string>Set metadata patterns</string>
+    <string>Metadata patterns parameters</string>
    </property>
   </action>
   <action name="actionAbout">
@@ -122,7 +132,7 @@
   </action>
   <action name="actionDocs_tutorials">
    <property name="text">
-    <string>Docs &amp; tutorials</string>
+    <string>Docs &amp;&amp; tutorials</string>
    </property>
   </action>
   <action name="actionIgnore_selected_files">
@@ -132,7 +142,7 @@
   </action>
   <action name="actionSet_auto_matching_parameters">
    <property name="text">
-    <string>Set auto-matching parameters</string>
+    <string>Auto-matching parameters</string>
    </property>
   </action>
  </widget>

@@ -108,16 +108,79 @@ class LoadMatchTab(QWidget):
 
     def _merge_files(self, new_files: list) -> tuple[list, list]:
         existing = {f.path.resolve() for f in self._files}
+        ignored = self._get_ignored_paths()
         added, skipped = [], []
         for f in new_files:
-            if f.path.resolve() in existing:
+            resolved = f.path.resolve()
+            if resolved in existing or resolved in ignored:
                 skipped.append(f.path)
             else:
                 self._files.append(f)
                 self._file_registry[str(f.path)] = f
-                existing.add(f.path.resolve())
+                existing.add(resolved)
                 added.append(f)
         return added, skipped
+
+    def _get_ignored_paths(self) -> set[Path]:
+        """Pull ignored paths from MainWindow if available."""
+        try:
+            main = self.window()
+            if hasattr(main, "ignored_paths"):
+                return main.ignored_paths
+        except Exception:
+            pass
+        return set()
+
+    def remove_ignored_files(self, ignored_paths: set[Path]) -> int:
+        """Remove any loaded files whose resolved path is in ignored_paths.
+        Called by MainWindow when the ignore list changes.
+        Returns count of files removed.
+        """
+        to_remove = {
+            str(f.path) for f in self._files
+            if f.path.resolve() in ignored_paths
+        }
+        if not to_remove:
+            return 0
+
+        # warn if any are in the match table
+        table_paths = self.match_table._table_model.all_paths_used()
+        in_table = to_remove & table_paths
+        if in_table:
+            names = "\n".join(Path(p).name for p in in_table)
+            reply = QMessageBox.question(
+                self,
+                "Ignored files in match table",
+                f"The following ignored file(s) are assigned in the match table "
+                f"and will be removed:\n\n{names}\n\nContinue?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if reply == QMessageBox.StandardButton.No:
+                return 0
+
+        # remove from table
+        for path in in_table:
+            model = self.match_table._table_model
+            for row in range(model.rowCount()):
+                for col in range(model.columnCount()):
+                    if model.data(
+                        model.createIndex(row, col),
+                        Qt.ItemDataRole.UserRole
+                    ) == path:
+                        model.clear_cell(row, col)
+
+        # remove from file tracking
+        self._files = [f for f in self._files if str(f.path) not in to_remove]
+        for p in to_remove:
+            self._file_registry.pop(p, None)
+        self._individual_file_paths = [
+            p for p in self._individual_file_paths
+            if str(p) not in to_remove
+        ]
+
+        self._refresh_file_list()
+        self._on_table_changed()
+        return len(to_remove)
 
     def _refresh_file_list(self):
         self.file_list_widget.set_files(self._files)
@@ -155,20 +218,36 @@ class LoadMatchTab(QWidget):
 
     def _on_update(self):
         if not self._files and self._loaded_folder is None:
-            QMessageBox.information(self, "Nothing loaded", "Load a folder or files first.")
+            QMessageBox.information(self, "Nothing loaded",
+                                    "Load a folder or files first.")
             return
         self._files = []
         self._file_registry = {}
+
         if self._loaded_folder:
             try:
-                folder_files = load_datafiles(self._loaded_folder, patterns=self._get_active_patterns())
+                folder_files = load_datafiles(
+                    self._loaded_folder,
+                    patterns=self._get_active_patterns()
+                )
+                # filter ignored before merging
+                ignored = self._get_ignored_paths()
+                folder_files = [f for f in folder_files
+                                if f.path.resolve() not in ignored]
                 self._merge_files(folder_files)
             except Exception as e:
                 QMessageBox.critical(self, "Update Error", str(e))
+
         if self._individual_file_paths:
-            still_exist = [p for p in self._individual_file_paths if p.exists()]
-            self._individual_file_paths = still_exist
-            self.load_individual_files([str(p) for p in still_exist])
+            ignored = self._get_ignored_paths()
+            still_valid = [
+                p for p in self._individual_file_paths
+                if p.exists() and p.resolve() not in ignored
+            ]
+            self._individual_file_paths = still_valid
+            if still_valid:
+                self.load_individual_files([str(p) for p in still_valid])
+
         self._refresh_file_list()
 
     def _on_review_metadata(self):

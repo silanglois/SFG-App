@@ -40,6 +40,8 @@ class Ui_MainWindow(object):
         self.actionDocs_tutorials.setObjectName(u"actionDocs_tutorials")
         self.actionIgnore_selected_files = QAction(MainWindow)
         self.actionIgnore_selected_files.setObjectName(u"actionIgnore_selected_files")
+        self.actionSet_auto_matching_parameters = QAction(MainWindow)
+        self.actionSet_auto_matching_parameters.setObjectName(u"actionSet_auto_matching_parameters")
         self.centralwidget = QWidget(MainWindow)
         self.centralwidget.setObjectName(u"centralwidget")
         self.verticalLayout = QVBoxLayout(self.centralwidget)
@@ -76,6 +78,16 @@ class Ui_MainWindow(object):
         self.horizontalLayout_3.addWidget(self.widget_2)
 
         self.mainTabWidget.addTab(self.processedResultsTab, "")
+        self.postProcessingTab = QWidget()
+        self.postProcessingTab.setObjectName(u"postProcessingTab")
+        self.horizontalLayout_4 = QHBoxLayout(self.postProcessingTab)
+        self.horizontalLayout_4.setObjectName(u"horizontalLayout_4")
+        self.widget_3 = QWidget(self.postProcessingTab)
+        self.widget_3.setObjectName(u"widget_3")
+
+        self.horizontalLayout_4.addWidget(self.widget_3)
+
+        self.mainTabWidget.addTab(self.postProcessingTab, "")
 
         self.verticalLayout.addWidget(self.mainTabWidget)
 
@@ -100,14 +112,16 @@ class Ui_MainWindow(object):
         self.menuFile.addAction(self.actionLoad_file_s)
         self.menuFile.addAction(self.actionLoad_files_from_folder)
         self.menuFile.addAction(self.actionIgnore_selected_files)
-        self.menuPreferences.addAction(self.actionUse_metadata_patterns)
         self.menuPreferences.addAction(self.actionSet_metadata_patterns)
+        self.menuPreferences.addAction(self.actionUse_metadata_patterns)
+        self.menuPreferences.addSeparator()
+        self.menuPreferences.addAction(self.actionSet_auto_matching_parameters)
         self.menuHelp.addAction(self.actionAbout)
         self.menuHelp.addAction(self.actionDocs_tutorials)
 
         self.retranslateUi(MainWindow)
 
-        self.mainTabWidget.setCurrentIndex(1)
+        self.mainTabWidget.setCurrentIndex(3)
 
 
         QMetaObject.connectSlotsByName(MainWindow)
@@ -118,13 +132,15 @@ class Ui_MainWindow(object):
         self.actionLoad_file_s.setText(QCoreApplication.translate("MainWindow", u"Load file(s)", None))
         self.actionLoad_files_from_folder.setText(QCoreApplication.translate("MainWindow", u"Load files from folder", None))
         self.actionUse_metadata_patterns.setText(QCoreApplication.translate("MainWindow", u"Use metadata patterns", None))
-        self.actionSet_metadata_patterns.setText(QCoreApplication.translate("MainWindow", u"Set metadata patterns", None))
+        self.actionSet_metadata_patterns.setText(QCoreApplication.translate("MainWindow", u"Metadata patterns parameters", None))
         self.actionAbout.setText(QCoreApplication.translate("MainWindow", u"About", None))
-        self.actionDocs_tutorials.setText(QCoreApplication.translate("MainWindow", u"Docs & tutorials", None))
+        self.actionDocs_tutorials.setText(QCoreApplication.translate("MainWindow", u"Docs && tutorials", None))
         self.actionIgnore_selected_files.setText(QCoreApplication.translate("MainWindow", u"Ignore selected files", None))
+        self.actionSet_auto_matching_parameters.setText(QCoreApplication.translate("MainWindow", u"Auto-matching parameters", None))
         self.mainTabWidget.setTabText(self.mainTabWidget.indexOf(self.loadmatchTab), QCoreApplication.translate("MainWindow", u"Load/Match", None))
         self.mainTabWidget.setTabText(self.mainTabWidget.indexOf(self.processingTab), QCoreApplication.translate("MainWindow", u"Processing/Review", None))
         self.mainTabWidget.setTabText(self.mainTabWidget.indexOf(self.processedResultsTab), QCoreApplication.translate("MainWindow", u"Processed Results", None))
+        self.mainTabWidget.setTabText(self.mainTabWidget.indexOf(self.postProcessingTab), QCoreApplication.translate("MainWindow", u"Post Processing", None))
         self.menuFile.setTitle(QCoreApplication.translate("MainWindow", u"File", None))
         self.menuPreferences.setTitle(QCoreApplication.translate("MainWindow", u"Preferences", None))
         self.menuHelp.setTitle(QCoreApplication.translate("MainWindow", u"Help", None))
