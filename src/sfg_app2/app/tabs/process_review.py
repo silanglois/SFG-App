@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
 )
 
 from sfg_app2.app.ui.ui_process_review_tab import Ui_Form
+from sfg_app2.app.widgets.collapsible_group_box import make_collapsible
 from sfg_app2.app.widgets.spectrum_plot_widget import SpectrumPlotWidget
 from sfg_app2.processing.baseline import subtract_background
 from sfg_app2.processing.normalization import normalize
@@ -69,6 +70,9 @@ class ProcessReviewTab(QWidget):
         self._setup_bg_correction()
         self._setup_despike_panel()
         self._connect_signals()
+
+        from sfg_app2.app.widgets.collapsible_group_box import make_collapsible
+        make_collapsible(self.ui.bgCorrectionGroupBox)
 
     # ── Setup ─────────────────────────────────────────────────────────────────
 
@@ -184,7 +188,37 @@ class ProcessReviewTab(QWidget):
         self._despike_apply_all_btn.clicked.connect(self._on_apply_despike_to_all)
         self._despike_component_combo.currentIndexChanged.connect(
             self._on_despike_component_changed
-)
+        )
+
+    # def _setup_collapsible_groupbox(self):
+    #     """Make bgCorrectionGroupBox collapse when unchecked rather than
+    #     just disabling its contents."""
+    #     gb = self.ui.bgCorrectionGroupBox
+    #     # initial state — collapsed since checked=False in Designer
+    #     self._set_groupbox_collapsed(gb, not gb.isChecked())
+    #     gb.toggled.connect(lambda checked: self._set_groupbox_collapsed(gb, not checked))
+
+    @staticmethod
+    def _set_groupbox_collapsed(groupbox, collapsed: bool):
+        """Show/hide all direct children and let the groupbox shrink."""
+        for child in groupbox.findChildren(
+            __import__("PySide6.QtWidgets", fromlist=["QWidget"]).QWidget,
+            options=__import__("PySide6.QtCore", fromlist=["Qt"]).Qt.FindChildOption.FindDirectChildrenOnly
+        ):
+            child.setVisible(not collapsed)
+
+        if collapsed:
+            groupbox.setMaximumHeight(groupbox.sizeHint().height())
+            groupbox.setSizePolicy(
+                __import__("PySide6.QtWidgets", fromlist=["QSizePolicy"]).QSizePolicy.Policy.Preferred,
+                __import__("PySide6.QtWidgets", fromlist=["QSizePolicy"]).QSizePolicy.Policy.Fixed,
+            )
+        else:
+            groupbox.setMaximumHeight(16777215)  # Qt's QWIDGETSIZE_MAX
+            groupbox.setSizePolicy(
+                __import__("PySide6.QtWidgets", fromlist=["QSizePolicy"]).QSizePolicy.Policy.Preferred,
+                __import__("PySide6.QtWidgets", fromlist=["QSizePolicy"]).QSizePolicy.Policy.Preferred,
+            )
 
     # ── Public API ────────────────────────────────────────────────────────────
 
