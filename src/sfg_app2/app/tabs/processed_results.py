@@ -299,6 +299,18 @@ class ProcessedResultsTab(QWidget):
 
     # ── Add from file ─────────────────────────────────────────────────────────
 
+    def _get_active_patterns(self) -> list[list[str]] | None:
+        """Pull active patterns from MainWindow if available and toggle is on."""
+        try:
+            main = self.window()
+            if hasattr(main, "use_metadata_patterns") and not main.use_metadata_patterns:
+                return None
+            if hasattr(main, "pattern_manager"):
+                return main.pattern_manager.active_patterns
+        except Exception:
+            pass
+        return None
+
     def _on_add_from_file(self):
         paths, _ = QFileDialog.getOpenFileNames(
             self, "Load processed spectra", "",
@@ -307,6 +319,12 @@ class ProcessedResultsTab(QWidget):
         if not paths:
             return
 
+        from sfg_app2.processing.utils import _strip_role_suffix, DEFAULT_ROLE_SUFFIXES
+        import pandas as pd
+
+        patterns = self._get_active_patterns()
+        pattern_map = {len(p): p for p in patterns} if patterns else {}
+
         added, skipped, failed = 0, 0, 0
         for path_str in paths:
             path = Path(path_str)
@@ -314,9 +332,29 @@ class ProcessedResultsTab(QWidget):
                 header_lines, provenance, metadata = self._parse_export_header(path)
                 df = self._load_csv_skip_comments(path)
 
+                # parse filename metadata if patterns are active
+                # manual metadata from header always wins (update order matters)
+                if pattern_map:
+                    from sfg_app2.processing.data_file import DataFile
+                    clean_stem, role = _strip_role_suffix(path.stem, DEFAULT_ROLE_SUFFIXES)
+                    n_parts = len(clean_stem.split("_"))
+                    fields = pattern_map.get(n_parts)
+                    if fields:
+                        parsed = DataFile._parse_filename_metadata(path, fields)
+                        # merge: parsed first, then header metadata overwrites
+                        merged_metadata = {**parsed, **metadata}
+                    else:
+                        merged_metadata = metadata
+                else:
+                    merged_metadata = metadata
+
+                # ensure Frame column exists
+                if "Frame" not in df.columns:
+                    df.insert(0, "Frame", 1)
+
                 spectrum = ProcessedSpectrum(
                     df,
-                    metadata=metadata,
+                    metadata=merged_metadata,
                     history=provenance.get("history_list", ["loaded_from_file"]),
                 )
                 spectrum.provenance = provenance
@@ -329,8 +367,9 @@ class ProcessedResultsTab(QWidget):
                     )
                     added += 1
                 else:
-                    logger.info("Skipping duplicate: %s", label)
                     skipped += 1
+                    logger.info("Skipping duplicate: %s", label)
+
             except Exception as e:
                 logger.warning("Could not load %s: %s", path.name, e)
                 failed += 1
