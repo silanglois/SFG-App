@@ -10,6 +10,8 @@ wheels/
 
 # Data files
 *.csv
+*.xlsx
+*.xlsm
 *.spf2
 tests\data\pharos\2026_07_17\*.png
 

@@ -15,6 +15,7 @@ dependencies = [
     "platformdirs>=4.10.0",
     "pyside6>=6.11.1",
     "refractiveindex>=1.0.3",
+    "scipy>=1.18.0",
 ]
 
 [project.scripts]
