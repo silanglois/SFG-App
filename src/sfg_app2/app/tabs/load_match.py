@@ -214,6 +214,28 @@ class LoadMatchTab(QWidget):
             "center_wavelength", "acquisition_time", "timestamp", "date"],
         ]
 
+    def reparse_loaded_files(self):
+        """Re-parse filename metadata for all loaded files using current
+        toggle state and active patterns. Manual metadata always wins.
+        """
+        from sfg_app2.processing.utils import _strip_role_suffix, DEFAULT_ROLE_SUFFIXES
+
+        patterns = self._get_active_patterns()
+        pattern_map = {len(p): p for p in patterns} if patterns else {}
+
+        for f in self._files:
+            clean_stem, _ = _strip_role_suffix(f.path.stem, DEFAULT_ROLE_SUFFIXES)
+            n_parts = len(clean_stem.split("_"))
+            fields = pattern_map.get(n_parts) if pattern_map else None
+            f.reparse_filename_metadata(fields)
+
+        logger.info(
+            "Re-parsed metadata for %d files (patterns %s).",
+            len(self._files),
+            "enabled" if patterns else "disabled",
+        )
+        self._refresh_file_list()
+
     # ── Button handlers ───────────────────────────────────────────────────────
 
     def _on_update(self):
@@ -281,9 +303,7 @@ class LoadMatchTab(QWidget):
             logger.error("Auto-match failed: %s", e)
 
     def _populate_table_from_matched(self, matched: list):
-        """Fill the table from auto-match results."""
         model = self.match_table._table_model
-        # clear existing rows
         while model.rowCount() > 0:
             model.remove_row(0)
 
@@ -297,6 +317,7 @@ class LoadMatchTab(QWidget):
             add(row, 1, m.background)
             add(row, 2, m.reference)
             add(row, 3, m.reference_background)
+            model.set_type(row, m.spectrum_type.capitalize())
 
         self._on_table_changed()
 

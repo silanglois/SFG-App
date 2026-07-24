@@ -1,6 +1,6 @@
 from __future__ import annotations
 import logging
-from PySide6.QtWidgets import QTableView, QAbstractItemView, QHeaderView, QMenu
+from PySide6.QtWidgets import QComboBox, QTableView, QAbstractItemView, QHeaderView, QMenu
 from PySide6.QtCore import (
     Qt, QAbstractTableModel, QModelIndex,
     QMimeData, QByteArray, Signal
@@ -9,7 +9,8 @@ from PySide6.QtGui import QColor, QBrush
 
 logger = logging.getLogger(__name__)
 
-COLUMNS = ["Sample", "Sample BG", "Reference", "Ref BG"]
+COLUMNS = ["Signal", "Sample BG", "Reference", "Ref BG", "Type"]
+SPECTRUM_TYPES = ["Homodyne", "Heterodyne"]
 MIME_FILE = "application/sfg-app-file"
 MIME_SOURCE = "application/sfg-app-source-cell"
 
@@ -17,8 +18,8 @@ MIME_SOURCE = "application/sfg-app-source-cell"
 class MatchTableModel(QAbstractTableModel):
     def __init__(self, parent=None):
         super().__init__(parent)
-        # each row: list of 4 (path, display_name) tuples or None
         self._rows: list[list[tuple[str, str] | None]] = []
+        self._types: list[str] = []
 
     def rowCount(self, parent=QModelIndex()):
         return len(self._rows)
@@ -36,7 +37,16 @@ class MatchTableModel(QAbstractTableModel):
     def data(self, index, role=Qt.ItemDataRole.DisplayRole):
         if not index.isValid():
             return None
-        cell = self._rows[index.row()][index.column()]
+        col = index.column()
+
+        if col == 4:
+            if role == Qt.ItemDataRole.DisplayRole:
+                return self._types[index.row()]
+            if role == Qt.ItemDataRole.UserRole:
+                return self._types[index.row()].lower()
+            return None
+
+        cell = self._rows[index.row()][col]
         if role == Qt.ItemDataRole.DisplayRole:
             return cell[1] if cell else "—"
         if role == Qt.ItemDataRole.UserRole:
@@ -48,9 +58,14 @@ class MatchTableModel(QAbstractTableModel):
         return None
 
     def flags(self, index):
+        if not index.isValid():
+            return Qt.ItemFlag.ItemIsEnabled
         flags = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
+        if index.column() == 4:
+            flags |= Qt.ItemFlag.ItemIsEditable
+            return flags
         flags |= Qt.ItemFlag.ItemIsDropEnabled
-        if index.isValid() and self._rows[index.row()][index.column()]:
+        if self._rows[index.row()][index.column()]:
             flags |= Qt.ItemFlag.ItemIsDragEnabled
         return flags
 
@@ -70,7 +85,7 @@ class MatchTableModel(QAbstractTableModel):
         return mime
 
     def canDropMimeData(self, data, action, row, column, parent):
-        return data.hasFormat(MIME_FILE)
+        return data.hasFormat(MIME_FILE) and column != 4
 
     def dropMimeData(self, data, action, row, column, parent):
         return False   # handled entirely in MatchTableView.dropEvent
@@ -91,13 +106,20 @@ class MatchTableModel(QAbstractTableModel):
         row = len(self._rows)
         self.beginInsertRows(QModelIndex(), row, row)
         self._rows.append([None, None, None, None])
+        self._types.append("Homodyne")
         self.endInsertRows()
         return row
 
     def remove_row(self, row: int):
         self.beginRemoveRows(QModelIndex(), row, row)
         self._rows.pop(row)
+        self._types.pop(row)
         self.endRemoveRows()
+
+    def set_type(self, row: int, spectrum_type: str):
+        self._types[row] = spectrum_type
+        index = self.createIndex(row, 4)
+        self.dataChanged.emit(index, index, [Qt.ItemDataRole.DisplayRole])
 
     def all_paths_used(self) -> set[str]:
         paths = set()
@@ -110,18 +132,42 @@ class MatchTableModel(QAbstractTableModel):
     def to_matched_sets(self, file_registry: dict) -> list:
         from sfg_app2.processing.matcher import MatchedSet
         results = []
-        for row in self._rows:
+        for i, row in enumerate(self._rows):
             def get(col, r=row):
                 cell = r[col]
                 return file_registry.get(cell[0]) if cell else None
             results.append(MatchedSet(
-                signal=get(0),
-                background=get(1),
-                reference=get(2),
-                reference_background=get(3),
+                signal               = get(0),
+                background           = get(1),
+                reference            = get(2),
+                reference_background = get(3),
+                spectrum_type        = self._types[i].lower(),
             ))
         return [m for m in results if m.signal is not None]
 
+from PySide6.QtWidgets import QStyledItemDelegate
+
+class TypeColumnDelegate(QStyledItemDelegate):
+    """Renders a combo box in the Type column."""
+
+    def createEditor(self, parent, option, index):
+        if index.column() != 4:
+            return None
+        combo = QComboBox(parent)
+        combo.addItems(SPECTRUM_TYPES)
+        combo.setFrame(False)
+        return combo
+
+    def setEditorData(self, editor, index):
+        value = index.data(Qt.ItemDataRole.DisplayRole) or "Homodyne"
+        idx = SPECTRUM_TYPES.index(value) if value in SPECTRUM_TYPES else 0
+        editor.setCurrentIndex(idx)
+
+    def setModelData(self, editor, model, index):
+        model.set_type(index.row(), editor.currentText())
+
+    def updateEditorGeometry(self, editor, option, index):
+        editor.setGeometry(option.rect)
 
 class MatchTableView(QTableView):
     table_changed = Signal()
@@ -130,6 +176,7 @@ class MatchTableView(QTableView):
         super().__init__(parent)
         self._table_model = MatchTableModel()
         self.setModel(self._table_model)
+        self.setItemDelegateForColumn(4, TypeColumnDelegate(self))
         self.setDragEnabled(True)
         self.setAcceptDrops(True)
         self.setDropIndicatorShown(True)
