@@ -15,6 +15,7 @@ from sfg_app2.app.widgets.spectrum_plot_widget import SpectrumPlotWidget
 from sfg_app2.processing.baseline import subtract_background
 from sfg_app2.processing.normalization import normalize
 from sfg_app2.processing.despike import detect_spikes
+from sfg_app2.app.widgets.hd_sfg_panel import HDSFGPanel
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +71,7 @@ class ProcessReviewTab(QWidget):
         self._setup_bg_correction()
         self._setup_despike_panel()
         self._connect_signals()
+        self._setup_right_stack()
 
         from sfg_app2.app.widgets.collapsible_group_box import make_collapsible
         make_collapsible(self.ui.bgCorrectionGroupBox)
@@ -220,6 +222,23 @@ class ProcessReviewTab(QWidget):
                 __import__("PySide6.QtWidgets", fromlist=["QSizePolicy"]).QSizePolicy.Policy.Preferred,
             )
 
+    def _setup_right_stack(self):
+        from PySide6.QtWidgets import QStackedWidget
+
+        idx = self.ui.splitter.indexOf(self.ui.rightPanelWidget)
+        if idx < 0:
+            logger.error("rightPanelWidget not found in splitter.")
+            return
+
+        self._right_stack = QStackedWidget()
+        self._right_stack.addWidget(self.ui.rightPanelWidget)  # page 0: homodyne
+
+        self._hd_sfg_panel = HDSFGPanel()
+        self._hd_sfg_panel.processing_complete.connect(self.processing_complete)
+        self._right_stack.addWidget(self._hd_sfg_panel)        # page 1: HD-SFG
+
+        self.ui.splitter.insertWidget(idx, self._right_stack)
+
     # ── Public API ────────────────────────────────────────────────────────────
 
     def set_matched_sets(self, matched_sets: list):
@@ -248,23 +267,32 @@ class ProcessReviewTab(QWidget):
         if row < 0 or row >= len(self._matched_sets):
             self.ui.setStatusLabel.setText("")
             return
+
         m = self._matched_sets[row]
+
         def name(f): return f.path.name if f else "—"
         self.ui.setStatusLabel.setText(
             f"Signal:  {name(m.signal)}\n"
             f"BG:      {name(m.background)}\n"
             f"Ref:     {name(m.reference)}\n"
-            f"Ref BG:  {name(m.reference_background)}"
+            f"Ref BG:  {name(m.reference_background)}\n"
+            f"Type:    {m.spectrum_type}"
         )
-        # load this set's despike config into the panel
-        cfg = self._get_despike_cfg(row, self._current_component())
-        self._despike_window_spin.blockSignals(True)
-        self._despike_threshold_spin.blockSignals(True)
-        self._despike_window_spin.setValue(cfg["window"])
-        self._despike_threshold_spin.setValue(cfg["threshold"])
-        self._despike_window_spin.blockSignals(False)
-        self._despike_threshold_spin.blockSignals(False)
-        self._refresh_plot()
+
+        if m.spectrum_type == "heterodyne":
+            self._right_stack.setCurrentIndex(1)
+            self._hd_sfg_panel.set_matched_set(m, row)
+        else:
+            self._right_stack.setCurrentIndex(0)
+            # load this set's despike config into the panel
+            cfg = self._despike_configs.get(row, DEFAULT_DESPIKE)
+            self._despike_window_spin.blockSignals(True)
+            self._despike_threshold_spin.blockSignals(True)
+            self._despike_window_spin.setValue(cfg["window"])
+            self._despike_threshold_spin.setValue(cfg["threshold"])
+            self._despike_window_spin.blockSignals(False)
+            self._despike_threshold_spin.blockSignals(False)
+            self._refresh_plot()
 
     def _on_view_changed(self, single: bool):
         self.ui.matchedSetsListWidget.setSelectionMode(
@@ -736,48 +764,76 @@ class ProcessReviewTab(QWidget):
         )
 
     def _run_processing(self, sets: list, indices: list[int]):
-        """Shared processing logic for both process-selected and process-all."""
+        """Shared processing logic for both process-selected and process-all.
+        Heterodyne sets are skipped — they are processed via the HD-SFG panel.
+        """
         from sfg_app2.processing.pipeline import PipelineConfig, process_batch
+
+        # filter to homodyne only
+        homodyne_pairs = [
+            (s, i) for s, i in zip(sets, indices)
+            if s.spectrum_type != "heterodyne"
+        ]
+        skipped = len(sets) - len(homodyne_pairs)
+
+        if skipped:
+            logger.info(
+                "%d heterodyne set(s) skipped — process them individually "
+                "using the HD-SFG panel.",
+                skipped,
+            )
+
+        if not homodyne_pairs:
+            QMessageBox.information(
+                self, "Nothing to process",
+                "No homodyne sets selected.\n"
+                "Heterodyne sets are processed individually via the HD-SFG panel."
+            )
+            return
+
+        homodyne_sets    = [s for s, i in homodyne_pairs]
+        homodyne_indices = [i for s, i in homodyne_pairs]
+
         sig_offset, ref_offset = self._current_offsets()
         wl = self.ui.upconversionSpinBox.value()
 
         configs = {}
-        for i in indices:
+        for i in homodyne_indices:
             m = self._matched_sets[i]
             if not m.signal:
                 continue
             cfg_sig = self._get_despike_cfg(i, "signal")
             configs[m.signal.path.name] = PipelineConfig(
-                run_despike=True,
-                despike_window=cfg_sig["window"],
-                despike_threshold=cfg_sig["threshold"],
-                run_background=True,
-                bg_offset=sig_offset,
-                ref_bg_offset=ref_offset,
-                run_normalize=True,
-                run_upconvert=True,
-                upconversion_wavelength=wl,
+                run_despike             = True,
+                despike_window          = cfg_sig["window"],
+                despike_threshold       = cfg_sig["threshold"],
+                run_background          = True,
+                bg_offset               = sig_offset,
+                ref_bg_offset           = ref_offset,
+                run_normalize           = True,
+                run_upconvert           = True,
+                upconversion_wavelength = wl,
             )
 
         default_cfg = PipelineConfig(
-            run_despike=True,
-            despike_window=DEFAULT_DESPIKE["window"],
-            despike_threshold=DEFAULT_DESPIKE["threshold"],
-            run_background=True,
-            bg_offset=sig_offset,
-            ref_bg_offset=ref_offset,
-            run_normalize=True,
-            run_upconvert=True,
-            upconversion_wavelength=wl,
+            run_despike             = True,
+            despike_window          = DEFAULT_DESPIKE["window"],
+            despike_threshold       = DEFAULT_DESPIKE["threshold"],
+            run_background          = True,
+            bg_offset               = sig_offset,
+            ref_bg_offset           = ref_offset,
+            run_normalize           = True,
+            run_upconvert           = True,
+            upconversion_wavelength = wl,
         )
 
         try:
-            results = process_batch(sets, default_cfg, configs)
+            results = process_batch(homodyne_sets, default_cfg, configs)
             self.processing_complete.emit(results)
-            QMessageBox.information(
-                self, "Processing complete",
-                f"{len(results)}/{len(sets)} set(s) processed successfully.",
-            )
+            msg = f"{len(results)}/{len(homodyne_sets)} homodyne set(s) processed successfully."
+            if skipped:
+                msg += f"\n{skipped} heterodyne set(s) skipped."
+            QMessageBox.information(self, "Processing complete", msg)
         except Exception as e:
             QMessageBox.critical(self, "Processing error", str(e))
             logger.error("Processing failed: %s", e)

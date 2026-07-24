@@ -188,3 +188,12 @@ class SpectrumPlotWidget(QWidget):
             y_max = float(np.nanmax(y_vals))
             margin = (y_max - y_min) * 0.05 if y_max != y_min else 1.0
             ax.set_ylim(y_min - margin, y_max + margin)
+
+    def full_clear(self):
+        """Clear the entire figure including twin axes, then recreate main axes.
+        Use this instead of clear() when twin axes have been created.
+        """
+        self.figure.clf()
+        self.ax = self.figure.add_subplot(111)
+        self._x_range_initialized = False
+        self._x_full_range = None

@@ -15,6 +15,11 @@ logger = logging.getLogger(__name__)
 # ── Data classes — one per pipeline stage ─────────────────────────────────────
 
 @dataclass
+class DeSpikeParams:
+    window: int = 20
+    threshold: float = 15.0
+
+@dataclass
 class DespikedData:
     """Raw frames with spikes removed. Direct output of step_despike."""
     signal:           object   # ProcessedSpectrum or DataFile
@@ -126,15 +131,21 @@ def _normalize_chi(sig_ifft: np.ndarray,
 
 def step_despike(
     matched_set,
-    window: int,
-    threshold: float,
+    sig_params:    DeSpikeParams,
+    bg_params:     DeSpikeParams,
+    ref_params:    DeSpikeParams,
+    ref_bg_params: DeSpikeParams,
 ) -> DespikedData:
-    """Step 1 — remove cosmic rays from all four components."""
+    """Step 1 — remove cosmic rays from each component independently."""
     return DespikedData(
-        signal         = matched_set.signal.remove_cosmic_rays(window, threshold),
-        background     = matched_set.background.remove_cosmic_rays(window, threshold),
-        reference      = matched_set.reference.remove_cosmic_rays(window, threshold),
-        ref_background = matched_set.reference_background.remove_cosmic_rays(window, threshold),
+        signal         = matched_set.signal.remove_cosmic_rays(
+                             sig_params.window, sig_params.threshold),
+        background     = matched_set.background.remove_cosmic_rays(
+                             bg_params.window, bg_params.threshold),
+        reference      = matched_set.reference.remove_cosmic_rays(
+                             ref_params.window, ref_params.threshold),
+        ref_background = matched_set.reference_background.remove_cosmic_rays(
+                             ref_bg_params.window, ref_bg_params.threshold),
     )
 
 
