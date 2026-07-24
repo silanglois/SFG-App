@@ -123,20 +123,33 @@ class ProcessedResultsTab(QWidget):
     # ── Public API — called by MainWindow ─────────────────────────────────────
 
     def add_results(self, results: dict):
-        """Accept processed results dict from ProcessReviewTab.
-        Keys are signal filenames, values are ProcessedSpectrum objects.
-        """
+        from sfg_app2.processing.hd_sfg import HDSFGResult
+        from sfg_app2.processing.processed_spectrum import ProcessedSpectrum
+        import pandas as pd
+
         for filename, spectrum in results.items():
+            # convert HDSFGResult to ProcessedSpectrum for display
+            if isinstance(spectrum, HDSFGResult):
+                df = spectrum.to_dataframe()
+                df["Frame"] = 1
+                # use Imaginary as the primary Intensity column for plotting
+                df = df.rename(columns={"Imaginary": "Intensity"})
+                ps = ProcessedSpectrum(
+                    df,
+                    metadata  = spectrum.metadata,
+                    history   = spectrum.history,
+                )
+                ps.provenance = spectrum.provenance
+                spectrum = ps
+
             label = Path(filename).stem
             if not self._entry_exists(label):
                 self._entries.append(SpectrumEntry(spectrum, label))
                 self.ui.spectraList.addItem(
                     self._make_list_item(len(self._entries) - 1)
                 )
-        self._refresh_plot()
 
-    def _entry_exists(self, label: str) -> bool:
-        return any(e.label == label for e in self._entries)
+        self._refresh_plot()
 
     # ── List management ───────────────────────────────────────────────────────
 

@@ -233,14 +233,14 @@ class HDSFGPanel(QWidget):
         self._bg_offset.setValue(30.0)
         layout.addWidget(self._bg_offset)
 
-        layout.addWidget(QLabel("Edge left:"))
-        self._edge_left = QSpinBox()
+        layout.addWidget(QLabel("Edge high wn (pts):"))
+        self._edge_left = QSpinBox()   # controls high-wn end
         self._edge_left.setRange(1, 500)
         self._edge_left.setValue(4)
         layout.addWidget(self._edge_left)
 
-        layout.addWidget(QLabel("Edge right:"))
-        self._edge_right = QSpinBox()
+        layout.addWidget(QLabel("Edge low wn (pts):"))
+        self._edge_right = QSpinBox()  # controls low-wn end
         self._edge_right.setRange(1, 500)
         self._edge_right.setValue(100)
         layout.addWidget(self._edge_right)
@@ -359,7 +359,7 @@ class HDSFGPanel(QWidget):
         self._comp_combo.setVisible(step in comp_steps)
 
         # component row visible for all steps except raw (no apply needed there)
-        no_apply_steps = {"raw", "ifft"}
+        no_apply_steps = {"raw", "ifft", "normalization"}
         self._apply_btn.setVisible(step not in no_apply_steps)
         self._finish_btn.setVisible(step == "normalization")
 
@@ -382,19 +382,29 @@ class HDSFGPanel(QWidget):
     # ── Plot ──────────────────────────────────────────────────────────────────
 
     def _refresh_plot(self):
-        """Replot from cache — never recomputes."""
         step = self._current_step()
         self.plot_widget.full_clear()
 
         if step == "raw":
             self._plot_raw()
+            self.plot_widget.canvas.draw_idle()
             return
 
         cache = self._cache.get(self._matched_index, {})
+
         if step not in cache:
-            self.plot_widget.set_labels(
-                title=f"{HD_STEP_LABELS[step]} — click Apply or Process set"
-            )
+            # fall through to raw for steps that benefit from a preview
+            if step in {"despiked", "averaged"}:
+                self._plot_raw()
+                self.plot_widget.ax.set_title(
+                    f"{HD_STEP_LABELS[step]} — showing raw data. "
+                    f"Adjust parameters and click Apply."
+                )
+            else:
+                self.plot_widget.set_labels(
+                    title=f"{HD_STEP_LABELS[step]} — click Apply to compute"
+                )
+            self.plot_widget.canvas.draw_idle()
             return
 
         try:
@@ -409,13 +419,12 @@ class HDSFGPanel(QWidget):
             if plotter:
                 plotter(cache[step])
         except Exception as e:
-            logger.warning("HD-SFG plot failed at step '%s': %s", step, e,
-                           exc_info=True)
+            logger.warning("HD-SFG plot failed at '%s': %s", step, e, exc_info=True)
 
         self.plot_widget.canvas.draw_idle()
 
     def _component(self) -> str:
-        return self._component_combo.currentText().lower()   # "sample"/"reference"/"both"
+        return self._comp_combo.currentText().lower()   # "sample"/"reference"/"both"
 
     def _upconversion_wl(self) -> float:
         try:
@@ -425,6 +434,20 @@ class HDSFGPanel(QWidget):
 
     # ── Per-step plotters ─────────────────────────────────────────────────────
 
+    def _show_sample(self) -> bool:
+        p = self._pair_combo.currentText().lower()
+        return "sample" in p or "both" in p
+
+    def _show_reference(self) -> bool:
+        p = self._pair_combo.currentText().lower()
+        return "reference" in p or "both" in p
+
+    def _show_signal(self) -> bool:
+        return self._source_combo.currentText().lower() in ("signal", "both")
+
+    def _show_background(self) -> bool:
+        return self._source_combo.currentText().lower() in ("background", "both")
+
     def _plot_raw(self):
         if self._matched_set is None:
             return
@@ -433,15 +456,15 @@ class HDSFGPanel(QWidget):
         source = self._source()
 
         pairs = []
-        if "sample" in pair:
+        if self._show_sample():
             pairs.append(("Sample", self._matched_set.signal,
                                 self._matched_set.background))
-        if "reference" in pair:
+        if self._show_reference():
             pairs.append(("Ref", self._matched_set.reference,
                                 self._matched_set.reference_background))
 
         for pair_label, sig_src, bg_src in pairs:
-            if source in ("signal", "both") and sig_src:
+            if self._show_signal() and sig_src:
                 for fid in sig_src.data["Frame"].unique():
                     fd = sig_src.frame(fid)
                     wn = wl_to_wn(fd["Wavelength"].to_numpy())
@@ -449,7 +472,7 @@ class HDSFGPanel(QWidget):
                         wn, fd["Intensity"].to_numpy(),
                         alpha=0.8, label=f"{pair_label} sig F{fid}"
                     )
-            if source in ("background", "both") and bg_src:
+            if self._show_background() and bg_src:
                 for fid in bg_src.data["Frame"].unique():
                     fd = bg_src.frame(fid)
                     wn = wl_to_wn(fd["Wavelength"].to_numpy())
@@ -468,13 +491,13 @@ class HDSFGPanel(QWidget):
         source = self._source()
 
         pairs = []
-        if "sample" in pair:
+        if self._show_sample():
             pairs.append(("Sample", data.signal, data.background))
-        if "reference" in pair:
+        if self._show_reference():
             pairs.append(("Ref", data.reference, data.ref_background))
 
         for pair_label, sig_src, bg_src in pairs:
-            if source in ("signal", "both") and sig_src:
+            if self._show_signal() and sig_src:
                 for fid in sig_src.data["Frame"].unique():
                     fd = sig_src.frame(fid)
                     wn = wl_to_wn(fd["Wavelength"].to_numpy())
@@ -482,7 +505,7 @@ class HDSFGPanel(QWidget):
                         wn, fd["Intensity"].to_numpy(),
                         alpha=0.8, label=f"{pair_label} sig F{fid}"
                     )
-            if source in ("background", "both") and bg_src:
+            if self._show_background() and bg_src:
                 for fid in bg_src.data["Frame"].unique():
                     fd = bg_src.frame(fid)
                     wn = wl_to_wn(fd["Wavelength"].to_numpy())
@@ -501,15 +524,15 @@ class HDSFGPanel(QWidget):
         wn = data.wavenumber
 
         pairs = []
-        if "sample" in pair:
+        if self._show_sample():
             pairs.append(("Sample", data.sig_avg, data.bg_avg))
-        if "reference" in pair:
+        if self._show_reference():
             pairs.append(("Ref", data.ref_avg, data.ref_bg_avg))
 
         for pair_label, sig_y, bg_y in pairs:
-            if source in ("signal", "both"):
+            if self._show_signal() and sig_y is not None:
                 self.plot_widget.ax.plot(wn, sig_y, label=f"{pair_label} signal")
-            if source in ("background", "both"):
+            if self._show_background() and bg_y is not None:
                 self.plot_widget.ax.plot(wn, bg_y, linestyle="--",
                                         alpha=0.7, label=f"{pair_label} BG")
         self.plot_widget.set_labels(
@@ -635,12 +658,33 @@ class HDSFGPanel(QWidget):
 
         if self._cb_homodyne.isChecked():
             y = data.homodyne_avg if use_avg else data.homodyne
-            get_ax2().plot(wn, y, color="darkorange",
-                        linestyle="-.", label="|χ⁽²⁾|²")
+
+            # find the max amplitude of whatever is already plotted (Im and/or Re)
+            ref_amp = 0.0
+            if self._cb_imag.isChecked():
+                imag = data.complex_chi_avg.imag if use_avg else data.complex_chi.imag
+                ref_amp = max(ref_amp, np.abs(imag).max())
+            if self._cb_real.isChecked():
+                real = data.complex_chi_avg.real if use_avg else data.complex_chi.real
+                ref_amp = max(ref_amp, np.abs(real).max())
+
+            # compute scale factor so homodyne fits same amplitude range
+            homo_max = np.abs(y).max()
+            if ref_amp > 0 and homo_max > 0:
+                scale = ref_amp / homo_max
+            else:
+                scale = 1.0
+
+            self.plot_widget.ax.plot(
+                wn, y * scale, linestyle="-.",
+                label=f"|χ⁽²⁾|² (×{scale:.2e})"   # label tells user what scaling was applied
+            )
             if show_err and use_avg:
-                get_ax2().fill_between(
-                    wn, y - data.homodyne_err, y + data.homodyne_err,
-                    alpha=0.2, color="darkorange"
+                self.plot_widget.ax.fill_between(
+                    wn,
+                    (y - data.homodyne_err) * scale,
+                    (y + data.homodyne_err) * scale,
+                    alpha=0.3
                 )
 
         if self._cb_phase.isChecked():
