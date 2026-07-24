@@ -41,12 +41,12 @@ class MatchedSet:
 
     Any field can be None if no match was found — handle via .with_*() overrides.
     """
-    signal: object
-    background: Optional[object] = None
-    reference: Optional[object] = None
+    signal:               Optional[object] = None
+    background:           Optional[object] = None
+    reference:            Optional[object] = None
     reference_background: Optional[object] = None
+    spectrum_type:        str = "homodyne"   # "homodyne" | "heterodyne"
 
-    # ── Manual overrides (return new MatchedSet, don't mutate) ───────────────
     def with_background(self, bg) -> "MatchedSet":
         from dataclasses import replace
         return replace(self, background=bg)
@@ -59,19 +59,25 @@ class MatchedSet:
         from dataclasses import replace
         return replace(self, reference_background=ref_bg)
 
+    def with_type(self, spectrum_type: str) -> "MatchedSet":
+        from dataclasses import replace
+        return replace(self, spectrum_type=spectrum_type)
+
     def is_complete(self) -> bool:
-        """True if all four components are present — safe to run full pipeline."""
-        return all([self.signal, self.background, self.reference, self.reference_background])
+        return all([
+            self.signal, self.background,
+            self.reference, self.reference_background
+        ])
 
     def __repr__(self) -> str:
-        def name(f):
-            return f.path.name if f else "None"
+        def name(f): return f.path.name if f else "None"
         return (
             f"MatchedSet(\n"
-            f"  signal             = {name(self.signal)}\n"
-            f"  background         = {name(self.background)}\n"
-            f"  reference          = {name(self.reference)}\n"
+            f"  signal               = {name(self.signal)}\n"
+            f"  background           = {name(self.background)}\n"
+            f"  reference            = {name(self.reference)}\n"
             f"  reference_background = {name(self.reference_background)}\n"
+            f"  spectrum_type        = {self.spectrum_type}\n"
             f")"
         )
 
