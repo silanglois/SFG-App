@@ -383,17 +383,20 @@ class HDSFGPanel(QWidget):
 
     def _refresh_plot(self):
         step = self._current_step()
+        step_changed = step != getattr(self, "_last_step", None)
+        self._last_step = step
+
         self.plot_widget.full_clear()
 
         if step == "raw":
             self._plot_raw()
+            self.plot_widget.sync_x_range()
             self.plot_widget.canvas.draw_idle()
             return
 
         cache = self._cache.get(self._matched_index, {})
 
         if step not in cache:
-            # fall through to raw for steps that benefit from a preview
             if step in {"despiked", "averaged"}:
                 self._plot_raw()
                 self.plot_widget.ax.set_title(
@@ -404,6 +407,7 @@ class HDSFGPanel(QWidget):
                 self.plot_widget.set_labels(
                     title=f"{HD_STEP_LABELS[step]} — click Apply to compute"
                 )
+            self.plot_widget.sync_x_range()
             self.plot_widget.canvas.draw_idle()
             return
 
@@ -421,6 +425,14 @@ class HDSFGPanel(QWidget):
         except Exception as e:
             logger.warning("HD-SFG plot failed at '%s': %s", step, e, exc_info=True)
 
+        if step_changed:
+            # new step → reset spinboxes to match new data range
+            self.plot_widget.sync_x_range()
+        else:
+            # same step, Apply clicked → keep user's custom range, just re-apply it
+            self.plot_widget._apply_x_range()
+
+        self.plot_widget.figure.tight_layout()
         self.plot_widget.canvas.draw_idle()
 
     def _component(self) -> str:

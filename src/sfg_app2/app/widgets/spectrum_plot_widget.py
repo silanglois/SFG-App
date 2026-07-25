@@ -17,9 +17,10 @@ class SpectrumPlotWidget(QWidget):
         self.toolbar = NavigationToolbar2QT(self.canvas, self)
         self.ax = self.figure.add_subplot(111)
 
-        # x-range controls
         self._x_range_widget = self._build_x_range_controls()
+        self._x_range_initialized = False
         self._x_full_range: tuple[float, float] | None = None
+        self._plotting: bool = False   # ← add this
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -27,9 +28,6 @@ class SpectrumPlotWidget(QWidget):
         layout.addWidget(self.toolbar)
         layout.addWidget(self.canvas)
         layout.addWidget(self._x_range_widget)
-
-        # track whether spinboxes have been initialised with real data
-        self._x_range_initialized = False
 
     def _build_x_range_controls(self) -> QWidget:
         widget = QWidget()
@@ -72,20 +70,20 @@ class SpectrumPlotWidget(QWidget):
         self.ax.clear()
         self._x_range_initialized = False
         self._x_full_range = None
-        self.canvas.draw()
+        self.canvas.draw_idle()
 
     def plot(self, x, y, label: str = None, **kwargs):
         self.ax.plot(x, y, label=label, **kwargs)
         if label:
             self.ax.legend()
         self._sync_x_range_from_data()
-        self.canvas.draw()
+        self.canvas.draw_idle()
 
     def set_labels(self, xlabel: str = "", ylabel: str = "", title: str = ""):
         self.ax.set_xlabel(xlabel)
         self.ax.set_ylabel(ylabel)
         self.ax.set_title(title)
-        self.canvas.draw()
+        self.canvas.draw_idle()
 
     def set_x_range(self, x_min: float, x_max: float):
         """Programmatically set the x range (e.g. from calibration dialog)."""
@@ -97,26 +95,38 @@ class SpectrumPlotWidget(QWidget):
         self._x_max_spin.blockSignals(False)
         self._apply_x_range()
 
+    def sync_x_range(self):
+        """Sync x-range spinboxes to current axes data range.
+        Call after using ax.plot() directly rather than self.plot().
+        """
+        self._x_range_initialized = False   # force fresh sync
+        self._sync_x_range_from_data()
+
     # ── Internal ──────────────────────────────────────────────────────────────
 
     def _sync_x_range_from_data(self):
         if self._x_range_initialized:
             return
-        lines = self.ax.get_lines()
-        if not lines:
-            return
 
         import numpy as np
         all_x = []
-        for line in lines:
-            xd = line.get_xdata()
-            if len(xd):
+
+        for ax in self.figure.get_axes():
+            for line in ax.get_lines():
+                xd = np.asarray(line.get_xdata(), dtype=float)
+                if not len(xd):
+                    continue
+                # skip axhline — its xdata is exactly [0, 1] in axes fraction space
+                if len(xd) == 2 and np.allclose(xd, [0.0, 1.0]):
+                    continue
                 all_x.extend(xd)
+
         if not all_x:
             return
 
-        x_min, x_max = float(np.nanmin(all_x)), float(np.nanmax(all_x))
-        self._x_full_range = (x_min, x_max)   # store full range for reset
+        x_min = float(np.nanmin(all_x))
+        x_max = float(np.nanmax(all_x))
+        self._x_full_range = (x_min, x_max)
 
         self._x_min_spin.blockSignals(True)
         self._x_max_spin.blockSignals(True)
@@ -133,17 +143,16 @@ class SpectrumPlotWidget(QWidget):
         self._apply_x_range()
 
     def _apply_x_range(self):
+        if self._plotting:
+            return
         x_min = self._x_min_spin.value()
         x_max = self._x_max_spin.value()
         if x_min >= x_max:
             return
-
-        # apply to all axes in the figure (covers twin-axis case)
         for ax in self.figure.get_axes():
             ax.set_xlim(x_min, x_max)
-
         self._autoscale_y(x_min, x_max)
-        self.canvas.draw()
+        self.canvas.draw_idle()
 
     def _on_reset_x_range(self):
         if self._x_full_range is None:
@@ -164,9 +173,12 @@ class SpectrumPlotWidget(QWidget):
         for ax in self.figure.get_axes():
             y_for_ax = []
             for line in ax.get_lines():
-                xd = line.get_xdata()
-                yd = line.get_ydata()
+                xd = np.asarray(line.get_xdata(), dtype=float)
+                yd = np.asarray(line.get_ydata(), dtype=float)
                 if not len(xd):
+                    continue
+                # skip axhline/axvline
+                if len(xd) == 2 and np.allclose(xd, [0.0, 1.0]):
                     continue
                 mask = (xd >= x_min) & (xd <= x_max)
                 if mask.any():
