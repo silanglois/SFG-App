@@ -23,7 +23,7 @@ HD_STEP_LABELS = {
     "raw":           "Raw",
     "despiked":      "Despiked",
     "averaged":      "Averaged",
-    "bg_smooth":     "BG + Subtraction",
+    "bg_smooth":     "BG Subtraction",
     "fft_filter":    "FFT + Filter",
     "ifft":          "iFFT",
     "normalization": "Normalization",
@@ -359,7 +359,7 @@ class HDSFGPanel(QWidget):
         self._comp_combo.setVisible(step in comp_steps)
 
         # component row visible for all steps except raw (no apply needed there)
-        no_apply_steps = {"raw", "ifft", "normalization"}
+        no_apply_steps = {"raw", "ifft"}
         self._apply_btn.setVisible(step not in no_apply_steps)
         self._finish_btn.setVisible(step == "normalization")
 
@@ -637,7 +637,7 @@ class HDSFGPanel(QWidget):
             nonlocal ax2
             if ax2 is None:
                 ax2 = self.plot_widget.ax.twinx()
-                ax2.set_ylabel("|χ⁽²⁾|² / Phase (°)", color="gray")
+                ax2.set_ylabel("Phase (°)", color="gray")
             return ax2
 
         if self._cb_imag.isChecked():
