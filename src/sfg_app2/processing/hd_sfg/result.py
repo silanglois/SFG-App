@@ -125,12 +125,12 @@ class HDSFGResult:
         if xlim:
             ax.set_xlim(*xlim)
 
-        ax.set_xlabel("Wavenumber (cm⁻¹)")
+        ax.set_xlabel("Wavenumber (cm$^{-1}$)")
         ylabel = {
-            "real":      "Re(χ⁽²⁾)",
-            "imaginary": "Im(χ⁽²⁾)",
+            "real":      r"Re($\chi^{(2)}$)",
+            "imaginary": r"Im($\chi^{(2)}$)",
             "phase":     "Phase (°)",
-            "homodyne":  "|χ⁽²⁾|²",
+            "homodyne":  r"$|\chi^{(2)}|^2$",
         }.get(comp, "Amplitude")
         ax.set_ylabel(ylabel)
 

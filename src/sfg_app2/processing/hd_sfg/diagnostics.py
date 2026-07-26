@@ -83,7 +83,7 @@ class HDSFGDiagnostics:
                 label="Delta (unwindowed)")
 
         ax.axhline(0, color="gray", linewidth=0.5)
-        ax.set_xlabel("Wavenumber (cm⁻¹)")
+        ax.set_xlabel("Wavenumber (cm$^{-1}$)")
         ax.set_ylabel("Intensity")
         ax.set_title(
             f"Step 1 — {'Frame ' + str(frame_idx) if frame_idx is not None else 'Averaged'} "
@@ -105,7 +105,7 @@ class HDSFGDiagnostics:
         ax.plot(wn, self.sig_delta_windowed, label="Delta (windowed)", linewidth=1.5)
         ax2.plot(wn, self.edge_window, color="gray", linewidth=0.8,
                  linestyle=":", label="Edge window")
-        ax.set_xlabel("Wavenumber (cm⁻¹)")
+        ax.set_xlabel("Wavenumber (cm$^{-1}$)")
         ax.set_ylabel("Delta intensity")
         ax2.set_ylabel("Window weight", color="gray")
         ax.set_title("Step 2 — Edge window applied to delta")
@@ -172,7 +172,7 @@ class HDSFGDiagnostics:
         ax.plot(wn, self.sig_ifft.real, label="Signal iFFT (real)", linestyle="--")
         ax.plot(wn, self.ref_ifft.imag, label="Reference iFFT (imag)", alpha=0.6)
         ax.axhline(0, color="gray", linewidth=0.5)
-        ax.set_xlabel("Wavenumber (cm⁻¹)")
+        ax.set_xlabel("Wavenumber (cm$^{-1}$)")
         ax.set_ylabel("Amplitude")
         ax.set_title("Step 5 — iFFT result")
         if xlim:
@@ -186,11 +186,11 @@ class HDSFGDiagnostics:
             _, ax = plt.subplots(figsize=(8, 4))
 
         wn = self.wavenumber
-        ax.plot(wn, self.chi_from_avg.imag, label="Im(χ⁽²⁾)")
-        ax.plot(wn, self.chi_from_avg.real, label="Re(χ⁽²⁾)", linestyle="--")
+        ax.plot(wn, self.chi_from_avg.imag, label=r"Im($\chi^{(2)}$)")
+        ax.plot(wn, self.chi_from_avg.real, label=r"Re($\chi^{(2)}$)", linestyle="--")
         ax.axhline(0, color="gray", linewidth=0.5)
-        ax.set_xlabel("Wavenumber (cm⁻¹)")
-        ax.set_ylabel("χ⁽²⁾ (arb. units)")
+        ax.set_xlabel("Wavenumber (cm$^{-1}$)")
+        ax.set_ylabel(r"$\chi^{(2)}$ (arb. units)")
         ax.set_title("Step 6 — Final normalized result")
         if xlim:
             ax.set_xlim(*xlim)

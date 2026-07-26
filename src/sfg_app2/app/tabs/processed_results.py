@@ -237,7 +237,7 @@ class ProcessedResultsTab(QWidget):
         # determine x column — use Wavenumber if available, else Wavelength
         first_data = entries[0].spectrum.data
         x_col = "Wavenumber" if "Wavenumber" in first_data.columns else "Wavelength"
-        x_label = "Wavenumber (cm⁻¹)" if x_col == "Wavenumber" else "Wavelength (nm)"
+        x_label = "Wavenumber (cm$^{-1}$)" if x_col == "Wavenumber" else "Wavelength (nm)"
 
         for i, entry in enumerate(entries):
             try:

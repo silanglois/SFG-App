@@ -557,7 +557,7 @@ class HDSFGPanel(QWidget):
                         linestyle="--", alpha=0.6, label=f"{pair_label} BG F{fid}"
                     )
         self.plot_widget.set_labels(
-            xlabel="Wavenumber (cm⁻¹)", ylabel="Intensity", title="Raw"
+            xlabel="Wavenumber (cm$^{-1}$)", ylabel="Intensity", title="Raw"
         )
 
 
@@ -590,7 +590,7 @@ class HDSFGPanel(QWidget):
                         linestyle="--", alpha=0.6, label=f"{pair_label} BG F{fid}"
                     )
         self.plot_widget.set_labels(
-            xlabel="Wavenumber (cm⁻¹)", ylabel="Intensity", title="Despiked"
+            xlabel="Wavenumber (cm$^{-1}$)", ylabel="Intensity", title="Despiked"
         )
 
 
@@ -612,7 +612,7 @@ class HDSFGPanel(QWidget):
                 self.plot_widget.ax.plot(wn, bg_y, linestyle="--",
                                         alpha=0.7, label=f"{pair_label} BG")
         self.plot_widget.set_labels(
-            xlabel="Wavenumber (cm⁻¹)", ylabel="Intensity", title="Averaged"
+            xlabel="Wavenumber (cm$^{-1}$)", ylabel="Intensity", title="Averaged"
         )
 
     def _plot_bg_smooth(self, data):
@@ -656,7 +656,7 @@ class HDSFGPanel(QWidget):
 
         self.plot_widget.ax.axhline(0, color="gray", linewidth=0.5)
         self.plot_widget.set_labels(
-            xlabel="Wavenumber (cm⁻¹)", ylabel="Intensity", title=title
+            xlabel="Wavenumber (cm$^{-1}$)", ylabel="Intensity", title=title
         )
 
     def _plot_fft_filter(self, data):
@@ -698,7 +698,7 @@ class HDSFGPanel(QWidget):
                                      alpha=0.7, label="Reference iFFT (imag)")
         self.plot_widget.ax.axhline(0, color="gray", linewidth=0.5)
         self.plot_widget.set_labels(
-            xlabel="Wavenumber (cm⁻¹)", ylabel="Amplitude",
+            xlabel="Wavenumber (cm$^{-1}$)", ylabel="Amplitude",
             title="iFFT result (frequency domain)"
         )
 
@@ -715,9 +715,9 @@ class HDSFGPanel(QWidget):
         if not self._norm_lines:
             ax = self.plot_widget.ax
             self._norm_lines["imag"] = ax.plot(
-                wn, np.zeros_like(wn), label="Im(χ⁽²⁾)")[0]
+                wn, np.zeros_like(wn), label=r"Im($\chi^{(2)}$)")[0]
             self._norm_lines["real"] = ax.plot(
-                wn, np.zeros_like(wn), linestyle="--", label="Re(χ⁽²⁾)")[0]
+                wn, np.zeros_like(wn), linestyle="--", label=r"Re($\chi^{(2)}$)")[0]
             self._norm_lines["homo"] = ax.plot(
                 wn, np.zeros_like(wn), linestyle="-.", label="")[0]
             ax.axhline(0, color="gray", linewidth=0.5, linestyle="--")
@@ -757,7 +757,7 @@ class HDSFGPanel(QWidget):
         homo_max = np.abs(y_homo).max()
         scale = (ref_amp / homo_max) if ref_amp > 0 and homo_max > 0 else 1.0
         self._norm_lines["homo"].set_ydata(y_homo * scale)
-        self._norm_lines["homo"].set_label(f"|χ⁽²⁾|² (×{scale:.2e})")
+        self._norm_lines["homo"].set_label(rf"$|\chi^{{(2)}}|^2$ (×{scale:.2e})")
         self._norm_lines["homo"].set_visible(self._cb_homodyne.isChecked())
 
         # phase
@@ -803,8 +803,8 @@ class HDSFGPanel(QWidget):
             ax.legend(all_lines, all_labels, fontsize=8)
 
         self.plot_widget.set_labels(
-            xlabel="Wavenumber (cm⁻¹)",
-            ylabel="χ⁽²⁾ (arb. units)",
+            xlabel="Wavenumber (cm$^{-1}$)",
+            ylabel=r"$\chi^{(2)}$ (arb. units)",
             title="Normalized HD-SFG result"
         )
 

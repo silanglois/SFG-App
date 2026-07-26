@@ -431,7 +431,7 @@ class ProcessReviewTab(QWidget):
             self._update_despike_status(total_spikes, spike_frames)
 
         self.plot_widget.set_labels(
-            xlabel="Wavenumber (cm⁻¹)" if step == "normalized" else "Wavelength (nm)",
+            xlabel="Wavenumber (cm$^{-1}$)" if step == "normalized" else "Wavelength (nm)",
             ylabel="Intensity",
             title=step.replace("_", " ").title(),
         )
