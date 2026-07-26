@@ -15,28 +15,28 @@ class HDSFGConfig:
     n_interpolation_points: int | None = None
 
     # ── Smoothing — background (Savitzky-Golay) ───────────────────────────────
-    bg_smoothing_window: int = 31    # LengthSm — must be odd
+    bg_smoothing_window: int = 0     # LengthSm — must be odd
     bg_smoothing_order: int = 3      # orderSm
 
     # ── Smoothing — signal / reference (Savitzky-Golay) ──────────────────────
-    sig_smoothing_window: int = 3    # LengthSm2 — must be odd, 0 = no smoothing
+    sig_smoothing_window: int = 0    # LengthSm2 — must be odd, 0 = no smoothing
     sig_smoothing_order: int = 2     # orderSm2
 
     # ── Background offset ─────────────────────────────────────────────────────
     bg_offset: float = 0.0           # OffSetBg — constant added to sample bg
 
     # ── Edge window applied to delta before FFT ───────────────────────────────
-    edge_left: int = 3               # Zero_L_smooth
-    edge_right: int = 100            # Zero_R_smooth
+    edge_left: int = 15              # Zero_L_smooth
+    edge_right: int = 15             # Zero_R_smooth
 
     # ── FFT mask window ───────────────────────────────────────────────────────
     # 1: Box-Car
     # 2: Box-Car + Happ-Genzel (left edge only)
     # 3: Double Happ-Genzel (both edges)
     # 4: Masking Happ-Genzel (with attenuated region)
-    window_type: int = 2
+    window_type: int = 3
 
-    fft_start: int = 55              # fft_x_st
+    fft_start: int = 30              # fft_x_st
     fft_end: int = 110               # fft_x_end
     hg_left: int = 10                # L_HG1
     hg_right: int = 10               # L_HG2 (type 3 only)
@@ -49,15 +49,15 @@ class HDSFGConfig:
 
     # ── Exposure times ────────────────────────────────────────────────────────
     sample_exposure: float = 300.0   # seconds
-    reference_exposure: float = 1.0
+    reference_exposure: float = 30.0   # seconds
 
     # ── Phase correction ──────────────────────────────────────────────────────
     phase_correction_deg: float = 0.0   # phase_corr — additional rotation in degrees
 
     # ── Despiking ─────────────────────────────────
     despike: bool = True
-    despike_window: int = 20
-    despike_threshold: float = 15.0
+    despike_window: int = 50
+    despike_threshold: float = 10
 
     def __post_init__(self):
         self.edge_left  = int(self.edge_left)

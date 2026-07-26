@@ -150,21 +150,28 @@ class HDSFGPanel(QWidget):
         self._pair_combo = QComboBox()
         self._pair_combo.addItems(["Sample pair", "Reference pair", "Both pairs"])
         self._pair_combo.setFixedWidth(120)
+        self._pair_combo.setToolTip("Select which pair(s) to show in the plot")
+        self._pair_combo.setCurrentIndex(2)   # default to both pairs
 
         self._source_label = QLabel("Show:")
         self._source_combo = QComboBox()
         self._source_combo.addItems(["Signal", "Background", "Both"])
         self._source_combo.setFixedWidth(110)
+        self._source_combo.setToolTip("Select which component(s) to show in the plot")
+        self._source_combo.setCurrentIndex(2)   # default to both
 
         self._view_label = QLabel("View:")
         self._view_combo = QComboBox()
         self._view_combo.addItems(["Signal + Background", "Subtracted result"])
         self._view_combo.setFixedWidth(170)
+        self._view_combo.setToolTip("Select which view to show in the plot")
 
         self._comp_label = QLabel("Show:")
         self._comp_combo = QComboBox()
         self._comp_combo.addItems(["Sample", "Reference", "Both"])
         self._comp_combo.setFixedWidth(110)
+        self._comp_combo.setToolTip("Select which component(s) to show in the plot")
+        self._comp_combo.setCurrentIndex(2)   # default to both
 
         for w in [self._pair_label, self._pair_combo,
                 self._source_label, self._source_combo,
@@ -208,16 +215,16 @@ class HDSFGPanel(QWidget):
             grid.addWidget(QLabel(label + ":"), row_idx, 0)
 
             window_sb = QSpinBox()
-            window_sb.setRange(3, 101)
-            window_sb.setSingleStep(2)
-            window_sb.setValue(20)
+            window_sb.setRange(3, 1001)
+            window_sb.setSingleStep(10)
+            window_sb.setValue(50)
             grid.addWidget(window_sb, row_idx, 1)
 
             threshold_sb = QDoubleSpinBox()
             threshold_sb.setRange(0.5, 10000.0)
-            threshold_sb.setSingleStep(10.0)
+            threshold_sb.setSingleStep(5.0)
             threshold_sb.setDecimals(1)
-            threshold_sb.setValue(15.0)
+            threshold_sb.setValue(10.0)
             grid.addWidget(threshold_sb, row_idx, 2)
 
             self._despike_params[key] = {
@@ -244,20 +251,20 @@ class HDSFGPanel(QWidget):
         layout.addWidget(QLabel("BG offset:"))
         self._bg_offset = QDoubleSpinBox()
         self._bg_offset.setRange(-10000.0, 10000.0)
-        self._bg_offset.setValue(30.0)
+        self._bg_offset.setValue(0.0)
         layout.addWidget(self._bg_offset)
-
-        layout.addWidget(QLabel("Edge high wn (pts):"))
-        self._edge_left = QSpinBox()   # controls high-wn end
-        self._edge_left.setRange(1, 500)
-        self._edge_left.setValue(4)
-        layout.addWidget(self._edge_left)
 
         layout.addWidget(QLabel("Edge low wn (pts):"))
         self._edge_right = QSpinBox()  # controls low-wn end
-        self._edge_right.setRange(1, 500)
-        self._edge_right.setValue(100)
+        self._edge_right.setRange(1, 1000)
+        self._edge_right.setValue(15)
         layout.addWidget(self._edge_right)
+
+        layout.addWidget(QLabel("Edge high wn (pts):"))
+        self._edge_left = QSpinBox()   # controls high-wn end
+        self._edge_left.setRange(1, 1000)
+        self._edge_left.setValue(15)
+        layout.addWidget(self._edge_left)
 
         layout.addStretch()
         return gb
@@ -275,11 +282,11 @@ class HDSFGPanel(QWidget):
             ("4 — Masking HG", 4),
         ]:
             self._fft_window_type.addItem(label, userData=val)
-        self._fft_window_type.setCurrentIndex(1)
+        self._fft_window_type.setCurrentIndex(2)   # default to type 3
         layout.addWidget(self._fft_window_type)
         for label, attr, default in [
-            ("Start (pts):", "_fft_start",  35),
-            ("End (pts):",   "_fft_end",   100),
+            ("Start (pts):", "_fft_start",  30),
+            ("End (pts):",   "_fft_end",   110),
             ("HG L (pts):",  "_hg_left",    10),
             ("HG R (pts):",  "_hg_right",   10),
         ]:
@@ -307,12 +314,12 @@ class HDSFGPanel(QWidget):
         row1.addWidget(QLabel("Ref exp (s):"))
         self._ref_exp = QDoubleSpinBox()
         self._ref_exp.setRange(0.001, 100000.0)
-        self._ref_exp.setValue(1.0)
+        self._ref_exp.setValue(30.0)
         row1.addWidget(self._ref_exp)
         row1.addWidget(QLabel("Phase corr (°):"))
         self._phase_corr = QDoubleSpinBox()
         self._phase_corr.setRange(-360.0, 360.0)
-        self._phase_corr.setSingleStep(1.0)
+        self._phase_corr.setSingleStep(2.0)
         self._phase_corr.setValue(0.0)
         row1.addWidget(self._phase_corr)
         row1.addStretch()
