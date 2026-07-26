@@ -1,8 +1,9 @@
 from __future__ import annotations
 import logging
 
+from matplotlib.pyplot import step
 import numpy as np
-from PySide6.QtCore import Signal, Qt
+from PySide6.QtCore import Signal, Qt, QTimer
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QGroupBox, QPushButton, QRadioButton, QButtonGroup,
@@ -62,6 +63,22 @@ class HDSFGPanel(QWidget):
         # per-step cache — keyed by matched_set_index
         # each entry: dict with keys matching HD_STEPS
         self._cache: dict[int, dict] = {}
+        self._last_step: str | None = None
+        self._norm_lines: dict = {}
+        self._norm_ax2 = None
+
+        # debounce timer for rapid signal firing
+        self._redraw_timer = QTimer()
+        self._redraw_timer.setSingleShot(True)
+        self._redraw_timer.setInterval(50)          # ms — tune if needed
+        self._redraw_timer.timeout.connect(self._refresh_plot)
+
+
+        self._auto_process_timer = QTimer()
+        self._auto_process_timer.setSingleShot(True)
+        self._auto_process_timer.setInterval(400)   # 400ms — feels responsive but not jumpy
+        self._auto_process_timer.timeout.connect(self._do_auto_process)
+        self._auto_process_step: str | None = None
 
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(4, 4, 4, 4)
@@ -129,7 +146,6 @@ class HDSFGPanel(QWidget):
         layout = QHBoxLayout(frame)
         layout.setContentsMargins(4, 0, 4, 0)
 
-        # --- raw / despiked / averaged ---
         self._pair_label = QLabel("Pair:")
         self._pair_combo = QComboBox()
         self._pair_combo.addItems(["Sample pair", "Reference pair", "Both pairs"])
@@ -140,13 +156,11 @@ class HDSFGPanel(QWidget):
         self._source_combo.addItems(["Signal", "Background", "Both"])
         self._source_combo.setFixedWidth(110)
 
-        # --- bg subtraction ---
         self._view_label = QLabel("View:")
         self._view_combo = QComboBox()
         self._view_combo.addItems(["Signal + Background", "Subtracted result"])
         self._view_combo.setFixedWidth(170)
 
-        # --- fft_filter / ifft ---
         self._comp_label = QLabel("Show:")
         self._comp_combo = QComboBox()
         self._comp_combo.addItems(["Sample", "Reference", "Both"])
@@ -160,11 +174,11 @@ class HDSFGPanel(QWidget):
 
         layout.addStretch()
 
-        self._apply_btn = QPushButton("Apply")
-        self._apply_btn.setFixedWidth(80)
-        layout.addWidget(self._apply_btn)
+        self._process_btn = QPushButton("▶ Process all")
+        self._process_btn.setToolTip("Run full pipeline from scratch")
+        self._process_btn.setFixedWidth(110)
+        layout.addWidget(self._process_btn)
 
-        # Finish button — normalization step only
         self._finish_btn = QPushButton("✓ Send to Results")
         self._finish_btn.setVisible(False)
         layout.addWidget(self._finish_btn)
@@ -325,26 +339,54 @@ class HDSFGPanel(QWidget):
     # ── Signal wiring ─────────────────────────────────────────────────────────
 
     def _connect_signals(self):
+        # step selector
         for rb in self._step_radios.values():
             rb.toggled.connect(
                 lambda checked, r=rb: self._on_step_changed() if checked else None
             )
-        self._pair_combo.currentIndexChanged.connect(self._refresh_plot)
-        self._source_combo.currentIndexChanged.connect(self._refresh_plot)
-        self._view_combo.currentIndexChanged.connect(self._refresh_plot)
-        self._comp_combo.currentIndexChanged.connect(self._refresh_plot)
-        self._apply_btn.clicked.connect(self._on_apply)
-        self._finish_btn.clicked.connect(self._on_finish)
+
+        # view combos — just replot, no reprocess needed
+        for widget in [self._pair_combo, self._source_combo,
+                    self._view_combo, self._comp_combo]:
+            widget.currentIndexChanged.connect(self._redraw_timer.start)
+
+        # normalization checkboxes — just replot
         for cb in [self._cb_imag, self._cb_real,
                 self._cb_homodyne, self._cb_phase, self._cb_errors]:
-            cb.stateChanged.connect(self._refresh_plot)
+            cb.stateChanged.connect(self._redraw_timer.start)
+
+        # despike params → auto-reprocess from despike step
+        for key in self._despike_params:
+            self._despike_params[key]["window"].valueChanged.connect(
+                lambda: self._auto_process_from("despiked")
+            )
+            self._despike_params[key]["threshold"].valueChanged.connect(
+                lambda: self._auto_process_from("despiked")
+            )
+
+        # bg subtraction params → auto-reprocess from bg_smooth step
+        for sb in [self._bg_offset, self._edge_left, self._edge_right]:
+            sb.valueChanged.connect(lambda: self._auto_process_from("bg_smooth"))
+
+        # FFT params → auto-reprocess from fft_filter step
+        for sb in [self._fft_start, self._fft_end, self._hg_left, self._hg_right]:
+            sb.valueChanged.connect(lambda: self._auto_process_from("fft_filter"))
+        self._fft_window_type.currentIndexChanged.connect(
+            lambda: self._auto_process_from("fft_filter")
+        )
+
+        # normalization params → auto-reprocess from normalization step
+        for sb in [self._sample_exp, self._ref_exp, self._phase_corr]:
+            sb.valueChanged.connect(lambda: self._auto_process_from("normalization"))
+
+        self._finish_btn.clicked.connect(self._on_finish)
+        self._process_btn.clicked.connect(self._on_process)
 
     # ── Step change ───────────────────────────────────────────────────────────
 
     def _on_step_changed(self):
         step = self._current_step()
 
-        # which widgets are visible in the component row
         pair_source_steps = {"raw", "despiked", "averaged"}
         view_steps        = {"bg_smooth"}
         comp_steps        = {"fft_filter", "ifft"}
@@ -358,12 +400,10 @@ class HDSFGPanel(QWidget):
         self._comp_label.setVisible(step in comp_steps)
         self._comp_combo.setVisible(step in comp_steps)
 
-        # component row visible for all steps except raw (no apply needed there)
-        no_apply_steps = {"raw", "ifft"}
-        self._apply_btn.setVisible(step not in no_apply_steps)
+        self._component_row.setVisible(True)
+        self._process_btn.setVisible(step != "normalization")
         self._finish_btn.setVisible(step == "normalization")
 
-        # param sections
         section_key = STEP_SECTION.get(step)
         for key, gb in self._param_sections.items():
             gb.setVisible(key == section_key)
@@ -383,10 +423,27 @@ class HDSFGPanel(QWidget):
 
     def _refresh_plot(self):
         step = self._current_step()
-        step_changed = step != getattr(self, "_last_step", None)
+        step_changed = step != self._last_step
         self._last_step = step
 
-        self.plot_widget.full_clear()
+        cache = self._cache.get(self._matched_index, {})
+
+        # normalization with existing lines — skip all clearing, update in place
+        if step == "normalization" and self._norm_lines and not step_changed:
+            if "normalization" in cache:
+                try:
+                    self._plot_normalization(cache["normalization"])
+                except Exception as e:
+                    logger.warning("Normalization plot failed: %s", e, exc_info=True)
+            self.plot_widget.canvas.draw_idle()
+            return
+
+        if step_changed:
+            self.plot_widget.full_clear()
+            self._norm_lines.clear()
+            self._norm_ax2 = None
+        else:
+            self.plot_widget.soft_clear()
 
         if step == "raw":
             self._plot_raw()
@@ -394,18 +451,16 @@ class HDSFGPanel(QWidget):
             self.plot_widget.canvas.draw_idle()
             return
 
-        cache = self._cache.get(self._matched_index, {})
-
         if step not in cache:
             if step in {"despiked", "averaged"}:
                 self._plot_raw()
                 self.plot_widget.ax.set_title(
                     f"{HD_STEP_LABELS[step]} — showing raw data. "
-                    f"Adjust parameters and click Apply."
+                    f"Adjust parameters — changes apply automatically."
                 )
             else:
                 self.plot_widget.set_labels(
-                    title=f"{HD_STEP_LABELS[step]} — click Apply to compute"
+                    title=f"{HD_STEP_LABELS[step]} — adjust parameters to compute"
                 )
             self.plot_widget.sync_x_range()
             self.plot_widget.canvas.draw_idle()
@@ -426,10 +481,8 @@ class HDSFGPanel(QWidget):
             logger.warning("HD-SFG plot failed at '%s': %s", step, e, exc_info=True)
 
         if step_changed:
-            # new step → reset spinboxes to match new data range
             self.plot_widget.sync_x_range()
         else:
-            # same step, Apply clicked → keep user's custom range, just re-apply it
             self.plot_widget._apply_x_range()
 
         self.plot_widget.figure.tight_layout()
@@ -639,88 +692,104 @@ class HDSFGPanel(QWidget):
         )
 
     def _plot_normalization(self, data):
-        wn = data.wavenumber
+        """Option 3 — update line data in place rather than recreating.
+        Lines are created once and stored in self._norm_lines.
+        """
+        import numpy as np
+        wn      = data.wavenumber
+        use_avg = data.n_frames > 1
         show_err = self._cb_errors.isChecked()
-        use_avg  = data.n_frames > 1
-        has_phase_or_homo = self._cb_homodyne.isChecked() or self._cb_phase.isChecked()
-        ax2 = None   # secondary axis — created on demand
 
-        def get_ax2():
-            nonlocal ax2
-            if ax2 is None:
-                ax2 = self.plot_widget.ax.twinx()
-                ax2.set_ylabel("Phase (°)", color="gray")
-            return ax2
+        # ── First call: create all lines ─────────────────────────────────────────
+        if not self._norm_lines:
+            ax = self.plot_widget.ax
+            self._norm_lines["imag"] = ax.plot(
+                wn, np.zeros_like(wn), label="Im(χ⁽²⁾)")[0]
+            self._norm_lines["real"] = ax.plot(
+                wn, np.zeros_like(wn), linestyle="--", label="Re(χ⁽²⁾)")[0]
+            self._norm_lines["homo"] = ax.plot(
+                wn, np.zeros_like(wn), linestyle="-.", label="")[0]
+            ax.axhline(0, color="gray", linewidth=0.5, linestyle="--")
 
-        if self._cb_imag.isChecked():
-            y = data.complex_chi_avg.imag if use_avg else data.complex_chi.imag
-            self.plot_widget.ax.plot(wn, y, label="Im(χ⁽²⁾)")
-            if show_err and use_avg:
-                self.plot_widget.ax.fill_between(
-                    wn, y - data.imag_err, y + data.imag_err, alpha=0.3
-                )
-
-        if self._cb_real.isChecked():
-            y = data.complex_chi_avg.real if use_avg else data.complex_chi.real
-            self.plot_widget.ax.plot(wn, y, linestyle="--", label="Re(χ⁽²⁾)")
-            if show_err and use_avg:
-                self.plot_widget.ax.fill_between(
-                    wn, y - data.real_err, y + data.real_err, alpha=0.3
-                )
-
-        if self._cb_homodyne.isChecked():
-            y = data.homodyne_avg if use_avg else data.homodyne
-
-            # find the max amplitude of whatever is already plotted (Im and/or Re)
-            ref_amp = 0.0
-            if self._cb_imag.isChecked():
-                imag = data.complex_chi_avg.imag if use_avg else data.complex_chi.imag
-                ref_amp = max(ref_amp, np.abs(imag).max())
-            if self._cb_real.isChecked():
-                real = data.complex_chi_avg.real if use_avg else data.complex_chi.real
-                ref_amp = max(ref_amp, np.abs(real).max())
-
-            # compute scale factor so homodyne fits same amplitude range
-            homo_max = np.abs(y).max()
-            if ref_amp > 0 and homo_max > 0:
-                scale = ref_amp / homo_max
-            else:
-                scale = 1.0
-
-            self.plot_widget.ax.plot(
-                wn, y * scale, linestyle="-.",
-                label=f"|χ⁽²⁾|² (×{scale:.2e})"   # label tells user what scaling was applied
+            # twin axis for phase
+            self._norm_ax2 = ax.twinx()
+            self._norm_lines["phase"] = self._norm_ax2.plot(
+                wn, np.zeros_like(wn), color="gray",
+                linestyle=":", alpha=0.8, label="Phase (°)")[0]
+            self._norm_lines["phase_fill"] = None
+            self._norm_ax2.axhline(
+                90, color="gray", linewidth=0.4, linestyle="--"
             )
-            if show_err and use_avg:
-                self.plot_widget.ax.fill_between(
-                    wn,
-                    (y - data.homodyne_err) * scale,
-                    (y + data.homodyne_err) * scale,
-                    alpha=0.3
-                )
+            self._norm_ax2.set_ylim(0, 360)
+            self._norm_ax2.set_ylabel("Phase (°)", color="gray")
 
-        if self._cb_phase.isChecked():
-            y = data.phase_avg if use_avg else data.phase
-            get_ax2().plot(wn, y, color="gray", linestyle=":",
-                        alpha=0.8, label="Phase (°)")
-            get_ax2().axhline(90, color="gray", linewidth=0.4, linestyle="--")
-            if show_err and use_avg:
-                get_ax2().fill_between(
-                    wn, y - data.phase_err, y + data.phase_err,
+        # ── Update data and visibility ────────────────────────────────────────────
+        ax = self.plot_widget.ax
+
+        # imaginary
+        y_imag = data.complex_chi_avg.imag if use_avg else data.complex_chi.imag
+        self._norm_lines["imag"].set_ydata(y_imag)
+        self._norm_lines["imag"].set_visible(self._cb_imag.isChecked())
+
+        # real
+        y_real = data.complex_chi_avg.real if use_avg else data.complex_chi.real
+        self._norm_lines["real"].set_ydata(y_real)
+        self._norm_lines["real"].set_visible(self._cb_real.isChecked())
+
+        # homodyne — scaled to Im/Re amplitude
+        y_homo = data.homodyne_avg if use_avg else data.homodyne
+        ref_amp = max(
+            np.abs(y_imag).max() if self._cb_imag.isChecked() else 0.0,
+            np.abs(y_real).max() if self._cb_real.isChecked() else 0.0,
+        )
+        homo_max = np.abs(y_homo).max()
+        scale = (ref_amp / homo_max) if ref_amp > 0 and homo_max > 0 else 1.0
+        self._norm_lines["homo"].set_ydata(y_homo * scale)
+        self._norm_lines["homo"].set_label(f"|χ⁽²⁾|² (×{scale:.2e})")
+        self._norm_lines["homo"].set_visible(self._cb_homodyne.isChecked())
+
+        # phase
+        y_phase = data.phase_avg if use_avg else data.phase
+        self._norm_lines["phase"].set_ydata(y_phase)
+        self._norm_lines["phase"].set_visible(self._cb_phase.isChecked())
+        self._norm_ax2.set_visible(self._cb_phase.isChecked())
+
+        # ── Error bands — recreate each time (fill_between can't update in place)
+        # remove old fills
+        for coll in ax.collections[:]:
+            coll.remove()
+        for coll in self._norm_ax2.collections[:]:
+            coll.remove()
+
+        if show_err and use_avg:
+            if self._cb_imag.isChecked():
+                ax.fill_between(wn, y_imag - data.imag_err,
+                                y_imag + data.imag_err, alpha=0.3)
+            if self._cb_real.isChecked():
+                ax.fill_between(wn, y_real - data.real_err,
+                                y_real + data.real_err, alpha=0.3)
+            if self._cb_homodyne.isChecked():
+                ax.fill_between(wn,
+                                (y_homo - data.homodyne_err) * scale,
+                                (y_homo + data.homodyne_err) * scale,
+                                alpha=0.3)
+            if self._cb_phase.isChecked():
+                self._norm_ax2.fill_between(
+                    wn, y_phase - data.phase_err,
+                    y_phase + data.phase_err,
                     alpha=0.2, color="gray"
                 )
 
-        # combined legend
-        lines1, labels1 = self.plot_widget.ax.get_legend_handles_labels()
-        if ax2:
-            lines2, labels2 = ax2.get_legend_handles_labels()
-            self.plot_widget.ax.legend(
-                lines1 + lines2, labels1 + labels2, fontsize=8
-            )
-        elif lines1:
-            self.plot_widget.ax.legend(fontsize=8)
+        # ── Legend ────────────────────────────────────────────────────────────────
+        lines1 = [l for l in ax.get_lines()
+                if l.get_visible() and l.get_label()
+                and not l.get_label().startswith("_")]
+        lines2 = [self._norm_lines["phase"]] if self._cb_phase.isChecked() else []
+        all_lines  = lines1 + lines2
+        all_labels = [l.get_label() for l in all_lines]
+        if all_lines:
+            ax.legend(all_lines, all_labels, fontsize=8)
 
-        self.plot_widget.ax.axhline(0, color="gray", linewidth=0.5, linestyle="--")
         self.plot_widget.set_labels(
             xlabel="Wavenumber (cm⁻¹)",
             ylabel="χ⁽²⁾ (arb. units)",
@@ -729,13 +798,31 @@ class HDSFGPanel(QWidget):
 
     # ── Apply / Process ───────────────────────────────────────────────────────
 
-    def _on_apply(self):
-        """Run only the current step (and invalidate later steps)."""
-        step = self._current_step()
-        if step == "raw":
-            self._refresh_plot()
-            return
-        self._run_from_step(step, emit_result=False)
+    def _auto_process_from(self, step: str):
+        """Debounced auto-reprocess triggered by parameter changes.
+        Only reprocesses if the affected step is already cached
+        (i.e. user has already run the pipeline at least once).
+        """
+        cache = self._cache.get(self._matched_index, {})
+        prior_step = {
+            "despiked":      None,
+            "averaged":      "despiked",
+            "bg_smooth":     "averaged",
+            "fft_filter":    "bg_smooth",
+            "ifft":          "fft_filter",
+            "normalization": "fft_filter",
+        }.get(step)
+
+        # only auto-reprocess if prior step is already computed
+        if prior_step is None or prior_step in cache:
+            self._auto_process_step = step
+            self._auto_process_timer.start()
+
+
+    def _do_auto_process(self):
+        step = getattr(self, "_auto_process_step", None)
+        if step:
+            self._run_from_step(step, emit_result=False)
 
     def _on_process(self):
         """Run the full pipeline from scratch."""
@@ -854,17 +941,15 @@ class HDSFGPanel(QWidget):
     def set_matched_set(self, matched_set, index: int):
         self._matched_set   = matched_set
         self._matched_index = index
+        self._last_step     = None   # force full_clear on next render
+        self._norm_lines.clear()
+        self._norm_ax2 = None
 
         cached = self._cache.get(index, {})
-
         for step, rb in self._step_radios.items():
-            # raw always enabled, despiked always enabled (params needed but no prior step),
-            # rest only if cached
-            rb.setEnabled(
-                step in {"raw", "despiked"} or step in cached
-            )
+            rb.setEnabled(step in {"raw", "despiked"} or step in cached)
 
-        self._step_radios["raw"].setChecked(True)
+        self._step_radios["despiked"].setChecked(True)
         self._on_step_changed()
 
     # --- helpers --------------------------------

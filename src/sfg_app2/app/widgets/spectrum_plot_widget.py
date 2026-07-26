@@ -209,3 +209,29 @@ class SpectrumPlotWidget(QWidget):
         self.ax = self.figure.add_subplot(111)
         self._x_range_initialized = False
         self._x_full_range = None
+
+    def soft_clear(self):
+        """Clear plot artists but preserve primary axes structure.
+        Removes twin axes (twinx) but keeps the primary axis object.
+        Much faster than full_clear() for same-step redraws.
+        """
+        axes = self.figure.get_axes()
+        # remove all secondary axes (twin axes created by twinx())
+        for ax in axes[1:]:
+            self.figure.delaxes(ax)
+
+        # clear primary axis artists without destroying it
+        if axes:
+            ax = axes[0]
+            while ax.lines:
+                ax.lines[0].remove()
+            while ax.collections:
+                ax.collections[0].remove()
+            legend = ax.get_legend()
+            if legend:
+                legend.remove()
+            ax.set_prop_cycle(None)   # reset color cycle to start
+            self.ax = ax
+
+        self._x_range_initialized = False
+        self._x_full_range = None
