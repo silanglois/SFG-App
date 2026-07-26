@@ -442,6 +442,10 @@ class HDSFGPanel(QWidget):
                     self._plot_normalization(cache["normalization"])
                 except Exception as e:
                     logger.warning("Normalization plot failed: %s", e, exc_info=True)
+            if self._cb_phase.isChecked():
+                self.plot_widget.figure.tight_layout(rect=[0, 0, 1, 1])
+            else:
+                self.plot_widget.figure.tight_layout()
             self.plot_widget.canvas.draw_idle()
             return
 
@@ -725,10 +729,11 @@ class HDSFGPanel(QWidget):
                 linestyle=":", alpha=0.8, label="Phase (°)")[0]
             self._norm_lines["phase_fill"] = None
             self._norm_ax2.axhline(
-                90, color="gray", linewidth=0.4, linestyle="--"
+                0, color="gray", linewidth=0.4, linestyle="--"   # 0° reference instead of 90°
             )
-            self._norm_ax2.set_ylim(0, 360)
+            self._norm_ax2.set_ylim(-180, 180)
             self._norm_ax2.set_ylabel("Phase (°)", color="gray")
+            self._norm_ax2.set_yticks([-180, -135, -90, -45, 0, 45, 90, 135, 180])
 
         # ── Update data and visibility ────────────────────────────────────────────
         ax = self.plot_widget.ax
@@ -948,7 +953,7 @@ class HDSFGPanel(QWidget):
     def set_matched_set(self, matched_set, index: int):
         self._matched_set   = matched_set
         self._matched_index = index
-        self._last_step     = None   # force full_clear on next render
+        self._last_step     = None
         self._norm_lines.clear()
         self._norm_ax2 = None
 
@@ -958,6 +963,11 @@ class HDSFGPanel(QWidget):
 
         self._step_radios["despiked"].setChecked(True)
         self._on_step_changed()
+
+        # auto-run despiking immediately if not already cached
+        if "despiked" not in self._cache.get(index, {}):
+            self._auto_process_step = "despiked"
+            self._auto_process_timer.start()
 
     # --- helpers --------------------------------
     def _pair(self) -> str:

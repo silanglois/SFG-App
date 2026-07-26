@@ -113,8 +113,8 @@ def _fft_pipeline(delta_windowed: np.ndarray,
 
 
 def _phase_degrees(z: np.ndarray) -> np.ndarray:
-    phase = np.degrees(np.arctan2(z.imag, z.real))
-    return np.where(phase < 0, 360 + phase, phase)
+    """Phase in [-180, 180] degrees."""
+    return np.degrees(np.arctan2(z.imag, z.real))
 
 
 def _normalize_chi(sig_ifft: np.ndarray,
