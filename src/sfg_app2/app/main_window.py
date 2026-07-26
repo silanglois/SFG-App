@@ -6,6 +6,7 @@ from pathlib import Path
 from PySide6.QtWidgets import QMainWindow, QVBoxLayout, QFileDialog, QMessageBox
 from sfg_app2.app.ui.ui_main_window import Ui_MainWindow
 from sfg_app2.app.utils.pattern_manager import PatternManager
+from sfg_app2.app.utils.plotting_settings import PlottingSettings
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +20,8 @@ class MainWindow(QMainWindow):
         self.matched_sets: list = []
         self.processed_results: dict = {}
         self.pattern_manager = PatternManager()
+        self.plotting_settings = PlottingSettings()
+        self.plotting_settings.apply_current()
         self._ignored_paths: set[Path] = set()  # resolved absolute paths
 
         self._init_tabs()
@@ -91,6 +94,7 @@ class MainWindow(QMainWindow):
         self.ui.actionSet_auto_matching_parameters.triggered.connect(
             self._on_set_auto_matching_parameters
         )
+        self.ui.actionSet_plotting_settings.triggered.connect(self._on_set_plotting_settings)
         self.ui.actionAbout.triggered.connect(self._on_about)
         self.ui.actionDocs_tutorials.triggered.connect(self._on_docs)
         self.ui.actionUse_metadata_patterns.setChecked(True)
@@ -162,6 +166,15 @@ class MainWindow(QMainWindow):
 
     def _on_set_auto_matching_parameters(self):
         self.statusBar().showMessage("Auto-matching parameters — not yet implemented")
+
+    def _on_set_plotting_settings(self):
+        from sfg_app2.app.dialogs.plotting_settings_dialog import PlottingSettingsDialog
+        dialog = PlottingSettingsDialog(self.plotting_settings, parent=self)
+        if dialog.exec():
+            self.statusBar().showMessage(
+                f"Plotting style set to '{self.plotting_settings.style}'. "
+                "Restart the app for already-open plots to fully update."
+            )
 
     def _on_about(self):
         self.statusBar().showMessage("SFG-App")

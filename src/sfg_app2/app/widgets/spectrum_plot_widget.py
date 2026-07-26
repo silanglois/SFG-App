@@ -2,9 +2,23 @@ from __future__ import annotations
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg, NavigationToolbar2QT
 from matplotlib.figure import Figure
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QDoubleSpinBox, QSizePolicy, QPushButton  
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QDoubleSpinBox, QSizePolicy, QPushButton
 )
 from PySide6.QtCore import Qt
+
+from sfg_app2.app.utils.plotting_settings import style_figure
+
+
+class _ThemedFigureCanvas(FigureCanvasQTAgg):
+    """FigureCanvasQTAgg that re-asserts the active plotting style's
+    background on every draw, so it can't drift out of sync no matter
+    which code path (including ax.twinx() calls made directly by callers)
+    triggered the redraw.
+    """
+
+    def draw(self):
+        style_figure(self.figure)
+        super().draw()
 
 
 class SpectrumPlotWidget(QWidget):
@@ -13,7 +27,7 @@ class SpectrumPlotWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.figure = Figure(tight_layout=True)
-        self.canvas = FigureCanvasQTAgg(self.figure)
+        self.canvas = _ThemedFigureCanvas(self.figure)
         self.toolbar = NavigationToolbar2QT(self.canvas, self)
         self.ax = self.figure.add_subplot(111)
 

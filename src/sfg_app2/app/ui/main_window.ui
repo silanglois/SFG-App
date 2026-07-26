@@ -89,6 +89,8 @@
     <addaction name="actionUse_metadata_patterns"/>
     <addaction name="separator"/>
     <addaction name="actionSet_auto_matching_parameters"/>
+    <addaction name="separator"/>
+    <addaction name="actionSet_plotting_settings"/>
    </widget>
    <widget class="QMenu" name="menuHelp">
     <property name="title">
@@ -143,6 +145,11 @@
   <action name="actionSet_auto_matching_parameters">
    <property name="text">
     <string>Auto-matching parameters</string>
+   </property>
+  </action>
+  <action name="actionSet_plotting_settings">
+   <property name="text">
+    <string>Plotting settings</string>
    </property>
   </action>
  </widget>

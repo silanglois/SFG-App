@@ -42,6 +42,8 @@ class Ui_MainWindow(object):
         self.actionIgnore_selected_files.setObjectName(u"actionIgnore_selected_files")
         self.actionSet_auto_matching_parameters = QAction(MainWindow)
         self.actionSet_auto_matching_parameters.setObjectName(u"actionSet_auto_matching_parameters")
+        self.actionSet_plotting_settings = QAction(MainWindow)
+        self.actionSet_plotting_settings.setObjectName(u"actionSet_plotting_settings")
         self.centralwidget = QWidget(MainWindow)
         self.centralwidget.setObjectName(u"centralwidget")
         self.verticalLayout = QVBoxLayout(self.centralwidget)
@@ -116,12 +118,14 @@ class Ui_MainWindow(object):
         self.menuPreferences.addAction(self.actionUse_metadata_patterns)
         self.menuPreferences.addSeparator()
         self.menuPreferences.addAction(self.actionSet_auto_matching_parameters)
+        self.menuPreferences.addSeparator()
+        self.menuPreferences.addAction(self.actionSet_plotting_settings)
         self.menuHelp.addAction(self.actionAbout)
         self.menuHelp.addAction(self.actionDocs_tutorials)
 
         self.retranslateUi(MainWindow)
 
-        self.mainTabWidget.setCurrentIndex(3)
+        self.mainTabWidget.setCurrentIndex(0)
 
 
         QMetaObject.connectSlotsByName(MainWindow)
@@ -137,6 +141,7 @@ class Ui_MainWindow(object):
         self.actionDocs_tutorials.setText(QCoreApplication.translate("MainWindow", u"Docs && tutorials", None))
         self.actionIgnore_selected_files.setText(QCoreApplication.translate("MainWindow", u"Ignore selected files", None))
         self.actionSet_auto_matching_parameters.setText(QCoreApplication.translate("MainWindow", u"Auto-matching parameters", None))
+        self.actionSet_plotting_settings.setText(QCoreApplication.translate("MainWindow", u"Plotting settings", None))
         self.mainTabWidget.setTabText(self.mainTabWidget.indexOf(self.loadmatchTab), QCoreApplication.translate("MainWindow", u"Load/Match", None))
         self.mainTabWidget.setTabText(self.mainTabWidget.indexOf(self.processingTab), QCoreApplication.translate("MainWindow", u"Processing/Review", None))
         self.mainTabWidget.setTabText(self.mainTabWidget.indexOf(self.processedResultsTab), QCoreApplication.translate("MainWindow", u"Processed Results", None))
