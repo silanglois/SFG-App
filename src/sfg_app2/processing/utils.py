@@ -14,34 +14,59 @@ logger = logging.getLogger(__name__)
 DEFAULT_ROLE_SUFFIXES = {"bg", "bkg", "background", "darkbg", "irbg", "irbkg"}
 
 
-def _strip_role_suffix(stem: str, role_suffixes: set[str]) -> tuple[str, str | None]:
-    """Remove a trailing role suffix from a filename stem if present.
-    Returns (cleaned_stem, role_suffix_found_or_None).
+def _strip_role_token(stem: str, mode: str, values: set[str]) -> tuple[str, str | None]:
+    """Remove a role-indicating token from a filename stem if present.
+    mode: "suffix" (checks the last '_'-part) or "prefix" (checks the first).
+    Returns (cleaned_stem, token_found_or_None).
 
-    e.g. "sample_ssp_2024_bg" -> ("sample_ssp_2024", "bg")
-         "sample_ssp_2024"    -> ("sample_ssp_2024", None)
+    e.g. _strip_role_token("sample_ssp_2024_bg", "suffix", {"bg"})
+         -> ("sample_ssp_2024", "bg")
+         _strip_role_token("bg_sample_ssp_2024", "prefix", {"bg"})
+         -> ("sample_ssp_2024", "bg")
     """
     parts = stem.split("_")
-    if parts[-1].lower() in role_suffixes:
+    if not parts:
+        return stem, None
+    if mode == "prefix":
+        if parts[0].lower() in values:
+            return "_".join(parts[1:]), parts[0].lower()
+        return stem, None
+    if parts[-1].lower() in values:
         return "_".join(parts[:-1]), parts[-1].lower()
     return stem, None
+
+
+def resolve_role(stem: str, mode: str, values: set[str]) -> tuple[str, bool]:
+    """Resolve (clean_stem, is_background) for a filename stem given a role
+    detection mode ("suffix" | "prefix" | "field"). For "field" mode, role
+    is decided from metadata (not the filename), so stem is returned
+    unchanged and is_background is always False here — callers must check
+    the relevant metadata field themselves once it's available.
+    """
+    if mode == "field":
+        return stem, False
+    clean_stem, token = _strip_role_token(stem, mode, values)
+    return clean_stem, token is not None
 
 
 def load_datafiles(
     folder: str | Path,
     patterns: list[list[str]] | None = None,
     glob: str = "*.csv",
-    role_suffixes: set[str] = None,
+    role_mode: str = "suffix",
+    role_values: set[str] = None,
+    role_field: str | None = None,
 ) -> list:
-    if role_suffixes is None:
-        role_suffixes = DEFAULT_ROLE_SUFFIXES
+    if role_values is None:
+        role_values = DEFAULT_ROLE_SUFFIXES
+    role_values = {v.lower() for v in role_values}
 
     pattern_map = {len(p): p for p in patterns} if patterns else {}
     files = []
     skipped = []
 
     for path in sorted(Path(folder).glob(glob)):
-        clean_stem, role = _strip_role_suffix(path.stem, role_suffixes)
+        clean_stem, matched = resolve_role(path.stem, role_mode, role_values)
         n_parts = len(clean_stem.split("_"))
         fields = pattern_map.get(n_parts) if pattern_map else None
 
@@ -52,7 +77,7 @@ def load_datafiles(
                 path.name, n_parts, list(pattern_map.keys()),
             )
 
-        extra_metadata = {"role": role} if role else {}
+        extra_metadata = {"role": "background"} if matched else {}
 
         try:
             files.append(DataFile(path, filename_fields=fields, metadata=extra_metadata))

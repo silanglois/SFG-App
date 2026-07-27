@@ -415,6 +415,16 @@ class ProcessedResultsTab(QWidget):
             pass
         return None
 
+    def _get_role_kwargs(self) -> dict:
+        try:
+            main = self.window()
+            if hasattr(main, "matching_settings"):
+                return main.matching_settings.role_kwargs()
+        except Exception:
+            pass
+        from sfg_app2.processing.utils import DEFAULT_ROLE_SUFFIXES
+        return {"role_mode": "suffix", "role_values": DEFAULT_ROLE_SUFFIXES, "role_field": ""}
+
     def _on_add_from_file(self):
         paths, _ = QFileDialog.getOpenFileNames(
             self, "Load processed spectra", "",
@@ -423,11 +433,12 @@ class ProcessedResultsTab(QWidget):
         if not paths:
             return
 
-        from sfg_app2.processing.utils import _strip_role_suffix, DEFAULT_ROLE_SUFFIXES
+        from sfg_app2.processing.utils import resolve_role
         import pandas as pd
 
         patterns = self._get_active_patterns()
         pattern_map = {len(p): p for p in patterns} if patterns else {}
+        role_kwargs = self._get_role_kwargs()
 
         added, skipped, failed = 0, 0, 0
         for path_str in paths:
@@ -440,7 +451,9 @@ class ProcessedResultsTab(QWidget):
                 # manual metadata from header always wins (update order matters)
                 if pattern_map:
                     from sfg_app2.processing.data_file import DataFile
-                    clean_stem, role = _strip_role_suffix(path.stem, DEFAULT_ROLE_SUFFIXES)
+                    clean_stem, _ = resolve_role(
+                        path.stem, role_kwargs["role_mode"], role_kwargs["role_values"]
+                    )
                     n_parts = len(clean_stem.split("_"))
                     fields = pattern_map.get(n_parts)
                     if fields:

@@ -362,8 +362,18 @@ class MetadataPatternsDialog(QDialog):
 
     # ── Live preview ──────────────────────────────────────────────────────────
 
+    def _role_kwargs(self) -> dict:
+        try:
+            main = self.window()
+            if hasattr(main, "matching_settings"):
+                return main.matching_settings.role_kwargs()
+        except Exception:
+            pass
+        from sfg_app2.processing.utils import DEFAULT_ROLE_SUFFIXES
+        return {"role_mode": "suffix", "role_values": DEFAULT_ROLE_SUFFIXES, "role_field": ""}
+
     def _update_preview(self):
-        from sfg_app2.processing.utils import _strip_role_suffix, DEFAULT_ROLE_SUFFIXES
+        from sfg_app2.processing.utils import resolve_role
 
         filename = self.ui.previewFilenameLineEdit.text().strip()
         fields = self._get_current_fields()
@@ -372,8 +382,12 @@ class MetadataPatternsDialog(QDialog):
             self.ui.parsedResultTextEdit.setPlainText("")
             return
 
+        role_kwargs = self._role_kwargs()
         stem = Path(filename).stem
-        clean_stem, role = _strip_role_suffix(stem, DEFAULT_ROLE_SUFFIXES)
+        clean_stem, matched = resolve_role(
+            stem, role_kwargs["role_mode"], role_kwargs["role_values"]
+        )
+        role = "background" if matched else None
         parts = clean_stem.split("_")
 
         lines = []

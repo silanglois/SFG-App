@@ -5,6 +5,8 @@ from typing import Callable, Optional
 
 import pandas as pd
 
+from sfg_app2.processing.utils import DEFAULT_ROLE_SUFFIXES
+
 logger = logging.getLogger(__name__)
 
 # DEFAULT_EXACT_KEYS = ["polarization", "center_wavelength", "acquisition_time", "date"]
@@ -16,16 +18,40 @@ DEFAULT_SAMPLE_KEY = "sample"
 
 # ── Role detection ──────────────────────────────────────────────────────────
 
-def default_role_fn(datafile) -> str:
-    """Check metadata['role'] first (set by load_datafiles),
-    fall back to filename stem check for files loaded manually."""
-    role = datafile.metadata.get("role")
-    if role == "bg":
-        return "background"
-    if role == "ref":
-        return "reference"
-    # fallback for files not loaded via load_datafiles
-    return "background" if "bg" in datafile.path.stem.lower() else "signal"
+def make_role_fn(mode: str = "suffix", values: set[str] | None = None,
+                  field: str | None = None) -> Callable:
+    """Build a role_fn for DataFileMatcher.
+
+    mode : "suffix" | "prefix" | "field"
+        "suffix"/"prefix" — a file is "background" if the last/first
+        `_`-separated token of its filename stem is in `values`.
+        "field" — a file is "background" if its `field` metadata value is
+        in `values`.
+    values : the suffix/prefix tokens or field values (matched
+        case-insensitively) that indicate a background file. Defaults to
+        DEFAULT_ROLE_SUFFIXES.
+    field : metadata key to check, only used when mode == "field".
+    """
+    values = {v.lower() for v in (values or DEFAULT_ROLE_SUFFIXES)}
+
+    def role_fn(datafile) -> str:
+        if mode == "field":
+            val = str(datafile.metadata.get(field or "") or "").strip().lower()
+            return "background" if val in values else "signal"
+
+        # suffix/prefix: prefer the tag set at load time by load_datafiles/
+        # load_individual_files; fall back to a direct filename check for
+        # DataFiles constructed outside those helpers.
+        if datafile.metadata.get("role") == "background":
+            return "background"
+        parts = datafile.path.stem.split("_")
+        token = (parts[-1] if mode == "suffix" else parts[0]).lower()
+        return "background" if token in values else "signal"
+
+    return role_fn
+
+
+default_role_fn = make_role_fn()
 
 
 # ── Result container ─────────────────────────────────────────────────────────
@@ -120,12 +146,18 @@ class DataFileMatcher:
         reference (e.g. ["Au", "gold", "quartz"]). A reference with role
         "background" becomes a reference_background.
     type_rules : list[dict], optional
-        Rules forcing spectrum_type based on a metadata value, e.g.
-        {"field": "sample", "key": "PS-hetero", "type": "heterodyne", "scope": "signal"}.
-        `field` defaults to `sample_key` if omitted. scope is one of "signal",
-        "background", "both" — which file's `field` value is checked against
-        `key`. The first matching rule (in list order) wins; sets matching no
-        rule default to "homodyne".
+        Rules forcing spectrum_type based on a metadata value or a filename
+        substring, e.g.
+        {"mode": "field", "field": "sample", "key": "PS-hetero", "type": "heterodyne", "scope": "signal"}
+        or
+        {"mode": "filename", "key": "hetero", "type": "heterodyne", "scope": "signal"}.
+        `mode` defaults to "field" if omitted (backward compatible with
+        older saved rules). For "field" mode, `field` defaults to
+        `sample_key` if omitted, and `key` must equal the field's value. For
+        "filename" mode, `key` is matched as a substring anywhere in the
+        file's name. scope is one of "signal", "background", "both" — which
+        file is checked. The first matching rule (in list order) wins; sets
+        matching no rule default to "homodyne".
     sample_key : str
         Metadata key holding the sample name, used for reference identification
         and as the default field for type_rules matching.
@@ -257,20 +289,22 @@ class DataFileMatcher:
         return eligible[0]
 
     def _forced_type(self, signal, background) -> Optional[str]:
-        def field_value(f, field):
+        def rule_matches(f, rule, key: str) -> bool:
             if f is None:
-                return None
-            return str(f.metadata.get(field) or "").strip().lower()
+                return False
+            if rule.get("mode", "field") == "filename":
+                return key in f.path.stem.lower()
+            field = rule.get("field") or self.sample_key
+            return str(f.metadata.get(field) or "").strip().lower() == key
 
         for rule in self.type_rules:
             key = str(rule.get("key", "")).strip().lower()
             if not key:
                 continue
-            field = rule.get("field") or self.sample_key
             scope = rule.get("scope", "both")
             applies = (
-                (scope in ("signal", "both") and field_value(signal, field) == key) or
-                (scope in ("background", "both") and field_value(background, field) == key)
+                (scope in ("signal", "both") and rule_matches(signal, rule, key)) or
+                (scope in ("background", "both") and rule_matches(background, rule, key))
             )
             if applies:
                 return rule.get("type")

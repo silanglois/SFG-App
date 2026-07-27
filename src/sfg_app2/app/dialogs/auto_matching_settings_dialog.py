@@ -5,7 +5,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QListWidget, QListWidgetItem,
     QPushButton, QTableWidget, QTableWidgetItem, QComboBox, QDialogButtonBox,
-    QInputDialog, QAbstractItemView, QHeaderView, QMessageBox, QGroupBox,
+    QInputDialog, QAbstractItemView, QHeaderView, QMessageBox, QGroupBox, QWidget,
 )
 
 from sfg_app2.app.utils.matching_settings import (
@@ -20,12 +20,32 @@ STATE_OPTIONS = ["Ignore", "Optional", "Required", "Closest"]
 TYPE_OPTIONS = ["Heterodyne", "Homodyne"]
 SCOPE_OPTIONS = ["Signal", "Background", "Both"]
 DEFAULT_RULE_FIELD = "sample"
+FILENAME_SENTINEL = "Filename"
+
+ROLE_MODE_OPTIONS = [
+    "End of filename (suffix)", "Beginning of filename (prefix)", "Metadata field",
+]
+ROLE_MODE_TO_INTERNAL = {
+    "End of filename (suffix)": "suffix",
+    "Beginning of filename (prefix)": "prefix",
+    "Metadata field": "field",
+}
+ROLE_MODE_FROM_INTERNAL = {v: k for k, v in ROLE_MODE_TO_INTERNAL.items()}
+ROLE_MODE_LIST_LABEL = {
+    "suffix": "Filename tokens that indicate background (matched at the end, "
+              "e.g. \"bg\"):",
+    "prefix": "Filename tokens that indicate background (matched at the "
+              "beginning, e.g. \"bg\"):",
+    "field": "Metadata field values that indicate background (e.g. \"dark\"):",
+}
 
 
 class AutoMatchingSettingsDialog(QDialog):
     """Lets the user configure how "Auto-match Files" identifies references,
-    matches backgrounds/references to signals, and forces homodyne vs.
-    heterodyne processing based on a filename-parsed metadata field.
+    detects background files (by filename suffix/prefix or a metadata
+    field), matches backgrounds/references to signals, and forces homodyne
+    vs. heterodyne processing based on a metadata field or filename
+    substring.
     """
 
     def __init__(self, settings: MatchingSettings, parent=None):
@@ -36,13 +56,21 @@ class AutoMatchingSettingsDialog(QDialog):
 
         self._build_ui()
         self._populate_reference_names()
+        self._populate_role_box()
         self._populate_type_rules()
         self._populate_fields_table()
 
-        for box in (self._ref_box, self._rules_box, self._fields_box):
+        for box in (self._ref_box, self._role_box, self._rules_box, self._fields_box):
             box.setCheckable(True)
             box.setChecked(True)
             make_collapsible(box)
+
+        # make_collapsible() forces every direct child visible whenever the
+        # box is expanded, which would override the role field row's own
+        # mode-dependent visibility — reassert it now and on every future
+        # expand/collapse toggle.
+        self._role_box.toggled.connect(lambda _checked: self._update_role_box_visibility())
+        self._update_role_box_visibility()
 
     # ── UI ────────────────────────────────────────────────────────────────────
 
@@ -50,6 +78,7 @@ class AutoMatchingSettingsDialog(QDialog):
         layout = QVBoxLayout(self)
 
         layout.addWidget(self._build_reference_names_box())
+        layout.addWidget(self._build_role_box())
         layout.addWidget(self._build_type_rules_box())
         layout.addWidget(self._build_fields_box())
 
@@ -82,14 +111,56 @@ class AutoMatchingSettingsDialog(QDialog):
         box_layout.addLayout(ref_row)
         return self._ref_box
 
+    def _build_role_box(self) -> QGroupBox:
+        self._role_box = QGroupBox("Background role detection")
+        box_layout = QVBoxLayout(self._role_box)
+
+        mode_row = QHBoxLayout()
+        mode_row.addWidget(QLabel("Detect background files by:"))
+        self._role_mode_combo = QComboBox()
+        self._role_mode_combo.addItems(ROLE_MODE_OPTIONS)
+        self._role_mode_combo.currentTextChanged.connect(self._on_role_mode_changed)
+        mode_row.addWidget(self._role_mode_combo)
+        mode_row.addStretch()
+        box_layout.addLayout(mode_row)
+
+        self._role_values_label = QLabel()
+        box_layout.addWidget(self._role_values_label)
+
+        field_row = QHBoxLayout()
+        field_row.addWidget(QLabel("Metadata field:"))
+        self._role_field_combo = self._make_field_combo(DEFAULT_RULE_FIELD, include_filename=False)
+        field_row.addWidget(self._role_field_combo)
+        field_row.addStretch()
+        self._role_field_row_widget = QWidget()
+        self._role_field_row_widget.setLayout(field_row)
+        box_layout.addWidget(self._role_field_row_widget)
+
+        values_row = QHBoxLayout()
+        self._role_values_list = QListWidget()
+        values_row.addWidget(self._role_values_list)
+        values_buttons = QVBoxLayout()
+        add_value_btn = QPushButton("Add")
+        remove_value_btn = QPushButton("Remove")
+        add_value_btn.clicked.connect(self._on_add_role_value)
+        remove_value_btn.clicked.connect(self._on_remove_role_value)
+        values_buttons.addWidget(add_value_btn)
+        values_buttons.addWidget(remove_value_btn)
+        values_buttons.addStretch()
+        values_row.addLayout(values_buttons)
+        box_layout.addLayout(values_row)
+
+        return self._role_box
+
     def _build_type_rules_box(self) -> QGroupBox:
         self._rules_box = QGroupBox("Force homodyne / heterodyne processing")
         box_layout = QVBoxLayout(self._rules_box)
         box_layout.addWidget(QLabel(
             "Force a spectrum type when a chosen filename-parsed field matches "
-            "a value, checked against the signal's and/or background's field "
-            "(case-insensitively). First matching rule wins; sets matching no "
-            "rule default to homodyne:"
+            "a value, or when a substring appears anywhere in the filename "
+            "(choose \"Filename\" as the field) — checked against the signal's "
+            "and/or background's field/filename (case-insensitively). First "
+            "matching rule wins; sets matching no rule default to homodyne:"
         ))
         self._rules_table = QTableWidget(0, 4)
         self._rules_table.setHorizontalHeaderLabels(
@@ -163,21 +234,62 @@ class AutoMatchingSettingsDialog(QDialog):
         if row >= 0:
             self._ref_list.takeItem(row)
 
+    # ── Background role detection ────────────────────────────────────────────
+
+    def _populate_role_box(self):
+        s = self._settings
+        self._role_mode_combo.setCurrentText(
+            ROLE_MODE_FROM_INTERNAL.get(s.background_role_mode, ROLE_MODE_OPTIONS[0])
+        )
+        self._role_field_combo.setCurrentText(s.background_role_field or DEFAULT_RULE_FIELD)
+        self._role_values_list.clear()
+        for value in s.background_role_values:
+            item = QListWidgetItem(value)
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsEditable)
+            self._role_values_list.addItem(item)
+        self._update_role_box_visibility()
+
+    def _on_role_mode_changed(self, _text: str):
+        self._update_role_box_visibility()
+
+    def _update_role_box_visibility(self):
+        mode = ROLE_MODE_TO_INTERNAL.get(self._role_mode_combo.currentText(), "suffix")
+        self._role_values_label.setText(ROLE_MODE_LIST_LABEL[mode])
+        self._role_field_row_widget.setVisible(mode == "field")
+
+    def _on_add_role_value(self):
+        item = QListWidgetItem("new_value")
+        item.setFlags(item.flags() | Qt.ItemFlag.ItemIsEditable)
+        self._role_values_list.addItem(item)
+        self._role_values_list.setCurrentItem(item)
+        self._role_values_list.editItem(item)
+
+    def _on_remove_role_value(self):
+        row = self._role_values_list.currentRow()
+        if row >= 0:
+            self._role_values_list.takeItem(row)
+
     # ── Type-forcing rules ────────────────────────────────────────────────────
 
     def _populate_type_rules(self):
         self._rules_table.setRowCount(0)
         for rule in self._settings.type_rules:
+            field_text = (
+                FILENAME_SENTINEL if rule.get("mode", "field") == "filename"
+                else (rule.get("field") or DEFAULT_RULE_FIELD)
+            )
             self._add_type_rule_row(
-                rule.get("field") or DEFAULT_RULE_FIELD,
+                field_text,
                 rule.get("key", ""),
                 rule.get("type", "heterodyne").capitalize(),
                 rule.get("scope", "both").capitalize(),
             )
 
-    def _make_field_combo(self, field_text: str) -> QComboBox:
+    def _make_field_combo(self, field_text: str, include_filename: bool = True) -> QComboBox:
         combo = QComboBox()
         combo.setEditable(True)
+        if include_filename:
+            combo.addItem(FILENAME_SENTINEL)
         combo.addItems(KNOWN_FIELDS)
         combo.setCurrentText(field_text or DEFAULT_RULE_FIELD)
         return combo
@@ -218,12 +330,21 @@ class AutoMatchingSettingsDialog(QDialog):
             field = self._rules_table.cellWidget(row, 0).currentText().strip() or DEFAULT_RULE_FIELD
             type_text = self._rules_table.cellWidget(row, 2).currentText()
             scope_text = self._rules_table.cellWidget(row, 3).currentText()
-            rules.append({
-                "field": field,
-                "key": key,
-                "type": type_text.lower(),
-                "scope": scope_text.lower(),
-            })
+            if field == FILENAME_SENTINEL:
+                rules.append({
+                    "mode": "filename",
+                    "key": key,
+                    "type": type_text.lower(),
+                    "scope": scope_text.lower(),
+                })
+            else:
+                rules.append({
+                    "mode": "field",
+                    "field": field,
+                    "key": key,
+                    "type": type_text.lower(),
+                    "scope": scope_text.lower(),
+                })
         return rules
 
     # ── Fields table ──────────────────────────────────────────────────────────
@@ -298,8 +419,11 @@ class AutoMatchingSettingsDialog(QDialog):
         type_rules = self._collect_type_rules()
         conflicts = type_rules_conflicts(type_rules)
         if conflicts:
+            def describe(rule):
+                source = "filename" if rule.get("mode") == "filename" else rule.get("field")
+                return f"{source}=\"{rule['key']}\""
             lines = [
-                f"  • {a['field']}=\"{a['key']}\" as {a['type']} ({a['scope']}) vs. "
+                f"  • {describe(a)} as {a['type']} ({a['scope']}) vs. "
                 f"{b['type']} ({b['scope']})"
                 for a, b in conflicts
             ]
@@ -311,6 +435,23 @@ class AutoMatchingSettingsDialog(QDialog):
             )
             return
 
+        role_mode = ROLE_MODE_TO_INTERNAL.get(self._role_mode_combo.currentText(), "suffix")
+        role_field = self._role_field_combo.currentText().strip()
+        if role_mode == "field" and not role_field:
+            QMessageBox.warning(
+                self, "Missing Field",
+                "Choose a metadata field for background role detection, or "
+                "switch to filename suffix/prefix detection."
+            )
+            return
+        role_values = []
+        seen_role_values = set()
+        for i in range(self._role_values_list.count()):
+            text = self._role_values_list.item(i).text().strip()
+            if text and text.lower() not in seen_role_values:
+                role_values.append(text)
+                seen_role_values.add(text.lower())
+
         names = []
         seen = set()
         for i in range(self._ref_list.count()):
@@ -320,6 +461,9 @@ class AutoMatchingSettingsDialog(QDialog):
                 seen.add(text.lower())
         self._settings.reference_names = names
         self._settings.type_rules = type_rules
+        self._settings.background_role_mode = role_mode
+        self._settings.background_role_field = role_field
+        self._settings.background_role_values = role_values
 
         bg_required, bg_optional, bg_closest = [], [], []
         ref_required, ref_optional, ref_closest = [], [], []

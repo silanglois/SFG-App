@@ -5,6 +5,7 @@ from pathlib import Path
 from platformdirs import user_config_dir
 
 from sfg_app2.processing.matcher import MatchingConfig, DEFAULT_SAMPLE_KEY
+from sfg_app2.processing.utils import DEFAULT_ROLE_SUFFIXES
 
 logger = logging.getLogger(__name__)
 
@@ -19,30 +20,39 @@ DEFAULT_REFERENCE_REQUIRED_KEYS = ["polarization"]
 DEFAULT_REFERENCE_OPTIONAL_KEYS = ["center_wavelength"]
 DEFAULT_REFERENCE_CLOSEST_KEYS = ["timestamp"]
 DEFAULT_TYPE_RULES: list[dict] = []
+DEFAULT_BACKGROUND_ROLE_MODE = "suffix"
+DEFAULT_BACKGROUND_ROLE_VALUES = sorted(DEFAULT_ROLE_SUFFIXES)
+DEFAULT_BACKGROUND_ROLE_FIELD = ""
 
 TYPE_RULE_TYPES = ("heterodyne", "homodyne")
 TYPE_RULE_SCOPES = ("signal", "background", "both")
+ROLE_MODES = ("suffix", "prefix", "field")
 
 
 def type_rules_conflicts(type_rules: list[dict]) -> list[tuple[dict, dict]]:
-    """Returns pairs of rules that contradict each other: same field + key,
-    with scopes that overlap (any shared role), but a different forced type.
+    """Returns pairs of rules that contradict each other: same match
+    criteria (mode + field/key), with scopes that overlap (any shared
+    role), but a different forced type.
     """
     def scopes_overlap(a: str, b: str) -> bool:
         if a == "both" or b == "both":
             return True
         return a == b
 
+    def identity(rule: dict):
+        if rule.get("mode", "field") == "filename":
+            return ("filename", None)
+        return ("field", rule.get("field") or DEFAULT_SAMPLE_KEY)
+
     conflicts = []
     for i, rule_a in enumerate(type_rules):
         key_a = str(rule_a.get("key", "")).strip().lower()
-        field_a = rule_a.get("field") or DEFAULT_SAMPLE_KEY
         if not key_a:
             continue
+        id_a = identity(rule_a)
         for rule_b in type_rules[i + 1:]:
             key_b = str(rule_b.get("key", "")).strip().lower()
-            field_b = rule_b.get("field") or DEFAULT_SAMPLE_KEY
-            if key_a != key_b or field_a != field_b:
+            if key_a != key_b or identity(rule_b) != id_a:
                 continue
             if rule_a.get("type") == rule_b.get("type"):
                 continue
@@ -53,11 +63,12 @@ def type_rules_conflicts(type_rules: list[dict]) -> list[tuple[dict, dict]]:
 
 class MatchingSettings:
     """Load, save, and expose the user's auto-matching rules: which sample
-    names identify references, which metadata keys must (required), may
-    (optional), or should be matched to the nearest value (closest) between
-    a signal and its background/reference candidates, and rules forcing a
-    signal/background pair to homodyne or heterodyne processing. Used by
-    LoadMatchTab's "Auto-match Files" button.
+    names identify references, how background files are detected (filename
+    suffix/prefix or a metadata field), which metadata keys must (required),
+    may (optional), or should be matched to the nearest value (closest)
+    between a signal and its background/reference candidates, and rules
+    forcing a signal/background pair to homodyne or heterodyne processing.
+    Used by LoadMatchTab's "Auto-match Files" button.
     """
 
     def __init__(self):
@@ -69,6 +80,9 @@ class MatchingSettings:
         self.reference_optional_keys: list[str] = list(DEFAULT_REFERENCE_OPTIONAL_KEYS)
         self.reference_closest_keys: list[str] = list(DEFAULT_REFERENCE_CLOSEST_KEYS)
         self.type_rules: list[dict] = list(DEFAULT_TYPE_RULES)
+        self.background_role_mode: str = DEFAULT_BACKGROUND_ROLE_MODE
+        self.background_role_values: list[str] = list(DEFAULT_BACKGROUND_ROLE_VALUES)
+        self.background_role_field: str = DEFAULT_BACKGROUND_ROLE_FIELD
         self.load()
 
     def load(self):
@@ -89,6 +103,12 @@ class MatchingSettings:
                 self.reference_closest_keys = data.get(
                     "reference_closest_keys", DEFAULT_REFERENCE_CLOSEST_KEYS)
                 self.type_rules = data.get("type_rules", DEFAULT_TYPE_RULES)
+                self.background_role_mode = data.get(
+                    "background_role_mode", DEFAULT_BACKGROUND_ROLE_MODE)
+                self.background_role_values = data.get(
+                    "background_role_values", DEFAULT_BACKGROUND_ROLE_VALUES)
+                self.background_role_field = data.get(
+                    "background_role_field", DEFAULT_BACKGROUND_ROLE_FIELD)
                 logger.info("Loaded matching settings from %s.", SETTINGS_FILE)
             else:
                 logger.info("No matching settings file found — using defaults.")
@@ -107,6 +127,9 @@ class MatchingSettings:
                 "reference_optional_keys": self.reference_optional_keys,
                 "reference_closest_keys": self.reference_closest_keys,
                 "type_rules": self.type_rules,
+                "background_role_mode": self.background_role_mode,
+                "background_role_values": self.background_role_values,
+                "background_role_field": self.background_role_field,
             }, indent=2))
             logger.info("Matching settings saved to %s.", SETTINGS_FILE)
         except Exception as e:
@@ -125,3 +148,11 @@ class MatchingSettings:
             optional_keys=list(self.reference_optional_keys),
             closest_keys=list(self.reference_closest_keys),
         )
+
+    def role_kwargs(self) -> dict:
+        """kwargs for processing.utils.load_datafiles(**settings.role_kwargs())."""
+        return {
+            "role_mode": self.background_role_mode,
+            "role_values": set(self.background_role_values),
+            "role_field": self.background_role_field,
+        }

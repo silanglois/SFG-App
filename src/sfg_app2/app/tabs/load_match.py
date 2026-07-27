@@ -68,7 +68,9 @@ class LoadMatchTab(QWidget):
 
     def load_from_folder(self, folder: str | Path):
         try:
-            new_files = load_datafiles(folder, patterns=self._get_active_patterns())
+            new_files = load_datafiles(
+                folder, patterns=self._get_active_patterns(), **self._role_kwargs()
+            )
             self._loaded_folder = Path(folder)
             added, skipped = self._merge_files(new_files)
             self._refresh_file_list()
@@ -80,18 +82,21 @@ class LoadMatchTab(QWidget):
 
     def load_individual_files(self, paths: list[str]):
         from sfg_app2.processing.data_file import DataFile
-        from sfg_app2.processing.utils import _strip_role_suffix, DEFAULT_ROLE_SUFFIXES
+        from sfg_app2.processing.utils import resolve_role
 
+        role_kwargs = self._role_kwargs()
         newly_loaded = []
         for path_str in paths:
             path = Path(path_str)
             try:
                 patterns = self._get_active_patterns()
-                clean_stem, role = _strip_role_suffix(path.stem, DEFAULT_ROLE_SUFFIXES)
+                clean_stem, matched = resolve_role(
+                    path.stem, role_kwargs["role_mode"], role_kwargs["role_values"]
+                )
                 n_parts = len(clean_stem.split("_"))
                 pattern_map = {len(p): p for p in patterns} if patterns else {}
                 fields = pattern_map.get(n_parts) if pattern_map else None
-                extra_metadata = {"role": role} if role else {}
+                extra_metadata = {"role": "background"} if matched else {}
                 newly_loaded.append(DataFile(path, filename_fields=fields, metadata=extra_metadata))
             except UnrecognizedFormatError as e:
                 logger.warning("Skipping %s: %s", path.name, e)
@@ -216,13 +221,16 @@ class LoadMatchTab(QWidget):
         """Re-parse filename metadata for all loaded files using current
         toggle state and active patterns. Manual metadata always wins.
         """
-        from sfg_app2.processing.utils import _strip_role_suffix, DEFAULT_ROLE_SUFFIXES
+        from sfg_app2.processing.utils import resolve_role
 
+        role_kwargs = self._role_kwargs()
         patterns = self._get_active_patterns()
         pattern_map = {len(p): p for p in patterns} if patterns else {}
 
         for f in self._files:
-            clean_stem, _ = _strip_role_suffix(f.path.stem, DEFAULT_ROLE_SUFFIXES)
+            clean_stem, _ = resolve_role(
+                f.path.stem, role_kwargs["role_mode"], role_kwargs["role_values"]
+            )
             n_parts = len(clean_stem.split("_"))
             fields = pattern_map.get(n_parts) if pattern_map else None
             f.reparse_filename_metadata(fields)
@@ -248,7 +256,8 @@ class LoadMatchTab(QWidget):
             try:
                 folder_files = load_datafiles(
                     self._loaded_folder,
-                    patterns=self._get_active_patterns()
+                    patterns=self._get_active_patterns(),
+                    **self._role_kwargs(),
                 )
                 # filter ignored before merging
                 ignored = self._get_ignored_paths()
@@ -270,20 +279,20 @@ class LoadMatchTab(QWidget):
 
         self._refresh_file_list()
 
-    def _on_review_metadata(self):
-        QMessageBox.information(
-            self, "Review Metadata",
-            "\n".join(f"{f.path.name}: {f.metadata}" for f in self._files)
-        )
-
     def _on_auto_match(self):
         if not self._files:
             return
         try:
-            from sfg_app2.processing.matcher import DataFileMatcher
+            from sfg_app2.processing.matcher import DataFileMatcher, make_role_fn
             settings = self._get_matching_settings()
+            role_fn = make_role_fn(
+                mode=settings.background_role_mode,
+                values=set(settings.background_role_values),
+                field=settings.background_role_field,
+            )
             matcher = DataFileMatcher(
                 self._files,
+                role_fn=role_fn,
                 reference_names=settings.reference_names,
                 type_rules=settings.type_rules,
                 background_config=settings.background_config(),
@@ -305,6 +314,9 @@ class LoadMatchTab(QWidget):
             pass
         from sfg_app2.app.utils.matching_settings import MatchingSettings
         return MatchingSettings()
+
+    def _role_kwargs(self) -> dict:
+        return self._get_matching_settings().role_kwargs()
 
     def _populate_table_from_matched(self, matched: list):
         model = self.match_table._table_model
