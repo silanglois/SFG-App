@@ -91,7 +91,9 @@ class Ui_Form(object):
         self.visualizationParamsGroupBox.setCheckable(True)
         self.visualizationParamsGroupBox.setChecked(True)
         self.horizontalLayout_2 = QHBoxLayout(self.visualizationParamsGroupBox)
+        self.horizontalLayout_2.setSpacing(4)
         self.horizontalLayout_2.setObjectName(u"horizontalLayout_2")
+        self.horizontalLayout_2.setContentsMargins(4, 4, 4, 4)
         self.frame = QFrame(self.visualizationParamsGroupBox)
         self.frame.setObjectName(u"frame")
         sizePolicy.setHeightForWidth(self.frame.sizePolicy().hasHeightForWidth())
@@ -115,7 +117,7 @@ class Ui_Form(object):
         self.verticalLayout_2.addWidget(self.doubleSpinBox)
 
 
-        self.horizontalLayout_2.addWidget(self.frame)
+        self.horizontalLayout_2.addWidget(self.frame, 0, Qt.AlignTop)
 
         self.frame_4 = QFrame(self.visualizationParamsGroupBox)
         self.frame_4.setObjectName(u"frame_4")
@@ -157,7 +159,7 @@ class Ui_Form(object):
         self.verticalLayout_6.addLayout(self.hdComponentGridLayout)
 
 
-        self.horizontalLayout_2.addWidget(self.frame_4)
+        self.horizontalLayout_2.addWidget(self.frame_4, 0, Qt.AlignTop)
 
         self.frame_2 = QFrame(self.visualizationParamsGroupBox)
         self.frame_2.setObjectName(u"frame_2")
@@ -190,7 +192,7 @@ class Ui_Form(object):
         self.gridLayout.addWidget(self.colormapStopSpinner, 1, 1, 1, 1)
 
 
-        self.horizontalLayout_2.addWidget(self.frame_2)
+        self.horizontalLayout_2.addWidget(self.frame_2, 0, Qt.AlignTop)
 
         self.verticalLayout_5 = QVBoxLayout()
         self.verticalLayout_5.setObjectName(u"verticalLayout_5")

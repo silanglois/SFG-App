@@ -51,7 +51,7 @@ class AutoMatchingSettingsDialog(QDialog):
     def __init__(self, settings: MatchingSettings, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Auto-Matching Parameters")
-        self.resize(650, 750)
+        self.resize(480, 750)
         self._settings = settings
 
         self._build_ui()
@@ -92,10 +92,12 @@ class AutoMatchingSettingsDialog(QDialog):
     def _build_reference_names_box(self) -> QGroupBox:
         self._ref_box = QGroupBox("Reference sample names")
         box_layout = QVBoxLayout(self._ref_box)
-        box_layout.addWidget(QLabel(
+        ref_label = QLabel(
             "Sample names that identify a file as a reference "
             "(matched case-insensitively):"
-        ))
+        )
+        ref_label.setWordWrap(True)
+        box_layout.addWidget(ref_label)
         ref_row = QHBoxLayout()
         self._ref_list = QListWidget()
         ref_row.addWidget(self._ref_list)
@@ -125,6 +127,7 @@ class AutoMatchingSettingsDialog(QDialog):
         box_layout.addLayout(mode_row)
 
         self._role_values_label = QLabel()
+        self._role_values_label.setWordWrap(True)
         box_layout.addWidget(self._role_values_label)
 
         field_row = QHBoxLayout()
@@ -155,13 +158,15 @@ class AutoMatchingSettingsDialog(QDialog):
     def _build_type_rules_box(self) -> QGroupBox:
         self._rules_box = QGroupBox("Force homodyne / heterodyne processing")
         box_layout = QVBoxLayout(self._rules_box)
-        box_layout.addWidget(QLabel(
+        rules_label = QLabel(
             "Force a spectrum type when a chosen filename-parsed field matches "
             "a value, or when a substring appears anywhere in the filename "
             "(choose \"Filename\" as the field) — checked against the signal's "
             "and/or background's field/filename (case-insensitively). First "
             "matching rule wins; sets matching no rule default to homodyne:"
-        ))
+        )
+        rules_label.setWordWrap(True)
+        box_layout.addWidget(rules_label)
         self._rules_table = QTableWidget(0, 4)
         self._rules_table.setHorizontalHeaderLabels(
             ["Field", "Value", "Force type", "Applies to"]
@@ -187,12 +192,14 @@ class AutoMatchingSettingsDialog(QDialog):
     def _build_fields_box(self) -> QGroupBox:
         self._fields_box = QGroupBox("Metadata matching rules")
         box_layout = QVBoxLayout(self._fields_box)
-        box_layout.addWidget(QLabel(
+        fields_label = QLabel(
             "Metadata fields used to match a signal to its background/reference — "
             "Required must match exactly. Optional prefers a match but is skipped "
             "if no candidate matches. Closest picks the nearest numeric/date value, "
             "in priority order (top row highest priority):"
-        ))
+        )
+        fields_label.setWordWrap(True)
+        box_layout.addWidget(fields_label)
         self._fields_table = QTableWidget(0, 3)
         self._fields_table.setHorizontalHeaderLabels(["Field", "Background", "Reference"])
         self._fields_table.horizontalHeader().setSectionResizeMode(
