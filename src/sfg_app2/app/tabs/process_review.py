@@ -245,6 +245,7 @@ class ProcessReviewTab(QWidget):
         self._matched_sets = matched_sets
         self._cache.clear()
         self._despike_configs.clear()
+        self._hd_sfg_panel.reset()
         self._populate_list()
 
     def get_upconversion_wavelength(self) -> float:
@@ -284,8 +285,10 @@ class ProcessReviewTab(QWidget):
             self._hd_sfg_panel.set_matched_set(m, row)
         else:
             self._right_stack.setCurrentIndex(0)
-            # load this set's despike config into the panel
-            cfg = self._despike_configs.get(row, DEFAULT_DESPIKE)
+            # load this set's despike config for the currently selected
+            # component into the panel — _despike_configs[row] is a
+            # per-component dict (see _get_despike_cfg), not a flat one
+            cfg = self._get_despike_cfg(row, self._current_component())
             self._despike_window_spin.blockSignals(True)
             self._despike_threshold_spin.blockSignals(True)
             self._despike_window_spin.setValue(cfg["window"])
@@ -569,7 +572,6 @@ class ProcessReviewTab(QWidget):
             self._cache[idx] = {}
         c = self._cache[idx]
         m = self._matched_sets[idx]
-        cfg = self._despike_configs.get(idx, DEFAULT_DESPIKE)
 
         if step == "raw":
             return m.signal

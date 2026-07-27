@@ -889,8 +889,9 @@ class HDSFGPanel(QWidget):
                 c["ifft"] = fft_data   # same data, different view
             if "normalization" not in c:
                 result = step_normalize(c["fft_filter"], cfg)
-                result.metadata = self._matched_set.signal.metadata.copy()
-                result.history  = ["hd_sfg_processing"]
+                result.metadata   = self._matched_set.signal.metadata.copy()
+                result.history    = ["hd_sfg_processing"]
+                result.provenance = self._build_provenance(cfg, result.n_frames)
                 c["normalization"] = result
 
         except Exception as e:
@@ -918,6 +919,59 @@ class HDSFGPanel(QWidget):
             self.processing_complete.emit(
                 {self._matched_set.signal.path.name: c["normalization"]}
             )
+
+    def _build_provenance(self, cfg, n_frames: int) -> dict:
+        """Captures the actual HD-SFG processing parameters used, for the
+        CSV export provenance header (see ProcessedResultsTab)."""
+        ms = self._matched_set
+
+        def name(f):
+            return f.path.name if f is not None else None
+
+        def desp(key):
+            p = self._despike_params[key]
+            return {"window": p["window"].value(), "threshold": p["threshold"].value()}
+
+        return {
+            "kind": "heterodyne",
+            "signal":               name(ms.signal),
+            "background":           name(ms.background),
+            "reference":            name(ms.reference),
+            "reference_background": name(ms.reference_background),
+            "despike": {
+                "signal":               desp("signal"),
+                "background":           desp("background"),
+                "reference":            desp("reference"),
+                "reference_background": desp("ref_background"),
+            },
+            "background_subtraction": {
+                "bg_offset":            cfg.bg_offset,
+                "edge_left":            cfg.edge_left,
+                "edge_right":           cfg.edge_right,
+                "bg_smoothing_window":  cfg.bg_smoothing_window,
+                "bg_smoothing_order":   cfg.bg_smoothing_order,
+                "sig_smoothing_window": cfg.sig_smoothing_window,
+                "sig_smoothing_order":  cfg.sig_smoothing_order,
+            },
+            "fft_filter": {
+                "window_type":     cfg.window_type,
+                "fft_start":       cfg.fft_start,
+                "fft_end":         cfg.fft_end,
+                "hg_left":         cfg.hg_left,
+                "hg_right":        cfg.hg_right,
+                "mask_start":      cfg.mask_start,
+                "mask_end":        cfg.mask_end,
+                "mask_transition": cfg.mask_transition,
+                "mask_factor":     cfg.mask_factor,
+            },
+            "normalization": {
+                "sample_exposure_s":    cfg.sample_exposure,
+                "reference_exposure_s": cfg.reference_exposure,
+                "phase_correction_deg": cfg.phase_correction_deg,
+            },
+            "upconversion": {"wavelength_nm": cfg.upconversion_wavelength},
+            "n_frames": n_frames,
+        }
 
     # ── Config ────────────────────────────────────────────────────────────────
 
@@ -949,6 +1003,22 @@ class HDSFGPanel(QWidget):
         return "raw"
 
     # ── Public API ────────────────────────────────────────────────────────────
+
+    def reset(self):
+        """Discard all cached processing results. Call whenever the
+        underlying matched sets are replaced (e.g. re-run from Load/Match
+        after correcting the match table) — otherwise a row index reused
+        by a new/corrected MatchedSet would still show stale results
+        computed from the previous file assignment.
+        """
+        self._cache.clear()
+        self._matched_set = None
+        self._matched_index = -1
+        self._last_step = None
+        self._norm_lines.clear()
+        self._norm_ax2 = None
+        self.plot_widget.full_clear()
+        self.plot_widget.canvas.draw_idle()
 
     def set_matched_set(self, matched_set, index: int):
         self._matched_set   = matched_set

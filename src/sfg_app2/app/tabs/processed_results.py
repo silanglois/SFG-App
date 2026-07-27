@@ -44,11 +44,42 @@ def _all_colormaps() -> list[str]:
     return CURATED_COLORMAPS + extras
 
 
+# HD-SFG component checkboxes — display name -> to_dataframe() column name
+_HD_COMPONENT_COLUMN = {
+    "Imaginary": "Imaginary",
+    "Real": "Real",
+    "Phase": "Phase",
+    "|χ⁽²⁾|² (Homodyne)": "Homodyne",
+}
+
+# display name -> matplotlib mathtext y-axis label (plain Unicode
+# superscript/subscript glyphs render as missing-glyph boxes in most fonts,
+# so plotted labels use mathtext while the checkbox text itself stays plain
+# Unicode — Qt widgets don't interpret mathtext syntax)
+_HD_YLABEL = {
+    "Imaginary": r"Im($\chi^{(2)}$)",
+    "Real": r"Re($\chi^{(2)}$)",
+    "Phase": "Phase (°)",
+    "|χ⁽²⁾|² (Homodyne)": r"$|\chi^{(2)}|^2$",
+}
+
+# display name -> mathtext-safe legend label suffix (same reasoning as
+# _HD_YLABEL — the checkbox display name itself contains raw Unicode
+# superscript parentheses that most fonts lack a glyph for)
+_HD_LEGEND_LABEL = {
+    "Imaginary": "Imaginary",
+    "Real": "Real",
+    "Phase": "Phase",
+    "|χ⁽²⁾|² (Homodyne)": r"$|\chi^{(2)}|^2$",
+}
+
+
 class SpectrumEntry:
     """Lightweight container binding a ProcessedSpectrum to a display label."""
-    def __init__(self, spectrum: ProcessedSpectrum, label: str):
+    def __init__(self, spectrum: ProcessedSpectrum, label: str, kind: str = "homodyne"):
         self.spectrum = spectrum
         self.label = label
+        self.kind = kind   # "homodyne" | "heterodyne"
 
     def __repr__(self):
         return f"SpectrumEntry({self.label})"
@@ -66,6 +97,7 @@ class ProcessedResultsTab(QWidget):
         self._setup_list()
         self._setup_colormap_combo()
         self._setup_normalization()
+        self._setup_hd_component_checkboxes()
         self._connect_signals()
 
     # ── Setup ─────────────────────────────────────────────────────────────────
@@ -98,6 +130,22 @@ class ProcessedResultsTab(QWidget):
         self.ui.doubleSpinBox.setValue(2900.0)
         self.ui.doubleSpinBox.setSuffix(" cm⁻¹")
 
+    def _setup_hd_component_checkboxes(self):
+        self._hd_checkboxes = {
+            "Imaginary": self.ui.hdCheckImaginary,
+            "Real": self.ui.hdCheckReal,
+            "Phase": self.ui.hdCheckPhase,
+            "|χ⁽²⁾|² (Homodyne)": self.ui.hdCheckHomodyne,
+        }
+        for cb in self._hd_checkboxes.values():
+            cb.setToolTip(
+                "Plot this component for heterodyne (HD-SFG) entries — "
+                "has no effect on homodyne entries. Check multiple to overlay them."
+            )
+
+    def _checked_hd_components(self) -> list[str]:
+        return [name for name, cb in self._hd_checkboxes.items() if cb.isChecked()]
+
     def _connect_signals(self):
         self.ui.addSpectraButton.clicked.connect(self._on_add_from_file)
         self.ui.pushButton.clicked.connect(self._on_sort_by_metadata)
@@ -117,6 +165,8 @@ class ProcessedResultsTab(QWidget):
         self.ui.colormapStartSpinner.valueChanged.connect(self._refresh_plot)
         self.ui.colormapStopSpinner.valueChanged.connect(self._refresh_plot)
         self.ui.offsetSpectraSpinner.valueChanged.connect(self._refresh_plot)
+        for cb in self._hd_checkboxes.values():
+            cb.toggled.connect(self._refresh_plot)
         self.ui.spectraList.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.ui.spectraList.customContextMenuRequested.connect(self._on_context_menu)
 
@@ -125,15 +175,15 @@ class ProcessedResultsTab(QWidget):
     def add_results(self, results: dict):
         from sfg_app2.processing.hd_sfg import HDSFGResult
         from sfg_app2.processing.processed_spectrum import ProcessedSpectrum
-        import pandas as pd
 
         for filename, spectrum in results.items():
-            # convert HDSFGResult to ProcessedSpectrum for display
+            kind = "homodyne"
+            # convert HDSFGResult to ProcessedSpectrum for display, keeping
+            # every component (Real/Imaginary/Phase/Homodyne + per-frame-avg
+            # and error-bar variants) intact — no lossy column renaming
             if isinstance(spectrum, HDSFGResult):
                 df = spectrum.to_dataframe()
-                df["Frame"] = 1
-                # use Imaginary as the primary Intensity column for plotting
-                df = df.rename(columns={"Imaginary": "Intensity"})
+                df.insert(0, "Frame", 1)
                 ps = ProcessedSpectrum(
                     df,
                     metadata  = spectrum.metadata,
@@ -141,10 +191,11 @@ class ProcessedResultsTab(QWidget):
                 )
                 ps.provenance = spectrum.provenance
                 spectrum = ps
+                kind = "heterodyne"
 
             label = Path(filename).stem
             if not self._entry_exists(label):
-                self._entries.append(SpectrumEntry(spectrum, label))
+                self._entries.append(SpectrumEntry(spectrum, label, kind=kind))
                 self.ui.spectraList.addItem(
                     self._make_list_item(len(self._entries) - 1)
                 )
@@ -152,6 +203,9 @@ class ProcessedResultsTab(QWidget):
         self._refresh_plot()
 
     # ── List management ───────────────────────────────────────────────────────
+
+    def _entry_exists(self, label: str) -> bool:
+        return any(e.label == label for e in self._entries)
 
     def _make_list_item(self, index: int) -> QListWidgetItem:
         entry = self._entries[index]
@@ -231,36 +285,70 @@ class ProcessedResultsTab(QWidget):
         if not entries:
             return
 
-        colors = self._get_colors(len(entries))
         offset_step = self.ui.offsetSpectraSpinner.value()
+        checked_components = self._checked_hd_components()
 
         # determine x column — use Wavenumber if available, else Wavelength
         first_data = entries[0].spectrum.data
-        x_col = "Wavenumber" if "Wavenumber" in first_data.columns else "Wavelength"
-        x_label = "Wavenumber (cm$^{-1}$)" if x_col == "Wavenumber" else "Wavelength (nm)"
+        first_x_col = "Wavenumber" if "Wavenumber" in first_data.columns else "Wavelength"
+        x_label = "Wavenumber (cm$^{-1}$)" if first_x_col == "Wavenumber" else "Wavelength (nm)"
 
-        for i, entry in enumerate(entries):
+        # flatten to one spec per plotted line — a heterodyne entry produces
+        # one line per checked component, a homodyne entry always one line —
+        # so colors/offset are assigned per line, not per entry
+        multi_line = len(entries) > 1 or len(checked_components) > 1
+        specs = []   # (entry, y_col, label)
+        for entry in entries:
+            if entry.kind == "heterodyne":
+                for component in checked_components:
+                    y_col = _HD_COMPONENT_COLUMN[component]
+                    label = (f"{entry.label} ({_HD_LEGEND_LABEL[component]})"
+                              if multi_line else entry.label)
+                    specs.append((entry, y_col, label))
+            else:
+                specs.append((entry, "Intensity", entry.label))
+
+        colors = self._get_colors(len(specs))
+        any_hd_plotted = False
+
+        for i, (entry, y_col, label) in enumerate(specs):
             try:
-                data = entry.spectrum.frame(1)
+                if entry.kind == "heterodyne":
+                    # already one row per wavenumber point — bypass .frame(),
+                    # which sorts by a "Wavelength" column heterodyne data
+                    # doesn't have
+                    data = entry.spectrum.data
+                    x_col = "Wavenumber"
+                    any_hd_plotted = True
+                else:
+                    data = entry.spectrum.frame(1)
+                    x_col = "Wavenumber" if "Wavenumber" in data.columns else "Wavelength"
+
                 x = data[x_col].to_numpy()
-                y = self._normalize(x, data["Intensity"].to_numpy())
+                y = self._normalize(x, data[y_col].to_numpy())
                 y_offset = y + i * offset_step
 
                 self.plot_widget.ax.plot(
                     x, y_offset,
                     color=colors[i],
-                    label=entry.label,
+                    label=label,
                 )
             except Exception as e:
-                logger.warning("Could not plot %s: %s", entry.label, e)
+                logger.warning("Could not plot %s: %s", label, e)
 
-        if len(entries) > 1:
+        if len(specs) > 1:
             self.plot_widget.ax.legend(fontsize=8)
+
+        if any_hd_plotted:
+            ylabel = (_HD_YLABEL.get(checked_components[0], "Amplitude")
+                      if len(checked_components) == 1 else "Amplitude")
+        else:
+            ylabel = ("Intensity" if self.ui.normalizationComboBox.currentIndex() == 0
+                      else "Normalized Intensity")
 
         self.plot_widget.set_labels(
             xlabel=x_label,
-            ylabel="Intensity" if self.ui.normalizationComboBox.currentIndex() == 0
-                   else "Normalized Intensity",
+            ylabel=ylabel,
             title=f"{len(entries)} spectrum/spectra",
         )
 
@@ -372,9 +460,16 @@ class ProcessedResultsTab(QWidget):
                 )
                 spectrum.provenance = provenance
 
+                kind = provenance.get("kind")
+                if kind is None:
+                    # no/old-style header — fall back to sniffing columns
+                    kind = ("heterodyne"
+                            if {"Real", "Imaginary", "Phase", "Homodyne"}.issubset(df.columns)
+                            else "homodyne")
+
                 label = path.stem
                 if not self._entry_exists(label):
-                    self._entries.append(SpectrumEntry(spectrum, label))
+                    self._entries.append(SpectrumEntry(spectrum, label, kind=kind))
                     self.ui.spectraList.addItem(
                         self._make_list_item(len(self._entries) - 1)
                     )
@@ -462,23 +557,65 @@ class ProcessedResultsTab(QWidget):
         )
 
         # processing params → nested provenance
-        provenance["despike"] = {
-            "applied":          raw.get("despike", "").lower() == "applied",
-            "window":           raw.get("window"),
-            "threshold_factor": raw.get("threshold_factor"),
-        }
-        provenance["background_subtraction"] = {
-            "applied":       raw.get("background subtraction", "").lower() == "applied",
-            "signal_offset": raw.get("signal offset"),
-            "ref_offset":    raw.get("ref offset"),
-        }
-        provenance["normalization"] = {
-            "applied": raw.get("normalization", "").lower() == "applied",
-        }
-        provenance["upconversion"] = {
-            "applied":        raw.get("upconversion", "").lower() == "applied",
-            "wavelength_nm":  raw.get("wavelength"),
-        }
+        is_heterodyne = raw.get("type", "").strip().lower() == "heterodyne"
+        provenance["kind"] = "heterodyne" if is_heterodyne else "homodyne"
+
+        if is_heterodyne:
+            provenance["despike"] = {
+                "signal":               {"window": raw.get("despike signal window"),
+                                          "threshold": raw.get("despike signal threshold")},
+                "background":           {"window": raw.get("despike background window"),
+                                          "threshold": raw.get("despike background threshold")},
+                "reference":            {"window": raw.get("despike reference window"),
+                                          "threshold": raw.get("despike reference threshold")},
+                "reference_background": {"window": raw.get("despike reference_background window"),
+                                          "threshold": raw.get("despike reference_background threshold")},
+            }
+            provenance["background_subtraction"] = {
+                "bg_offset":            raw.get("bg subtraction offset"),
+                "edge_left":            raw.get("bg subtraction edge_left_pts"),
+                "edge_right":           raw.get("bg subtraction edge_right_pts"),
+                "bg_smoothing_window":  raw.get("bg smoothing window"),
+                "bg_smoothing_order":   raw.get("bg smoothing order"),
+                "sig_smoothing_window": raw.get("signal smoothing window"),
+                "sig_smoothing_order":  raw.get("signal smoothing order"),
+            }
+            provenance["fft_filter"] = {
+                "window_type":     raw.get("fft window_type"),
+                "fft_start":       raw.get("fft start_pts"),
+                "fft_end":         raw.get("fft end_pts"),
+                "hg_left":         raw.get("fft hg_left_pts"),
+                "hg_right":        raw.get("fft hg_right_pts"),
+                "mask_start":      raw.get("fft mask_start_pts"),
+                "mask_end":        raw.get("fft mask_end_pts"),
+                "mask_transition": raw.get("fft mask_transition_pts"),
+                "mask_factor":     raw.get("fft mask_factor"),
+            }
+            provenance["normalization"] = {
+                "sample_exposure_s":    raw.get("normalization sample_exposure_s"),
+                "reference_exposure_s": raw.get("normalization reference_exposure_s"),
+                "phase_correction_deg": raw.get("normalization phase_correction_deg"),
+            }
+            provenance["upconversion"] = {"wavelength_nm": raw.get("upconversion wavelength_nm")}
+            provenance["n_frames"] = raw.get("frames processed")
+        else:
+            provenance["despike"] = {
+                "applied":          raw.get("despike", "").lower() == "applied",
+                "window":           raw.get("window"),
+                "threshold_factor": raw.get("threshold_factor"),
+            }
+            provenance["background_subtraction"] = {
+                "applied":       raw.get("background subtraction", "").lower() == "applied",
+                "signal_offset": raw.get("signal offset"),
+                "ref_offset":    raw.get("ref offset"),
+            }
+            provenance["normalization"] = {
+                "applied": raw.get("normalization", "").lower() == "applied",
+            }
+            provenance["upconversion"] = {
+                "applied":        raw.get("upconversion", "").lower() == "applied",
+                "wavelength_nm":  raw.get("wavelength"),
+            }
 
         # sample metadata
         metadata["source_filename"] = path.name
@@ -534,15 +671,16 @@ class ProcessedResultsTab(QWidget):
         """Write a CSV with a commented provenance header, readable by pandas
         via pd.read_csv(path, comment='#').
         """
-        import json
         from datetime import datetime
 
         spectrum = entry.spectrum
         provenance = getattr(spectrum, "provenance", None) or \
                     _build_provenance_from_history(spectrum)
 
-        header_lines = [
-            f"# SFG-App export",
+        header_lines = ["# SFG-App export"]
+        if entry.kind == "heterodyne":
+            header_lines.append("# Type:        heterodyne")
+        header_lines += [
             f"# Label:       {entry.label}",
             f"# Exported:    {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
             f"# History:     {' → '.join(spectrum.history)}",
@@ -556,43 +694,10 @@ class ProcessedResultsTab(QWidget):
             "# --- Processing parameters ---",
         ]
 
-        # despike
-        despike = provenance.get("despike", {})
-        if despike.get("applied"):
-            header_lines += [
-                f"# Despike:              applied",
-                f"#   window:             {despike.get('window', 'N/A')}",
-                f"#   threshold_factor:   {despike.get('threshold_factor', 'N/A')}",
-            ]
+        if entry.kind == "heterodyne":
+            header_lines += self._format_heterodyne_provenance(provenance)
         else:
-            header_lines.append("# Despike:              not applied")
-
-        # background subtraction
-        bg = provenance.get("background_subtraction", {})
-        if bg.get("applied"):
-            header_lines += [
-                f"# Background subtraction: applied",
-                f"#   signal offset:      {bg.get('signal_offset', 'None')}",
-                f"#   ref offset:         {bg.get('ref_offset', 'None')}",
-            ]
-        else:
-            header_lines.append("# Background subtraction: not applied")
-
-        # normalization
-        norm = provenance.get("normalization", {})
-        header_lines.append(
-            f"# Normalization:        {'applied' if norm.get('applied') else 'not applied'}"
-        )
-
-        # upconversion
-        upconv = provenance.get("upconversion", {})
-        if upconv.get("applied"):
-            header_lines += [
-                f"# Upconversion:         applied",
-                f"#   wavelength:         {upconv.get('wavelength_nm', 'N/A')} nm",
-            ]
-        else:
-            header_lines.append("# Upconversion:         not applied")
+            header_lines += self._format_homodyne_provenance(provenance)
 
         # sample metadata
         if spectrum.metadata:
@@ -611,6 +716,95 @@ class ProcessedResultsTab(QWidget):
             for line in header_lines:
                 f.write(line + "\n")
             spectrum.data.to_csv(f, index=False)
+
+    @staticmethod
+    def _format_homodyne_provenance(provenance: dict) -> list[str]:
+        lines = []
+
+        # despike
+        despike = provenance.get("despike", {})
+        if despike.get("applied"):
+            lines += [
+                f"# Despike:              applied",
+                f"#   window:             {despike.get('window', 'N/A')}",
+                f"#   threshold_factor:   {despike.get('threshold_factor', 'N/A')}",
+            ]
+        else:
+            lines.append("# Despike:              not applied")
+
+        # background subtraction
+        bg = provenance.get("background_subtraction", {})
+        if bg.get("applied"):
+            lines += [
+                f"# Background subtraction: applied",
+                f"#   signal offset:      {bg.get('signal_offset', 'None')}",
+                f"#   ref offset:         {bg.get('ref_offset', 'None')}",
+            ]
+        else:
+            lines.append("# Background subtraction: not applied")
+
+        # normalization
+        norm = provenance.get("normalization", {})
+        lines.append(
+            f"# Normalization:        {'applied' if norm.get('applied') else 'not applied'}"
+        )
+
+        # upconversion
+        upconv = provenance.get("upconversion", {})
+        if upconv.get("applied"):
+            lines += [
+                f"# Upconversion:         applied",
+                f"#   wavelength:         {upconv.get('wavelength_nm', 'N/A')} nm",
+            ]
+        else:
+            lines.append("# Upconversion:         not applied")
+
+        return lines
+
+    @staticmethod
+    def _format_heterodyne_provenance(provenance: dict) -> list[str]:
+        d    = provenance.get("despike", {})
+        bg   = provenance.get("background_subtraction", {})
+        fft  = provenance.get("fft_filter", {})
+        norm = provenance.get("normalization", {})
+        up   = provenance.get("upconversion", {})
+
+        def comp(key, label):
+            c = d.get(key, {})
+            return [
+                f"# Despike {label} window:      {c.get('window', 'N/A')}",
+                f"# Despike {label} threshold:   {c.get('threshold', 'N/A')}",
+            ]
+
+        lines = []
+        lines += comp("signal", "signal")
+        lines += comp("background", "background")
+        lines += comp("reference", "reference")
+        lines += comp("reference_background", "reference_background")
+        lines += [
+            f"# BG subtraction offset:              {bg.get('bg_offset', 'N/A')}",
+            f"# BG subtraction edge_left_pts:       {bg.get('edge_left', 'N/A')}",
+            f"# BG subtraction edge_right_pts:      {bg.get('edge_right', 'N/A')}",
+            f"# BG smoothing window:                {bg.get('bg_smoothing_window', 'N/A')}",
+            f"# BG smoothing order:                 {bg.get('bg_smoothing_order', 'N/A')}",
+            f"# Signal smoothing window:            {bg.get('sig_smoothing_window', 'N/A')}",
+            f"# Signal smoothing order:             {bg.get('sig_smoothing_order', 'N/A')}",
+            f"# FFT window_type:                    {fft.get('window_type', 'N/A')}",
+            f"# FFT start_pts:                      {fft.get('fft_start', 'N/A')}",
+            f"# FFT end_pts:                        {fft.get('fft_end', 'N/A')}",
+            f"# FFT hg_left_pts:                    {fft.get('hg_left', 'N/A')}",
+            f"# FFT hg_right_pts:                   {fft.get('hg_right', 'N/A')}",
+            f"# FFT mask_start_pts:                 {fft.get('mask_start', 'N/A')}",
+            f"# FFT mask_end_pts:                   {fft.get('mask_end', 'N/A')}",
+            f"# FFT mask_transition_pts:             {fft.get('mask_transition', 'N/A')}",
+            f"# FFT mask_factor:                    {fft.get('mask_factor', 'N/A')}",
+            f"# Normalization sample_exposure_s:     {norm.get('sample_exposure_s', 'N/A')}",
+            f"# Normalization reference_exposure_s:  {norm.get('reference_exposure_s', 'N/A')}",
+            f"# Normalization phase_correction_deg:  {norm.get('phase_correction_deg', 'N/A')}",
+            f"# Upconversion wavelength_nm:          {up.get('wavelength_nm', 'N/A')}",
+            f"# Frames processed:                    {provenance.get('n_frames', 'N/A')}",
+        ]
+        return lines
 
     def _on_export_selected(self):
         self._export_entries(self._selected_entries())

@@ -15,10 +15,11 @@ from PySide6.QtGui import (QBrush, QColor, QConicalGradient, QCursor,
     QFont, QFontDatabase, QGradient, QIcon,
     QImage, QKeySequence, QLinearGradient, QPainter,
     QPalette, QPixmap, QRadialGradient, QTransform)
-from PySide6.QtWidgets import (QApplication, QComboBox, QDoubleSpinBox, QFrame,
-    QGridLayout, QGroupBox, QHBoxLayout, QLabel,
-    QListWidget, QListWidgetItem, QPushButton, QSizePolicy,
-    QSpacerItem, QSplitter, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDoubleSpinBox,
+    QFrame, QGridLayout, QGroupBox, QHBoxLayout,
+    QLabel, QListWidget, QListWidgetItem, QPushButton,
+    QSizePolicy, QSpacerItem, QSplitter, QVBoxLayout,
+    QWidget)
 
 class Ui_Form(object):
     def setupUi(self, Form):
@@ -113,6 +114,48 @@ class Ui_Form(object):
 
 
         self.horizontalLayout_2.addWidget(self.frame)
+
+        self.frame_4 = QFrame(self.visualizationParamsGroupBox)
+        self.frame_4.setObjectName(u"frame_4")
+        sizePolicy.setHeightForWidth(self.frame_4.sizePolicy().hasHeightForWidth())
+        self.frame_4.setSizePolicy(sizePolicy)
+        self.frame_4.setFrameShape(QFrame.StyledPanel)
+        self.frame_4.setFrameShadow(QFrame.Raised)
+        self.verticalLayout_6 = QVBoxLayout(self.frame_4)
+        self.verticalLayout_6.setObjectName(u"verticalLayout_6")
+        self.hdComponentLabel = QLabel(self.frame_4)
+        self.hdComponentLabel.setObjectName(u"hdComponentLabel")
+
+        self.verticalLayout_6.addWidget(self.hdComponentLabel)
+
+        self.hdComponentGridLayout = QGridLayout()
+        self.hdComponentGridLayout.setObjectName(u"hdComponentGridLayout")
+        self.hdCheckImaginary = QCheckBox(self.frame_4)
+        self.hdCheckImaginary.setObjectName(u"hdCheckImaginary")
+        self.hdCheckImaginary.setChecked(True)
+
+        self.hdComponentGridLayout.addWidget(self.hdCheckImaginary, 0, 0, 1, 1)
+
+        self.hdCheckReal = QCheckBox(self.frame_4)
+        self.hdCheckReal.setObjectName(u"hdCheckReal")
+
+        self.hdComponentGridLayout.addWidget(self.hdCheckReal, 0, 1, 1, 1)
+
+        self.hdCheckPhase = QCheckBox(self.frame_4)
+        self.hdCheckPhase.setObjectName(u"hdCheckPhase")
+
+        self.hdComponentGridLayout.addWidget(self.hdCheckPhase, 1, 0, 1, 1)
+
+        self.hdCheckHomodyne = QCheckBox(self.frame_4)
+        self.hdCheckHomodyne.setObjectName(u"hdCheckHomodyne")
+
+        self.hdComponentGridLayout.addWidget(self.hdCheckHomodyne, 1, 1, 1, 1)
+
+
+        self.verticalLayout_6.addLayout(self.hdComponentGridLayout)
+
+
+        self.horizontalLayout_2.addWidget(self.frame_4)
 
         self.frame_2 = QFrame(self.visualizationParamsGroupBox)
         self.frame_2.setObjectName(u"frame_2")
@@ -212,6 +255,11 @@ class Ui_Form(object):
         self.normalizationComboBox.setItemText(1, QCoreApplication.translate("Form", u"Normalize to given wavenumber", None))
         self.normalizationComboBox.setItemText(2, QCoreApplication.translate("Form", u"Normalize to highest peak", None))
 
+        self.hdComponentLabel.setText(QCoreApplication.translate("Form", u"HD-SFG component(s):", None))
+        self.hdCheckImaginary.setText(QCoreApplication.translate("Form", u"Imaginary", None))
+        self.hdCheckReal.setText(QCoreApplication.translate("Form", u"Real", None))
+        self.hdCheckPhase.setText(QCoreApplication.translate("Form", u"Phase", None))
+        self.hdCheckHomodyne.setText(QCoreApplication.translate("Form", u"|\u03c7\u207d\u00b2\u207e|\u00b2 (Homodyne)", None))
         self.label.setText(QCoreApplication.translate("Form", u"Offset:", None))
     # retranslateUi
 
