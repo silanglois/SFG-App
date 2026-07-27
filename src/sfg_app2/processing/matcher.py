@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 # DEFAULT_EXACT_KEYS = ["polarization", "center_wavelength", "acquisition_time", "date"]
 DEFAULT_REQUIRED_KEYS = ["center wavelength", "acquisition time"]
 DEFAULT_OPTIONAL_KEYS = ["polarization", "date"]
-DEFAULT_TIMESTAMP_KEY = "timestamp"
+DEFAULT_CLOSEST_KEYS = ["timestamp"]
 DEFAULT_SAMPLE_KEY = "sample"
 
 
@@ -89,10 +89,18 @@ class MatchingConfig:
     """Matching rules for one role (background or reference).
 
     required_keys : must match exactly — mismatch disqualifies the candidate
-    optional_keys : compared only if both files have a real value
+    optional_keys : soft preference — candidates whose value matches the
+                    target's are preferred over ones that don't, but a key
+                    is skipped (behaves like ignored) if no candidate has a
+                    matching value at all
+    closest_keys  : tiebreakers, in priority order — among the remaining
+                    candidates, narrow to whichever has the numerically/
+                    temporally closest value for each key in turn. A key
+                    with no comparable value on any candidate is skipped.
     """
-    required_keys: list[str] = field(default_factory=lambda: ["sample","polarization"])
+    required_keys: list[str] = field(default_factory=lambda: ["sample", "polarization"])
     optional_keys: list[str] = field(default_factory=lambda: ["center wavelength", "acquisition time"])
+    closest_keys: list[str] = field(default_factory=lambda: list(DEFAULT_CLOSEST_KEYS))
 
 
 # ── Matcher ──────────────────────────────────────────────────────────────────
@@ -111,13 +119,16 @@ class DataFileMatcher:
         Sample names (matched case-insensitively) that identify a file as a
         reference (e.g. ["Au", "gold", "quartz"]). A reference with role
         "background" becomes a reference_background.
-    *outdated* exact_keys : list[str], optional
-        Metadata keys that must match exactly. Defaults to
-        ["polarization", "center_wavelength", "acquisition_time", "date"].
-    timestamp_key : str
-        Metadata key holding the timestamp, used for closest-match tiebreaking.
+    type_rules : list[dict], optional
+        Rules forcing spectrum_type based on a metadata value, e.g.
+        {"field": "sample", "key": "PS-hetero", "type": "heterodyne", "scope": "signal"}.
+        `field` defaults to `sample_key` if omitted. scope is one of "signal",
+        "background", "both" — which file's `field` value is checked against
+        `key`. The first matching rule (in list order) wins; sets matching no
+        rule default to "homodyne".
     sample_key : str
-        Metadata key holding the sample name, used for reference identification.
+        Metadata key holding the sample name, used for reference identification
+        and as the default field for type_rules matching.
     """
 
     def __init__(
@@ -125,20 +136,20 @@ class DataFileMatcher:
         files: list,
         role_fn: Callable = None,
         reference_names: list[str] = None,
+        type_rules: list[dict] = None,
         background_config: MatchingConfig = None,
         reference_config: MatchingConfig = None,
-        timestamp_key: str = DEFAULT_TIMESTAMP_KEY,
         sample_key: str = DEFAULT_SAMPLE_KEY,
     ):
         self.files = files
         self.role_fn = role_fn or default_role_fn
         self.reference_names = [n.lower() for n in (reference_names or [])]
+        self.type_rules = type_rules or []
         self.background_config = background_config or MatchingConfig()
         self.reference_config = reference_config or MatchingConfig(
             required_keys=["polarization"],      # references are rarer,
             optional_keys=["center wavelength"]  # so loosen the match
         )
-        self.timestamp_key = timestamp_key
         self.sample_key = sample_key
         self._unmatched: list = []
 
@@ -168,63 +179,102 @@ class DataFileMatcher:
                 signals.append(f)
         return signals, backgrounds, references, ref_backgrounds
 
-    def _is_compatible(self, target, candidate, config: MatchingConfig) -> bool:
-        def normalize(val):
-            return str(val).strip().lower() if val is not None else None
+    @staticmethod
+    def _normalize(val):
+        return str(val).strip().lower() if val is not None else None
 
-        for key in config.required_keys:
-            t_val = normalize(target.metadata.get(key))
-            c_val = normalize(candidate.metadata.get(key))
+    def _required_match(self, target, candidate, required_keys: list[str]) -> bool:
+        for key in required_keys:
+            t_val = self._normalize(target.metadata.get(key))
+            c_val = self._normalize(candidate.metadata.get(key))
             if t_val != c_val:
                 return False
-
-        for key in config.optional_keys:
-            t_val = normalize(target.metadata.get(key))
-            c_val = normalize(candidate.metadata.get(key))
-            if t_val and c_val and t_val != c_val:
-                return False
-
         return True
 
-    def _parse_timestamp(self, datafile):
-        ts = datafile.metadata.get(self.timestamp_key)
-        if ts is None:
+    def _values_match(self, target, candidate, key: str) -> bool:
+        t_val = self._normalize(target.metadata.get(key))
+        c_val = self._normalize(candidate.metadata.get(key))
+        return t_val is not None and c_val is not None and t_val == c_val
+
+    @staticmethod
+    def _parse_comparable(value):
+        """Parse a metadata value into a float distance-comparable form —
+        tries a plain number first, then a timestamp (as ns since epoch)."""
+        if value is None:
             return None
         try:
-            return pd.Timestamp(ts)
-        except Exception:
-            logger.warning(
-                "Could not parse timestamp '%s' from %s — "
-                "timestamp matching will be skipped for this file.",
-                ts, datafile.path.name,
-            )
+            return float(value)
+        except (TypeError, ValueError):
+            pass
+        try:
+            return float(pd.Timestamp(value).value)
+        except (TypeError, ValueError):
             return None
+
+    def _narrow_by_closest(self, target, candidates: list, key: str) -> list:
+        t_val = self._parse_comparable(target.metadata.get(key))
+        if t_val is None or not candidates:
+            return candidates  # nothing to compare against — behaves like ignore
+
+        scored = []
+        for c in candidates:
+            c_val = self._parse_comparable(c.metadata.get(key))
+            if c_val is not None:
+                scored.append((abs(t_val - c_val), c))
+
+        if not scored:
+            return candidates  # no candidate has a comparable value — ignore this key
+
+        min_dist = min(d for d, _ in scored)
+        return [c for d, c in scored if d == min_dist]
 
     def _find_closest(self, target, candidates: list, config: MatchingConfig):
         if target is None:
             return None
 
-        compatible = [c for c in candidates if self._is_compatible(target, c, config)]
-
-        if not compatible:
+        eligible = [c for c in candidates if self._required_match(target, c, config.required_keys)]
+        if not eligible:
             return None
 
-        target_ts = self._parse_timestamp(target)
-        if target_ts is None:
-            if len(compatible) > 1:
-                logger.warning(
-                    "Multiple compatible matches for %s but no parseable timestamp "
-                    "to disambiguate — using first: %s. "
-                    "Use .with_background()/.with_reference() to override manually.",
-                    target.path.name, compatible[0].path.name,
-                )
-            return compatible[0]
+        # cascading optional-key preference: prefer candidates that match,
+        # but skip the key entirely (no-op) if none of them do
+        for key in config.optional_keys:
+            matching = [c for c in eligible if self._values_match(target, c, key)]
+            if matching:
+                eligible = matching
 
-        def ts_distance(candidate):
-            c_ts = self._parse_timestamp(candidate)
-            return abs((target_ts - c_ts).total_seconds()) if c_ts else float("inf")
+        # cascading closest-key tiebreak, in priority order
+        for key in config.closest_keys:
+            eligible = self._narrow_by_closest(target, eligible, key)
 
-        return min(compatible, key=ts_distance)
+        if len(eligible) > 1:
+            logger.warning(
+                "%d equally good matches for %s — using first: %s. "
+                "Use .with_background()/.with_reference() to override manually.",
+                len(eligible), target.path.name, eligible[0].path.name,
+            )
+
+        return eligible[0]
+
+    def _forced_type(self, signal, background) -> Optional[str]:
+        def field_value(f, field):
+            if f is None:
+                return None
+            return str(f.metadata.get(field) or "").strip().lower()
+
+        for rule in self.type_rules:
+            key = str(rule.get("key", "")).strip().lower()
+            if not key:
+                continue
+            field = rule.get("field") or self.sample_key
+            scope = rule.get("scope", "both")
+            applies = (
+                (scope in ("signal", "both") and field_value(signal, field) == key) or
+                (scope in ("background", "both") and field_value(background, field) == key)
+            )
+            if applies:
+                return rule.get("type")
+        return None
 
     # ── Public API ───────────────────────────────────────────────────────────
 
@@ -245,7 +295,7 @@ class DataFileMatcher:
             bg = self._find_closest(signal, backgrounds, self.background_config)
             ref = self._find_closest(signal, references, self.reference_config)
             ref_bg = self._find_closest(ref, ref_backgrounds, self.background_config) if ref else None
-        
+
             if bg is None:
                 logger.warning(
                     "No background match found for %s. "
@@ -268,11 +318,14 @@ class DataFileMatcher:
                     ref.path.name,
                 )
 
+            spectrum_type = self._forced_type(signal, bg) or "homodyne"
+
             results.append(MatchedSet(
                 signal=signal,
                 background=bg,
                 reference=ref,
-                reference_background=ref_bg
+                reference_background=ref_bg,
+                spectrum_type=spectrum_type,
                 ))
 
         return results

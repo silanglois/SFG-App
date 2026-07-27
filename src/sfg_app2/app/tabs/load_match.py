@@ -282,18 +282,14 @@ class LoadMatchTab(QWidget):
         if not self._files:
             return
         try:
-            from sfg_app2.processing.matcher import DataFileMatcher, MatchingConfig
+            from sfg_app2.processing.matcher import DataFileMatcher
+            settings = self._get_matching_settings()
             matcher = DataFileMatcher(
                 self._files,
-                reference_names=["Au", "gold", "quartz"],
-                background_config=MatchingConfig(
-                    required_keys=["polarization", "date"],
-                    optional_keys=["center_wavelength", "acquisition_time"],
-                ),
-                reference_config=MatchingConfig(
-                    required_keys=["polarization"],
-                    optional_keys=["center_wavelength"],
-                ),
+                reference_names=settings.reference_names,
+                type_rules=settings.type_rules,
+                background_config=settings.background_config(),
+                reference_config=settings.reference_config(),
             )
             matched = matcher.match()
             self._populate_table_from_matched(matched)
@@ -301,6 +297,16 @@ class LoadMatchTab(QWidget):
         except Exception as e:
             QMessageBox.critical(self, "Match Error", str(e))
             logger.error("Auto-match failed: %s", e)
+
+    def _get_matching_settings(self):
+        try:
+            main = self.window()
+            if hasattr(main, "matching_settings"):
+                return main.matching_settings
+        except Exception:
+            pass
+        from sfg_app2.app.utils.matching_settings import MatchingSettings
+        return MatchingSettings()
 
     def _populate_table_from_matched(self, matched: list):
         model = self.match_table._table_model
