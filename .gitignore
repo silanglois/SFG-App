@@ -20,3 +20,4 @@ tests\data\pharos\2026_07_17\*.png
 
 # Others
 temp.ui
+.vscode/settings.json
