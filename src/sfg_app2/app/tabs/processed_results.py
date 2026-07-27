@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 
 from sfg_app2.app.ui.ui_processed_results_tab import Ui_Form
 from sfg_app2.app.widgets.spectrum_plot_widget import SpectrumPlotWidget
+from sfg_app2.app.widgets.collapsible_group_box import make_collapsible
 from sfg_app2.processing.processed_spectrum import ProcessedSpectrum
 
 logger = logging.getLogger(__name__)
@@ -99,6 +100,8 @@ class ProcessedResultsTab(QWidget):
         self._setup_normalization()
         self._setup_hd_component_checkboxes()
         self._connect_signals()
+
+        make_collapsible(self.ui.visualizationParamsGroupBox)
 
     # ── Setup ─────────────────────────────────────────────────────────────────
 

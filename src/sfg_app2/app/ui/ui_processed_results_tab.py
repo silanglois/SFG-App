@@ -88,6 +88,8 @@ class Ui_Form(object):
         font = QFont()
         font.setBold(False)
         self.visualizationParamsGroupBox.setFont(font)
+        self.visualizationParamsGroupBox.setCheckable(True)
+        self.visualizationParamsGroupBox.setChecked(True)
         self.horizontalLayout_2 = QHBoxLayout(self.visualizationParamsGroupBox)
         self.horizontalLayout_2.setObjectName(u"horizontalLayout_2")
         self.frame = QFrame(self.visualizationParamsGroupBox)

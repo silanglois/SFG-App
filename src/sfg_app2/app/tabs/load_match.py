@@ -53,7 +53,6 @@ class LoadMatchTab(QWidget):
 
     def _connect_signals(self):
         self.ui.pushButton.clicked.connect(self._on_update)
-        self.ui.reviewmetadataButton.clicked.connect(self._on_review_metadata)
         self.ui.automatchButton.clicked.connect(self._on_auto_match)
         self.ui.startprocessingButton.clicked.connect(self._on_start_processing)
         self.match_table.table_changed.connect(self._on_table_changed)
@@ -62,7 +61,6 @@ class LoadMatchTab(QWidget):
         self.file_list_widget.plot_requested.connect(self._on_plot_files)
 
     def _set_buttons_enabled(self, files_loaded: bool, matched: bool):
-        self.ui.reviewmetadataButton.setEnabled(files_loaded)
         self.ui.automatchButton.setEnabled(files_loaded)
         self.ui.startprocessingButton.setEnabled(matched)
 

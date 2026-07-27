@@ -46,11 +46,6 @@ class Ui_loadmatchTab(object):
 
         self.horizontalLayout.addWidget(self.pushButton)
 
-        self.reviewmetadataButton = QPushButton(loadmatchTab)
-        self.reviewmetadataButton.setObjectName(u"reviewmetadataButton")
-
-        self.horizontalLayout.addWidget(self.reviewmetadataButton)
-
         self.automatchButton = QPushButton(loadmatchTab)
         self.automatchButton.setObjectName(u"automatchButton")
 
@@ -78,7 +73,6 @@ class Ui_loadmatchTab(object):
     def retranslateUi(self, loadmatchTab):
         loadmatchTab.setWindowTitle(QCoreApplication.translate("loadmatchTab", u"Form", None))
         self.pushButton.setText(QCoreApplication.translate("loadmatchTab", u"Update", None))
-        self.reviewmetadataButton.setText(QCoreApplication.translate("loadmatchTab", u"Review Metadata", None))
         self.automatchButton.setText(QCoreApplication.translate("loadmatchTab", u"Auto-match Files", None))
         self.startprocessingButton.setText(QCoreApplication.translate("loadmatchTab", u"Start Processing", None))
     # retranslateUi

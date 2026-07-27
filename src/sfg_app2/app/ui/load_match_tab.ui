@@ -37,13 +37,6 @@
       </widget>
      </item>
      <item>
-      <widget class="QPushButton" name="reviewmetadataButton">
-       <property name="text">
-        <string>Review Metadata</string>
-       </property>
-      </widget>
-     </item>
-     <item>
       <widget class="QPushButton" name="automatchButton">
        <property name="text">
         <string>Auto-match Files</string>
