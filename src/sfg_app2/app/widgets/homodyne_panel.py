@@ -33,8 +33,8 @@ COMPONENT_CACHE_KEYS = {
     "signal":         ["despiked_signal", "averaged_signal",
                        "bg_subtracted", "normalized"],
     "background":     ["despiked_bg", "averaged_bg", "bg_subtracted", "normalized"],
-    "reference":      ["despiked_ref", "averaged_ref", "normalized"],
-    "ref_background": ["despiked_ref_bg", "averaged_ref_bg", "normalized"],
+    "reference":      ["despiked_ref", "averaged_ref", "bg_subtracted_ref", "normalized"],
+    "ref_background": ["despiked_ref_bg", "averaged_ref_bg", "bg_subtracted_ref", "normalized"],
 }
 
 STEPS = ["raw", "despiked", "averaged", "bg_subtracted", "normalized"]
@@ -159,10 +159,30 @@ class HomodynePanel(QWidget):
         self._source_combo.setCurrentIndex(2)
         self._source_combo.setToolTip("Select which component(s) to show in the plot")
 
+        self._view_label = QLabel("View:")
+        self._view_combo = QComboBox()
+        self._view_combo.addItems(["Subtracted result", "Signal + Background"])
+        self._view_combo.setToolTip(
+            "Show the background-subtracted result, or the pre-subtraction "
+            "signal and background together"
+        )
+
         for w in [self._pair_label, self._pair_combo,
-                  self._source_label, self._source_combo]:
+                  self._source_label, self._source_combo,
+                  self._view_label, self._view_combo]:
             layout.addWidget(w)
         layout.addStretch()
+
+        self._legend_label = QLabel("Legend:")
+        self._legend_combo = QComboBox()
+        self._legend_combo.addItems(["No legend", "Minimized legend", "Full legend"])
+        self._legend_combo.setCurrentIndex(2)
+        self._legend_combo.setToolTip(
+            "Minimized legend shows one entry per matched set (its filename), "
+            "matching the set's plot color"
+        )
+        layout.addWidget(self._legend_label)
+        layout.addWidget(self._legend_combo)
 
         self._process_btn = QPushButton("▶ Process")
         self._process_btn.setToolTip(
@@ -247,6 +267,8 @@ class HomodynePanel(QWidget):
 
         self._pair_combo.currentIndexChanged.connect(self._refresh_plot)
         self._source_combo.currentIndexChanged.connect(self._refresh_plot)
+        self._view_combo.currentIndexChanged.connect(self._refresh_plot)
+        self._legend_combo.currentIndexChanged.connect(self._refresh_plot)
 
         for key in COMPONENTS:
             self._despike_widgets[key]["window"].valueChanged.connect(
@@ -281,11 +303,15 @@ class HomodynePanel(QWidget):
 
     def _on_step_changed(self):
         step = self._current_step()
-        show_combos = step in ("raw", "despiked", "averaged")
-        self._pair_label.setVisible(show_combos)
-        self._pair_combo.setVisible(show_combos)
-        self._source_label.setVisible(show_combos)
-        self._source_combo.setVisible(show_combos)
+        show_pair = step in ("raw", "despiked", "averaged", "bg_subtracted")
+        show_source = step in ("raw", "despiked", "averaged")
+        show_view = step == "bg_subtracted"
+        self._pair_label.setVisible(show_pair)
+        self._pair_combo.setVisible(show_pair)
+        self._source_label.setVisible(show_source)
+        self._source_combo.setVisible(show_source)
+        self._view_label.setVisible(show_view)
+        self._view_combo.setVisible(show_view)
 
         self._process_btn.setVisible(step != "normalized")
         self._finish_btn.setVisible(step == "normalized")
@@ -346,7 +372,8 @@ class HomodynePanel(QWidget):
     def _on_bg_offset_changed(self):
         for idx in range(len(self._matched_sets)):
             c = self._cache.get(idx, {})
-            for key in ("bg_subtracted", "normalized", "_sig_offset", "_ref_offset"):
+            for key in ("bg_subtracted", "bg_subtracted_ref", "normalized",
+                        "_sig_offset", "_ref_offset"):
                 c.pop(key, None)
         self._recompute_timer.start()
 
@@ -419,6 +446,7 @@ class HomodynePanel(QWidget):
             if (c.get("_sig_offset") != sig_offset or
                     c.get("_ref_offset") != ref_offset):
                 c.pop("bg_subtracted", None)
+                c.pop("bg_subtracted_ref", None)
                 c.pop("normalized", None)
             if "bg_subtracted" not in c:
                 if not m.background:
@@ -430,6 +458,14 @@ class HomodynePanel(QWidget):
                     )
                 c["_sig_offset"] = sig_offset
                 c["_ref_offset"] = ref_offset
+            if "bg_subtracted_ref" not in c and m.reference:
+                if not m.reference_background:
+                    c["bg_subtracted_ref"] = c.get("averaged_ref")
+                else:
+                    ref_bg_avg = c.get("averaged_ref_bg") or m.reference_background.average_spectrum()
+                    c["bg_subtracted_ref"] = subtract_background(
+                        c["averaged_ref"], ref_bg_avg, offset=ref_offset,
+                    )
             return c["bg_subtracted"]
 
         if step == "normalized":
@@ -480,32 +516,56 @@ class HomodynePanel(QWidget):
     def _refresh_plot(self):
         step = self._current_step()
         self.plot_widget.full_clear()
+        self._legend_entries: list[tuple] = []
 
         if self._selected_indices:
             colors = _colors(len(self._selected_indices))
             for i, idx in enumerate(self._selected_indices):
+                m = self._matched_sets[idx]
+                label = m.signal.path.stem if m.signal else f"Set {idx + 1}"
                 try:
-                    self._plot_one_set(idx, step, colors[i])
+                    self._plot_one_set(idx, step, colors[i], label)
+                    self._legend_entries.append((colors[i], label))
                 except Exception as e:
                     logger.warning(
                         "Could not plot set %d step '%s': %s", idx, step, e, exc_info=True,
                     )
 
-        handles, _ = self.plot_widget.ax.get_legend_handles_labels()
-        if handles:
-            self.plot_widget.ax.legend(fontsize=8)
+        self._apply_legend()
 
         xlabel = "Wavenumber (cm$^{-1}$)" if step == "normalized" else "Wavelength (nm)"
         self.plot_widget.set_labels(xlabel=xlabel, ylabel="Intensity", title=STEP_LABELS[step])
         self.plot_widget.sync_x_range()
         self.plot_widget.canvas.draw_idle()
 
-    def _plot_one_set(self, idx: int, step: str, color):
-        m = self._matched_sets[idx]
-        label = m.signal.path.stem if m.signal else f"Set {idx + 1}"
+    def _apply_legend(self):
+        mode = self._legend_combo.currentText()
+        ax = self.plot_widget.ax
+        if mode == "No legend":
+            return
+        if mode == "Minimized legend":
+            if self._legend_entries:
+                import matplotlib.lines as mlines
+                proxies = [
+                    mlines.Line2D([], [], color=c, label=l)
+                    for c, l in self._legend_entries
+                ]
+                ax.legend(handles=proxies, fontsize=8)
+            return
+        handles, _ = ax.get_legend_handles_labels()
+        if handles:
+            ax.legend(fontsize=8)
 
+    def _plot_one_set(self, idx: int, step: str, color, label: str):
         if step in ("raw", "despiked", "averaged"):
             self._plot_multi_component(idx, step, label, color)
+            return
+
+        if step == "bg_subtracted":
+            if self._view_combo.currentText() == "Signal + Background":
+                self._plot_bg_averaged_view(idx, label, color)
+            else:
+                self._plot_bg_subtracted_result(idx, label, color)
             return
 
         result = self._get_step(idx, step)
@@ -575,6 +635,62 @@ class HomodynePanel(QWidget):
                         color=color, linestyle=linestyle, alpha=0.85,
                         label=f"{label} — {comp_label} F{fid}",
                     )
+
+    def _plot_bg_subtracted_result(self, idx: int, label: str, color):
+        """'Subtracted result' view at the bg_subtracted step: the single
+        background-subtracted curve for whichever pair(s) are selected."""
+        self._get_step(idx, "bg_subtracted")
+        c = self._cache.get(idx, {})
+
+        if self._show_sample():
+            sig_result = c.get("bg_subtracted")
+            if sig_result is not None:
+                fd = sig_result.frame(1)
+                self.plot_widget.ax.plot(
+                    fd["Wavelength"].to_numpy(), fd["Intensity"].to_numpy(),
+                    color=color, linestyle=COMPONENT_LINESTYLE["signal"],
+                    label=f"{label} — {COMPONENT_LABELS['signal']} (subtracted)",
+                )
+        if self._show_reference():
+            ref_result = c.get("bg_subtracted_ref")
+            if ref_result is not None:
+                fd = ref_result.frame(1)
+                self.plot_widget.ax.plot(
+                    fd["Wavelength"].to_numpy(), fd["Intensity"].to_numpy(),
+                    color=color, linestyle=COMPONENT_LINESTYLE["reference"],
+                    label=f"{label} — {COMPONENT_LABELS['reference']} (subtracted)",
+                )
+
+    def _plot_bg_averaged_view(self, idx: int, label: str, color):
+        """'Signal + Background' view at the bg_subtracted step: both
+        pre-subtraction averaged traces for whichever pair(s) are selected,
+        regardless of the (hidden, possibly stale) source combo."""
+        self._get_step(idx, "bg_subtracted")
+        c = self._cache.get(idx, {})
+
+        pairs = []
+        if self._show_sample():
+            pairs.append(("signal", "background", "averaged_signal", "averaged_bg"))
+        if self._show_reference():
+            pairs.append(("reference", "ref_background", "averaged_ref", "averaged_ref_bg"))
+
+        for sig_comp, bg_comp, sig_key, bg_key in pairs:
+            sig_data = c.get(sig_key)
+            if sig_data is not None:
+                fd = sig_data.frame(1)
+                self.plot_widget.ax.plot(
+                    fd["Wavelength"].to_numpy(), fd["Intensity"].to_numpy(),
+                    color=color, linestyle=COMPONENT_LINESTYLE[sig_comp],
+                    label=f"{label} — {COMPONENT_LABELS[sig_comp]}",
+                )
+            bg_data = c.get(bg_key)
+            if bg_data is not None:
+                fd = bg_data.frame(1)
+                self.plot_widget.ax.plot(
+                    fd["Wavelength"].to_numpy(), fd["Intensity"].to_numpy(),
+                    color=color, linestyle=COMPONENT_LINESTYLE[bg_comp], alpha=0.7,
+                    label=f"{label} — {COMPONENT_LABELS[bg_comp]}",
+                )
 
     # ── Process / Send to Results ────────────────────────────────────────────
 
