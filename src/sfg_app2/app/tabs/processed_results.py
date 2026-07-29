@@ -53,6 +53,14 @@ _HD_COMPONENT_COLUMN = {
     "|χ⁽²⁾|² (Homodyne)": "Homodyne",
 }
 
+# display name -> to_dataframe() 95%-CI error column name
+_HD_ERROR_COLUMN = {
+    "Imaginary": "Imag_err",
+    "Real": "Real_err",
+    "Phase": "Phase_err",
+    "|χ⁽²⁾|² (Homodyne)": "Homodyne_err",
+}
+
 # display name -> matplotlib mathtext y-axis label (plain Unicode
 # superscript/subscript glyphs render as missing-glyph boxes in most fonts,
 # so plotted labels use mathtext while the checkbox text itself stays plain
@@ -146,6 +154,10 @@ class ProcessedResultsTab(QWidget):
                 "Plot this component for heterodyne (HD-SFG) entries — "
                 "has no effect on homodyne entries. Check multiple to overlay them."
             )
+        self.ui.hdCheckShowError.setToolTip(
+            "Shade the 95% CI error band around each heterodyne (HD-SFG) "
+            "line — has no effect on homodyne entries."
+        )
 
     def _checked_hd_components(self) -> list[str]:
         return [name for name, cb in self._hd_checkboxes.items() if cb.isChecked()]
@@ -171,6 +183,7 @@ class ProcessedResultsTab(QWidget):
         self.ui.offsetSpectraSpinner.valueChanged.connect(self._refresh_plot)
         for cb in self._hd_checkboxes.values():
             cb.toggled.connect(self._refresh_plot)
+        self.ui.hdCheckShowError.toggled.connect(self._refresh_plot)
         self.ui.legendFieldComboBox.currentIndexChanged.connect(self._refresh_plot)
         self.ui.spectraList.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.ui.spectraList.customContextMenuRequested.connect(self._on_context_menu)
@@ -244,19 +257,24 @@ class ProcessedResultsTab(QWidget):
         self.ui.doubleSpinBox.setEnabled(index == 1)  # "Normalize to given wavenumber"
         self._refresh_plot()
 
-    def _normalize(self, x: np.ndarray, y: np.ndarray) -> np.ndarray:
+    def _normalize_factor(self, x: np.ndarray, y: np.ndarray) -> float:
+        """The scalar _normalize() multiplies y by — exposed separately so
+        error bands can be scaled consistently with the plotted line."""
         mode = self.ui.normalizationComboBox.currentIndex()
         if mode == 0:
-            return y
+            return 1.0
         if mode == 1:
             target_wn = self.ui.doubleSpinBox.value()
             idx = np.argmin(np.abs(x - target_wn))
             ref = y[idx]
-            return y / ref if ref != 0 else y
+            return 1.0 / ref if ref != 0 else 1.0
         if mode == 2:
             peak = np.nanmax(np.abs(y))
-            return y / peak if peak != 0 else y
-        return y
+            return 1.0 / peak if peak != 0 else 1.0
+        return 1.0
+
+    def _normalize(self, x: np.ndarray, y: np.ndarray) -> np.ndarray:
+        return y * self._normalize_factor(x, y)
 
     # ── Colormap ──────────────────────────────────────────────────────────────
 
@@ -316,26 +334,29 @@ class ProcessedResultsTab(QWidget):
             len(checked_components) == 1
             and checked_components[0] in ("Imaginary", "Real", "Phase")
         )
-        specs = []   # (entry, y_col, label)
+        show_error = self.ui.hdCheckShowError.isChecked()
+
+        specs = []   # (entry, y_col, err_col, label)
         for entry in entries:
             base_label = self._legend_base(entry, legend_field)
             if entry.kind == "heterodyne":
                 for component in checked_components:
                     y_col = _HD_COMPONENT_COLUMN[component]
+                    err_col = _HD_ERROR_COLUMN[component]
                     if suppress_suffix:
                         label = base_label
                     elif multi_line:
                         label = f"{base_label} ({_HD_LEGEND_LABEL[component]})"
                     else:
                         label = base_label
-                    specs.append((entry, y_col, label))
+                    specs.append((entry, y_col, err_col, label))
             else:
-                specs.append((entry, "Intensity", base_label))
+                specs.append((entry, "Intensity", None, base_label))
 
         colors = self._get_colors(len(specs))
         any_hd_plotted = False
 
-        for i, (entry, y_col, label) in enumerate(specs):
+        for i, (entry, y_col, err_col, label) in enumerate(specs):
             try:
                 if entry.kind == "heterodyne":
                     # already one row per wavenumber point — bypass .frame(),
@@ -349,14 +370,22 @@ class ProcessedResultsTab(QWidget):
                     x_col = "Wavenumber" if "Wavenumber" in data.columns else "Wavelength"
 
                 x = data[x_col].to_numpy()
-                y = self._normalize(x, data[y_col].to_numpy())
-                y_offset = y + i * offset_step
+                raw_y = data[y_col].to_numpy()
+                factor = self._normalize_factor(x, raw_y)
+                y_offset = raw_y * factor + i * offset_step
 
                 self.plot_widget.ax.plot(
                     x, y_offset,
                     color=colors[i],
                     label=label,
                 )
+
+                if show_error and entry.kind == "heterodyne" and err_col in data.columns:
+                    y_err = data[err_col].to_numpy() * factor
+                    self.plot_widget.ax.fill_between(
+                        x, y_offset - y_err, y_offset + y_err,
+                        color=colors[i], alpha=0.25, linewidth=0,
+                    )
             except Exception as e:
                 logger.warning("Could not plot %s: %s", label, e)
 

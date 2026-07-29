@@ -158,6 +158,11 @@ class Ui_Form(object):
 
         self.verticalLayout_6.addLayout(self.hdComponentGridLayout)
 
+        self.hdCheckShowError = QCheckBox(self.frame_4)
+        self.hdCheckShowError.setObjectName(u"hdCheckShowError")
+
+        self.verticalLayout_6.addWidget(self.hdCheckShowError)
+
 
         self.horizontalLayout_2.addWidget(self.frame_4, 0, Qt.AlignTop)
 
@@ -285,6 +290,7 @@ class Ui_Form(object):
         self.hdCheckReal.setText(QCoreApplication.translate("Form", u"Real", None))
         self.hdCheckPhase.setText(QCoreApplication.translate("Form", u"Phase", None))
         self.hdCheckHomodyne.setText(QCoreApplication.translate("Form", u"|\u03c7\u207d\u00b2\u207e|\u00b2 (Homodyne)", None))
+        self.hdCheckShowError.setText(QCoreApplication.translate("Form", u"Show error", None))
         self.label.setText(QCoreApplication.translate("Form", u"Offset:", None))
         self.legendFieldLabel.setText(QCoreApplication.translate("Form", u"Legend:", None))
     # retranslateUi

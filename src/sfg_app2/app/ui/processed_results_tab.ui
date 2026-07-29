@@ -208,6 +208,13 @@
                </item>
               </layout>
              </item>
+             <item>
+              <widget class="QCheckBox" name="hdCheckShowError">
+               <property name="text">
+                <string>Show error</string>
+               </property>
+              </widget>
+             </item>
             </layout>
            </widget>
           </item>
