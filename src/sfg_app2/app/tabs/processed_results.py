@@ -1,6 +1,7 @@
 from __future__ import annotations
 import logging
 import csv
+import re
 from pathlib import Path
 
 import numpy as np
@@ -10,7 +11,7 @@ import matplotlib as mpl
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QListWidgetItem, QFileDialog,
-    QMessageBox, QAbstractItemView, QInputDialog, QMenu
+    QMessageBox, QAbstractItemView, QInputDialog, QMenu, QCheckBox
 )
 
 from sfg_app2.app.ui.ui_processed_results_tab import Ui_Form
@@ -194,6 +195,7 @@ class ProcessedResultsTab(QWidget):
         from sfg_app2.processing.hd_sfg import HDSFGResult
         from sfg_app2.processing.processed_spectrum import ProcessedSpectrum
 
+        remembered: dict = {}
         for filename, spectrum in results.items():
             kind = "homodyne"
             # convert HDSFGResult to ProcessedSpectrum for display, keeping
@@ -212,14 +214,50 @@ class ProcessedResultsTab(QWidget):
                 kind = "heterodyne"
 
             label = Path(filename).stem
-            if not self._entry_exists(label):
-                self._entries.append(SpectrumEntry(spectrum, label, kind=kind))
-                self.ui.spectraList.addItem(
-                    self._make_list_item(len(self._entries) - 1)
+            existing_idx = next(
+                (i for i, e in enumerate(self._entries) if e.label == label), None
+            )
+            if existing_idx is not None:
+                choice = self._prompt_conflict(
+                    "Result already exists",
+                    f'A result named "{label}" already exists in Results. Overwrite it?',
+                    ["Overwrite", "Skip"], remembered,
                 )
+                if choice == "Skip":
+                    continue
+                self._entries[existing_idx] = SpectrumEntry(spectrum, label, kind=kind)
+                continue
+
+            self._entries.append(SpectrumEntry(spectrum, label, kind=kind))
+            self.ui.spectraList.addItem(
+                self._make_list_item(len(self._entries) - 1)
+            )
 
         self._refresh_legend_field_options()
         self._refresh_plot()
+
+    def _prompt_conflict(self, title: str, message: str, options: list[str], remembered: dict) -> str:
+        """Show a conflict dialog with the given button options (last option
+        is the "do nothing" fallback, e.g. "Skip"). `remembered` is owned by
+        the caller for one batch operation — once the user checks "apply to
+        all", it holds their choice and every subsequent call returns it
+        without prompting again."""
+        if remembered.get("apply_to_all"):
+            return remembered["choice"]
+
+        box = QMessageBox(self)
+        box.setWindowTitle(title)
+        box.setText(message)
+        buttons = {opt: box.addButton(opt, QMessageBox.ButtonRole.ActionRole) for opt in options}
+        checkbox = QCheckBox("Apply this choice to all remaining conflicts")
+        box.setCheckBox(checkbox)
+        box.exec()
+        clicked = box.clickedButton()
+        choice = next((k for k, b in buttons.items() if b is clicked), options[-1])
+        if checkbox.isChecked():
+            remembered["choice"] = choice
+            remembered["apply_to_all"] = True
+        return choice
 
     # ── List management ───────────────────────────────────────────────────────
 
@@ -516,13 +554,21 @@ class ProcessedResultsTab(QWidget):
                 # manual metadata from header always wins (update order matters)
                 if pattern_map:
                     from sfg_app2.processing.data_file import DataFile
+                    # strip a "Keep Both" duplicate suffix (e.g. "sample1 (2)")
+                    # before parsing filename fields, so it doesn't get
+                    # absorbed into the last underscore-separated field
+                    metadata_stem = re.sub(r"\s\(\d+\)$", "", path.stem)
                     clean_stem, _ = resolve_role(
-                        path.stem, role_kwargs["role_mode"], role_kwargs["role_values"]
+                        metadata_stem, role_kwargs["role_mode"], role_kwargs["role_values"]
                     )
                     n_parts = len(clean_stem.split("_"))
                     fields = pattern_map.get(n_parts)
                     if fields:
-                        parsed = DataFile._parse_filename_metadata(path, fields)
+                        metadata_path = (
+                            path.with_stem(metadata_stem)
+                            if metadata_stem != path.stem else path
+                        )
+                        parsed = DataFile._parse_filename_metadata(metadata_path, fields)
                         # merge: parsed first, then header metadata overwrites
                         merged_metadata = {**parsed, **metadata}
                     else:
@@ -732,10 +778,22 @@ class ProcessedResultsTab(QWidget):
         if not folder:
             return
 
-        exported, failed = 0, 0
+        remembered: dict = {}
+        exported, skipped, failed = 0, 0, 0
         for entry in entries:
             try:
                 out_path = Path(folder) / f"{entry.label}.csv"
+                if out_path.exists():
+                    choice = self._prompt_conflict(
+                        "File already exists",
+                        f'"{out_path.name}" already exists in {folder}.',
+                        ["Overwrite", "Keep Both", "Skip"], remembered,
+                    )
+                    if choice == "Skip":
+                        skipped += 1
+                        continue
+                    if choice == "Keep Both":
+                        out_path = self._unique_path(out_path)
                 self._write_csv_with_provenance(entry, out_path)
                 exported += 1
                 logger.info("Exported %s → %s", entry.label, out_path)
@@ -744,10 +802,19 @@ class ProcessedResultsTab(QWidget):
                 failed += 1
 
         msg = f"{exported} file(s) exported to {folder}."
+        if skipped:
+            msg += f"\n{skipped} file(s) skipped."
         if failed:
             msg += f"\n{failed} file(s) failed — check terminal for details."
         QMessageBox.information(self, "Export complete", msg)
 
+    def _unique_path(self, path: Path) -> Path:
+        n = 2
+        candidate = path.parent / f"{path.stem} ({n}){path.suffix}"
+        while candidate.exists():
+            n += 1
+            candidate = path.parent / f"{path.stem} ({n}){path.suffix}"
+        return candidate
 
     def _write_csv_with_provenance(self, entry: SpectrumEntry, out_path: Path):
         """Write a CSV with a commented provenance header, readable by pandas
