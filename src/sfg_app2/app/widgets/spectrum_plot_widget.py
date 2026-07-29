@@ -34,7 +34,8 @@ class SpectrumPlotWidget(QWidget):
         self._x_range_widget = self._build_x_range_controls()
         self._x_range_initialized = False
         self._x_full_range: tuple[float, float] | None = None
-        self._plotting: bool = False   # ← add this
+        self._x_range_locked = False   # True once the user manually edits x min/max
+        self._zoom_memory: list[dict] = []   # remembered zoom per x-axis domain
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -83,7 +84,6 @@ class SpectrumPlotWidget(QWidget):
     def clear(self):
         self.ax.clear()
         self._x_range_initialized = False
-        self._x_full_range = None
         self.canvas.draw_idle()
 
     def plot(self, x, y, label: str = None, **kwargs):
@@ -110,18 +110,80 @@ class SpectrumPlotWidget(QWidget):
         self._apply_x_range()
 
     def sync_x_range(self):
-        """Sync x-range spinboxes to current axes data range.
-        Call after using ax.plot() directly rather than self.plot().
+        """Re-sync the plot to the current axes data after a replot.
+
+        If the user has manually zoomed (moved the x min/max spinboxes),
+        that zoom stays locked in and is simply reapplied to the new data —
+        it is never overwritten until the user clicks "↺ Reset". If the new
+        data is on a completely different x-axis domain than before (e.g.
+        wavenumber vs. time), the current zoom is replaced either by a zoom
+        previously remembered for that domain, or — if none — a fresh fit
+        to the new data's full range.
         """
+        old_range = self._x_full_range
+        new_range = self._compute_full_range()
+        domain_changed = (
+            old_range is not None and new_range is not None
+            and (new_range[1] < old_range[0] or new_range[0] > old_range[1])
+        )
+
+        if domain_changed:
+            remembered = self._recall_zoom(new_range) if new_range else None
+            if remembered is not None:
+                x_min, x_max = remembered
+                self._x_min_spin.blockSignals(True)
+                self._x_max_spin.blockSignals(True)
+                self._x_min_spin.setValue(x_min)
+                self._x_max_spin.setValue(x_max)
+                self._x_min_spin.blockSignals(False)
+                self._x_max_spin.blockSignals(False)
+                self._x_range_locked = True
+                self._apply_x_range()
+                return
+            self._x_range_locked = False   # no memory for this domain — fall through to full refit
+
+        if self._x_range_locked:
+            self._apply_x_range()
+            return
         self._x_range_initialized = False   # force fresh sync
         self._sync_x_range_from_data()
 
     # ── Internal ──────────────────────────────────────────────────────────────
 
-    def _sync_x_range_from_data(self):
-        if self._x_range_initialized:
+    def _remember_current_zoom(self):
+        """Record the active zoom against the currently-plotted x domain,
+        so it can be restored next time this domain is revisited."""
+        if self._x_full_range is None:
             return
+        lo, hi = self._x_full_range
+        x_min, x_max = self._x_min_spin.value(), self._x_max_spin.value()
+        for entry in self._zoom_memory:
+            e_lo, e_hi = entry["range"]
+            if not (hi < e_lo or lo > e_hi):
+                entry.update(range=(lo, hi), x_min=x_min, x_max=x_max)
+                return
+        self._zoom_memory.append({"range": (lo, hi), "x_min": x_min, "x_max": x_max})
 
+    def _recall_zoom(self, new_range: tuple[float, float]) -> tuple[float, float] | None:
+        lo, hi = new_range
+        for entry in self._zoom_memory:
+            e_lo, e_hi = entry["range"]
+            if not (hi < e_lo or lo > e_hi):
+                return entry["x_min"], entry["x_max"]
+        return None
+
+    def _forget_zoom(self, rng: tuple[float, float] | None):
+        if rng is None:
+            return
+        lo, hi = rng
+        self._zoom_memory = [
+            e for e in self._zoom_memory
+            if e["range"][1] < lo or e["range"][0] > hi
+        ]
+
+    def _compute_full_range(self) -> tuple[float, float] | None:
+        """Compute and cache the full x-range of currently plotted data
+        (used by the Reset button), without touching the spinboxes."""
         import numpy as np
         all_x = []
 
@@ -136,11 +198,20 @@ class SpectrumPlotWidget(QWidget):
                 all_x.extend(xd)
 
         if not all_x:
+            return None
+
+        rng = (float(np.nanmin(all_x)), float(np.nanmax(all_x)))
+        self._x_full_range = rng
+        return rng
+
+    def _sync_x_range_from_data(self):
+        if self._x_range_initialized:
             return
 
-        x_min = float(np.nanmin(all_x))
-        x_max = float(np.nanmax(all_x))
-        self._x_full_range = (x_min, x_max)
+        rng = self._compute_full_range()
+        if rng is None:
+            return
+        x_min, x_max = rng
 
         self._x_min_spin.blockSignals(True)
         self._x_max_spin.blockSignals(True)
@@ -154,11 +225,11 @@ class SpectrumPlotWidget(QWidget):
     def _on_x_range_changed(self):
         if self._x_min_spin.value() >= self._x_max_spin.value():
             return  # ignore invalid range
+        self._x_range_locked = True
+        self._remember_current_zoom()
         self._apply_x_range()
 
     def _apply_x_range(self):
-        if self._plotting:
-            return
         x_min = self._x_min_spin.value()
         x_max = self._x_max_spin.value()
         if x_min >= x_max:
@@ -171,6 +242,8 @@ class SpectrumPlotWidget(QWidget):
     def _on_reset_x_range(self):
         if self._x_full_range is None:
             return
+        self._x_range_locked = False
+        self._forget_zoom(self._x_full_range)
         x_min, x_max = self._x_full_range
         self._x_min_spin.blockSignals(True)
         self._x_max_spin.blockSignals(True)
@@ -222,7 +295,6 @@ class SpectrumPlotWidget(QWidget):
         self.figure.clf()
         self.ax = self.figure.add_subplot(111)
         self._x_range_initialized = False
-        self._x_full_range = None
 
     def soft_clear(self):
         """Clear plot artists but preserve primary axes structure.
@@ -248,4 +320,3 @@ class SpectrumPlotWidget(QWidget):
             self.ax = ax
 
         self._x_range_initialized = False
-        self._x_full_range = None

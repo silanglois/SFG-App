@@ -404,6 +404,7 @@ class ProcessedResultsTab(QWidget):
             ylabel=ylabel,
             title=f"{len(entries)} spectrum/spectra",
         )
+        self.plot_widget.sync_x_range()
 
     # ── Metadata helpers ──────────────────────────────────────────────────────
 
