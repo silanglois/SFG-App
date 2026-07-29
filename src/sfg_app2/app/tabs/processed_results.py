@@ -99,6 +99,7 @@ class ProcessedResultsTab(QWidget):
         self._setup_colormap_combo()
         self._setup_normalization()
         self._setup_hd_component_checkboxes()
+        self._refresh_legend_field_options()
         self._connect_signals()
 
         make_collapsible(self.ui.visualizationParamsGroupBox)
@@ -170,6 +171,7 @@ class ProcessedResultsTab(QWidget):
         self.ui.offsetSpectraSpinner.valueChanged.connect(self._refresh_plot)
         for cb in self._hd_checkboxes.values():
             cb.toggled.connect(self._refresh_plot)
+        self.ui.legendFieldComboBox.currentIndexChanged.connect(self._refresh_plot)
         self.ui.spectraList.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.ui.spectraList.customContextMenuRequested.connect(self._on_context_menu)
 
@@ -203,6 +205,7 @@ class ProcessedResultsTab(QWidget):
                     self._make_list_item(len(self._entries) - 1)
                 )
 
+        self._refresh_legend_field_options()
         self._refresh_plot()
 
     # ── List management ───────────────────────────────────────────────────────
@@ -282,6 +285,12 @@ class ProcessedResultsTab(QWidget):
 
     # ── Plot ──────────────────────────────────────────────────────────────────
 
+    def _legend_base(self, entry: SpectrumEntry, legend_field: str) -> str:
+        if legend_field in ("Filename", "None"):
+            return entry.label
+        value = entry.spectrum.metadata.get(legend_field)
+        return str(value) if value not in (None, "") else entry.label
+
     def _refresh_plot(self):
         self.plot_widget.clear()
         entries = self._selected_entries()
@@ -290,6 +299,7 @@ class ProcessedResultsTab(QWidget):
 
         offset_step = self.ui.offsetSpectraSpinner.value()
         checked_components = self._checked_hd_components()
+        legend_field = self.ui.legendFieldComboBox.currentText()
 
         # determine x column — use Wavenumber if available, else Wavelength
         first_data = entries[0].spectrum.data
@@ -300,16 +310,27 @@ class ProcessedResultsTab(QWidget):
         # one line per checked component, a homodyne entry always one line —
         # so colors/offset are assigned per line, not per entry
         multi_line = len(entries) > 1 or len(checked_components) > 1
+        # the y-axis already names the sole component when it's Im/Re/Phase,
+        # so repeating it on every line's legend would be redundant
+        suppress_suffix = (
+            len(checked_components) == 1
+            and checked_components[0] in ("Imaginary", "Real", "Phase")
+        )
         specs = []   # (entry, y_col, label)
         for entry in entries:
+            base_label = self._legend_base(entry, legend_field)
             if entry.kind == "heterodyne":
                 for component in checked_components:
                     y_col = _HD_COMPONENT_COLUMN[component]
-                    label = (f"{entry.label} ({_HD_LEGEND_LABEL[component]})"
-                              if multi_line else entry.label)
+                    if suppress_suffix:
+                        label = base_label
+                    elif multi_line:
+                        label = f"{base_label} ({_HD_LEGEND_LABEL[component]})"
+                    else:
+                        label = base_label
                     specs.append((entry, y_col, label))
             else:
-                specs.append((entry, "Intensity", entry.label))
+                specs.append((entry, "Intensity", base_label))
 
         colors = self._get_colors(len(specs))
         any_hd_plotted = False
@@ -339,7 +360,7 @@ class ProcessedResultsTab(QWidget):
             except Exception as e:
                 logger.warning("Could not plot %s: %s", label, e)
 
-        if len(specs) > 1:
+        if len(specs) > 1 and legend_field != "None":
             self.plot_widget.ax.legend(fontsize=8)
 
         if any_hd_plotted:
@@ -355,17 +376,31 @@ class ProcessedResultsTab(QWidget):
             title=f"{len(entries)} spectrum/spectra",
         )
 
+    # ── Metadata helpers ──────────────────────────────────────────────────────
+
+    def _all_metadata_keys(self) -> list[str]:
+        all_keys = set()
+        for e in self._entries:
+            all_keys.update(e.spectrum.metadata.keys())
+        return sorted(all_keys)
+
+    def _refresh_legend_field_options(self):
+        combo = self.ui.legendFieldComboBox
+        current = combo.currentText()
+        combo.blockSignals(True)
+        combo.clear()
+        combo.addItems(["Filename", "None"] + self._all_metadata_keys())
+        idx = combo.findText(current)
+        combo.setCurrentIndex(idx if idx >= 0 else 0)
+        combo.blockSignals(False)
+
     # ── Sort by metadata ──────────────────────────────────────────────────────
 
     def _on_sort_by_metadata(self):
         if not self._entries:
             return
 
-        # collect all available metadata keys across all spectra
-        all_keys = set()
-        for e in self._entries:
-            all_keys.update(e.spectrum.metadata.keys())
-        all_keys = sorted(all_keys)
+        all_keys = self._all_metadata_keys()
 
         if not all_keys:
             QMessageBox.information(self, "No metadata", "No metadata found.")
@@ -499,6 +534,7 @@ class ProcessedResultsTab(QWidget):
                 failed += 1
 
         if added:
+            self._refresh_legend_field_options()
             self._refresh_plot()
 
         msg_parts = []
@@ -882,5 +918,6 @@ class ProcessedResultsTab(QWidget):
         labels_to_remove = {e.label for e in entries}
         self._entries = [e for e in self._entries if e.label not in labels_to_remove]
         self._rebuild_list()
+        self._refresh_legend_field_options()
         self._refresh_plot()
         logger.info("Removed %d spectrum/spectra from results.", n)

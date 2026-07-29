@@ -226,6 +226,27 @@ class Ui_Form(object):
 
         self.horizontalLayout_2.addLayout(self.verticalLayout_5)
 
+        self.frame_5 = QFrame(self.visualizationParamsGroupBox)
+        self.frame_5.setObjectName(u"frame_5")
+        sizePolicy.setHeightForWidth(self.frame_5.sizePolicy().hasHeightForWidth())
+        self.frame_5.setSizePolicy(sizePolicy)
+        self.frame_5.setFrameShape(QFrame.StyledPanel)
+        self.frame_5.setFrameShadow(QFrame.Raised)
+        self.verticalLayout_7 = QVBoxLayout(self.frame_5)
+        self.verticalLayout_7.setObjectName(u"verticalLayout_7")
+        self.legendFieldLabel = QLabel(self.frame_5)
+        self.legendFieldLabel.setObjectName(u"legendFieldLabel")
+
+        self.verticalLayout_7.addWidget(self.legendFieldLabel)
+
+        self.legendFieldComboBox = QComboBox(self.frame_5)
+        self.legendFieldComboBox.setObjectName(u"legendFieldComboBox")
+
+        self.verticalLayout_7.addWidget(self.legendFieldComboBox)
+
+
+        self.horizontalLayout_2.addWidget(self.frame_5, 0, Qt.AlignTop)
+
         self.horizontalSpacer = QSpacerItem(40, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
 
         self.horizontalLayout_2.addItem(self.horizontalSpacer)
@@ -265,5 +286,6 @@ class Ui_Form(object):
         self.hdCheckPhase.setText(QCoreApplication.translate("Form", u"Phase", None))
         self.hdCheckHomodyne.setText(QCoreApplication.translate("Form", u"|\u03c7\u207d\u00b2\u207e|\u00b2 (Homodyne)", None))
         self.label.setText(QCoreApplication.translate("Form", u"Offset:", None))
+        self.legendFieldLabel.setText(QCoreApplication.translate("Form", u"Legend:", None))
     # retranslateUi
 
