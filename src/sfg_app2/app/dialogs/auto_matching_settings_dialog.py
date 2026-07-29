@@ -1,4 +1,5 @@
 from __future__ import annotations
+import copy
 import logging
 
 from PySide6.QtCore import Qt
@@ -6,11 +7,14 @@ from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QListWidget, QListWidgetItem,
     QPushButton, QTableWidget, QTableWidgetItem, QComboBox, QDialogButtonBox,
     QInputDialog, QAbstractItemView, QHeaderView, QMessageBox, QGroupBox, QWidget,
+    QSplitter, QScrollArea,
 )
 
 from sfg_app2.app.utils.matching_settings import (
-    MatchingSettings, type_rules_conflicts,
+    MatchingSettings, MatchingProfileManager, type_rules_conflicts,
 )
+from sfg_app2.app.utils.preset_tree import find_node, iter_leaves
+from sfg_app2.app.widgets.preset_tree_widget import PresetTreeWidget
 from sfg_app2.app.dialogs.metadata_patterns_dialog import KNOWN_FIELDS
 from sfg_app2.app.widgets.collapsible_group_box import make_collapsible
 
@@ -41,24 +45,25 @@ ROLE_MODE_LIST_LABEL = {
 
 
 class AutoMatchingSettingsDialog(QDialog):
-    """Lets the user configure how "Auto-match Files" identifies references,
-    detects background files (by filename suffix/prefix or a metadata
-    field), matches backgrounds/references to signals, and forces homodyne
-    vs. heterodyne processing based on a metadata field or filename
-    substring.
+    """Lets the user manage multiple named auto-matching profiles
+    (organized in a tree, so they can be grouped into folders), each
+    configuring how "Auto-match Files" identifies references, detects
+    background files, matches backgrounds/references to signals, and
+    forces homodyne vs. heterodyne processing. Exactly one profile is
+    active at a time — that's the one LoadMatchTab's "Auto-match Files"
+    button actually uses.
     """
 
-    def __init__(self, settings: MatchingSettings, parent=None):
+    def __init__(self, manager: MatchingProfileManager, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Auto-Matching Parameters")
-        self.resize(480, 750)
-        self._settings = settings
+        self.resize(820, 750)
+        self._manager = manager
+        self._tree: list[dict] = copy.deepcopy(manager.tree)
+        self._current_leaf_id: str | None = None
 
         self._build_ui()
-        self._populate_reference_names()
-        self._populate_role_box()
-        self._populate_type_rules()
-        self._populate_fields_table()
+        self._tree_widget.set_tree(self._tree)
 
         for box in (self._ref_box, self._role_box, self._rules_box, self._fields_box):
             box.setCheckable(True)
@@ -72,22 +77,55 @@ class AutoMatchingSettingsDialog(QDialog):
         self._role_box.toggled.connect(lambda _checked: self._update_role_box_visibility())
         self._update_role_box_visibility()
 
+        self._set_editor_enabled(False)
+
     # ── UI ────────────────────────────────────────────────────────────────────
 
     def _build_ui(self):
-        layout = QVBoxLayout(self)
+        outer = QVBoxLayout(self)
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        outer.addWidget(splitter)
 
-        layout.addWidget(self._build_reference_names_box())
-        layout.addWidget(self._build_role_box())
-        layout.addWidget(self._build_type_rules_box())
-        layout.addWidget(self._build_fields_box())
+        splitter.addWidget(self._build_tree_pane())
+
+        editor = QWidget()
+        editor_layout = QVBoxLayout(editor)
+        editor_layout.addWidget(self._build_reference_names_box())
+        editor_layout.addWidget(self._build_role_box())
+        editor_layout.addWidget(self._build_type_rules_box())
+        editor_layout.addWidget(self._build_fields_box())
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(editor)
+        splitter.addWidget(scroll)
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 1)
 
         self._button_box = QDialogButtonBox(
             QDialogButtonBox.Ok | QDialogButtonBox.Cancel
         )
         self._button_box.accepted.connect(self._on_ok)
         self._button_box.rejected.connect(self.reject)
-        layout.addWidget(self._button_box)
+        outer.addWidget(self._button_box)
+
+    def _build_tree_pane(self) -> QWidget:
+        pane = QWidget()
+        layout = QVBoxLayout(pane)
+        layout.addWidget(QLabel("Saved profiles:"))
+
+        self._tree_widget = PresetTreeWidget(
+            leaf_data_factory=lambda: MatchingSettings().to_dict(),
+            new_leaf_name="New Profile",
+        )
+        self._tree_widget.leafSelected.connect(self._on_leaf_selected)
+        layout.addWidget(self._tree_widget)
+
+        self._set_active_btn = QPushButton("★ Set Active")
+        self._set_active_btn.clicked.connect(self._on_set_active)
+        layout.addWidget(self._set_active_btn)
+
+        return pane
 
     def _build_reference_names_box(self) -> QGroupBox:
         self._ref_box = QGroupBox("Reference sample names")
@@ -220,11 +258,109 @@ class AutoMatchingSettingsDialog(QDialog):
         box_layout.addLayout(add_field_row)
         return self._fields_box
 
+    # ── Profile tree ──────────────────────────────────────────────────────────
+
+    def _set_editor_enabled(self, enabled: bool):
+        for box in (self._ref_box, self._role_box, self._rules_box, self._fields_box):
+            box.setEnabled(enabled)
+
+    def _on_leaf_selected(self, leaf_id: str | None):
+        if self._current_leaf_id is not None:
+            self._save_editor_to_leaf(self._current_leaf_id)
+
+        self._current_leaf_id = leaf_id
+        if leaf_id is None:
+            self._set_editor_enabled(False)
+            return
+
+        leaf = find_node(self._tree, leaf_id)
+        if leaf is None:
+            self._set_editor_enabled(False)
+            return
+
+        self._set_editor_enabled(True)
+        self._load_leaf_data(leaf["data"])
+
+    def _save_editor_to_leaf(self, leaf_id: str):
+        leaf = find_node(self._tree, leaf_id)
+        if leaf is not None:
+            leaf["data"] = self._collect_leaf_data()
+
+    def _on_set_active(self):
+        leaf_id = self._tree_widget.current_leaf_id()
+        if leaf_id is None:
+            QMessageBox.information(self, "Nothing selected", "Select a profile first.")
+            return
+        for leaf in iter_leaves(self._tree):
+            leaf["active"] = (leaf["id"] == leaf_id)
+        self._tree_widget.refresh_labels()
+
+    def _load_leaf_data(self, data: dict):
+        settings = MatchingSettings.from_dict(data)
+        self._populate_reference_names(settings)
+        self._populate_role_box(settings)
+        self._populate_type_rules(settings)
+        self._populate_fields_table(settings)
+
+    def _collect_leaf_data(self) -> dict:
+        role_mode = ROLE_MODE_TO_INTERNAL.get(self._role_mode_combo.currentText(), "suffix")
+        role_field = self._role_field_combo.currentText().strip()
+        role_values = []
+        seen_role_values = set()
+        for i in range(self._role_values_list.count()):
+            text = self._role_values_list.item(i).text().strip()
+            if text and text.lower() not in seen_role_values:
+                role_values.append(text)
+                seen_role_values.add(text.lower())
+
+        names = []
+        seen = set()
+        for i in range(self._ref_list.count()):
+            text = self._ref_list.item(i).text().strip()
+            if text and text.lower() not in seen:
+                names.append(text)
+                seen.add(text.lower())
+
+        bg_required, bg_optional, bg_closest = [], [], []
+        ref_required, ref_optional, ref_closest = [], [], []
+        for row in range(self._fields_table.rowCount()):
+            field = self._fields_table.item(row, 0).text().strip()
+            if not field:
+                continue
+            bg_state = self._fields_table.cellWidget(row, 1).currentText()
+            ref_state = self._fields_table.cellWidget(row, 2).currentText()
+            if bg_state == "Required":
+                bg_required.append(field)
+            elif bg_state == "Optional":
+                bg_optional.append(field)
+            elif bg_state == "Closest":
+                bg_closest.append(field)
+            if ref_state == "Required":
+                ref_required.append(field)
+            elif ref_state == "Optional":
+                ref_optional.append(field)
+            elif ref_state == "Closest":
+                ref_closest.append(field)
+
+        return {
+            "reference_names": names,
+            "type_rules": self._collect_type_rules(),
+            "background_role_mode": role_mode,
+            "background_role_field": role_field,
+            "background_role_values": role_values,
+            "background_required_keys": bg_required,
+            "background_optional_keys": bg_optional,
+            "background_closest_keys": bg_closest,
+            "reference_required_keys": ref_required,
+            "reference_optional_keys": ref_optional,
+            "reference_closest_keys": ref_closest,
+        }
+
     # ── Reference names ──────────────────────────────────────────────────────
 
-    def _populate_reference_names(self):
+    def _populate_reference_names(self, settings: MatchingSettings):
         self._ref_list.clear()
-        for name in self._settings.reference_names:
+        for name in settings.reference_names:
             item = QListWidgetItem(name)
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsEditable)
             self._ref_list.addItem(item)
@@ -243,14 +379,13 @@ class AutoMatchingSettingsDialog(QDialog):
 
     # ── Background role detection ────────────────────────────────────────────
 
-    def _populate_role_box(self):
-        s = self._settings
+    def _populate_role_box(self, settings: MatchingSettings):
         self._role_mode_combo.setCurrentText(
-            ROLE_MODE_FROM_INTERNAL.get(s.background_role_mode, ROLE_MODE_OPTIONS[0])
+            ROLE_MODE_FROM_INTERNAL.get(settings.background_role_mode, ROLE_MODE_OPTIONS[0])
         )
-        self._role_field_combo.setCurrentText(s.background_role_field or DEFAULT_RULE_FIELD)
+        self._role_field_combo.setCurrentText(settings.background_role_field or DEFAULT_RULE_FIELD)
         self._role_values_list.clear()
-        for value in s.background_role_values:
+        for value in settings.background_role_values:
             item = QListWidgetItem(value)
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsEditable)
             self._role_values_list.addItem(item)
@@ -278,9 +413,9 @@ class AutoMatchingSettingsDialog(QDialog):
 
     # ── Type-forcing rules ────────────────────────────────────────────────────
 
-    def _populate_type_rules(self):
+    def _populate_type_rules(self, settings: MatchingSettings):
         self._rules_table.setRowCount(0)
-        for rule in self._settings.type_rules:
+        for rule in settings.type_rules:
             field_text = (
                 FILENAME_SENTINEL if rule.get("mode", "field") == "filename"
                 else (rule.get("field") or DEFAULT_RULE_FIELD)
@@ -366,11 +501,11 @@ class AutoMatchingSettingsDialog(QDialog):
             return "Closest"
         return "Ignore"
 
-    def _populate_fields_table(self):
-        s = self._settings
+    def _populate_fields_table(self, settings: MatchingSettings):
         configured = (
-            s.background_required_keys + s.background_optional_keys + s.background_closest_keys +
-            s.reference_required_keys + s.reference_optional_keys + s.reference_closest_keys
+            settings.background_required_keys + settings.background_optional_keys +
+            settings.background_closest_keys + settings.reference_required_keys +
+            settings.reference_optional_keys + settings.reference_closest_keys
         )
         fields = list(KNOWN_FIELDS)
         for f in configured:
@@ -381,10 +516,10 @@ class AutoMatchingSettingsDialog(QDialog):
         for field in fields:
             self._add_field_row(
                 field,
-                self._state_for(field, s.background_required_keys,
-                                 s.background_optional_keys, s.background_closest_keys),
-                self._state_for(field, s.reference_required_keys,
-                                 s.reference_optional_keys, s.reference_closest_keys),
+                self._state_for(field, settings.background_required_keys,
+                                 settings.background_optional_keys, settings.background_closest_keys),
+                self._state_for(field, settings.reference_required_keys,
+                                 settings.reference_optional_keys, settings.reference_closest_keys),
             )
 
     def _add_field_row(self, field: str, bg_state: str, ref_state: str):
@@ -444,60 +579,17 @@ class AutoMatchingSettingsDialog(QDialog):
 
         role_mode = ROLE_MODE_TO_INTERNAL.get(self._role_mode_combo.currentText(), "suffix")
         role_field = self._role_field_combo.currentText().strip()
-        if role_mode == "field" and not role_field:
+        if role_mode == "field" and not role_field and self._current_leaf_id is not None:
             QMessageBox.warning(
                 self, "Missing Field",
                 "Choose a metadata field for background role detection, or "
                 "switch to filename suffix/prefix detection."
             )
             return
-        role_values = []
-        seen_role_values = set()
-        for i in range(self._role_values_list.count()):
-            text = self._role_values_list.item(i).text().strip()
-            if text and text.lower() not in seen_role_values:
-                role_values.append(text)
-                seen_role_values.add(text.lower())
 
-        names = []
-        seen = set()
-        for i in range(self._ref_list.count()):
-            text = self._ref_list.item(i).text().strip()
-            if text and text.lower() not in seen:
-                names.append(text)
-                seen.add(text.lower())
-        self._settings.reference_names = names
-        self._settings.type_rules = type_rules
-        self._settings.background_role_mode = role_mode
-        self._settings.background_role_field = role_field
-        self._settings.background_role_values = role_values
+        if self._current_leaf_id is not None:
+            self._save_editor_to_leaf(self._current_leaf_id)
 
-        bg_required, bg_optional, bg_closest = [], [], []
-        ref_required, ref_optional, ref_closest = [], [], []
-        for row in range(self._fields_table.rowCount()):
-            field = self._fields_table.item(row, 0).text().strip()
-            if not field:
-                continue
-            bg_state = self._fields_table.cellWidget(row, 1).currentText()
-            ref_state = self._fields_table.cellWidget(row, 2).currentText()
-            if bg_state == "Required":
-                bg_required.append(field)
-            elif bg_state == "Optional":
-                bg_optional.append(field)
-            elif bg_state == "Closest":
-                bg_closest.append(field)
-            if ref_state == "Required":
-                ref_required.append(field)
-            elif ref_state == "Optional":
-                ref_optional.append(field)
-            elif ref_state == "Closest":
-                ref_closest.append(field)
-
-        self._settings.background_required_keys = bg_required
-        self._settings.background_optional_keys = bg_optional
-        self._settings.background_closest_keys = bg_closest
-        self._settings.reference_required_keys = ref_required
-        self._settings.reference_optional_keys = ref_optional
-        self._settings.reference_closest_keys = ref_closest
-        self._settings.save()
+        self._manager._tree = self._tree
+        self._manager.save()
         self.accept()

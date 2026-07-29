@@ -40,30 +40,10 @@ class Ui_Dialog(object):
 
         self.verticalLayout_2.addWidget(self.label)
 
-        self.savedPatternsListWidget = QListWidget(self.widget)
-        self.savedPatternsListWidget.setObjectName(u"savedPatternsListWidget")
+        self.savedPatternsPlaceholder = QWidget(self.widget)
+        self.savedPatternsPlaceholder.setObjectName(u"savedPatternsPlaceholder")
 
-        self.verticalLayout_2.addWidget(self.savedPatternsListWidget)
-
-        self.horizontalLayout = QHBoxLayout()
-        self.horizontalLayout.setObjectName(u"horizontalLayout")
-        self.addPatternButton = QPushButton(self.widget)
-        self.addPatternButton.setObjectName(u"addPatternButton")
-
-        self.horizontalLayout.addWidget(self.addPatternButton)
-
-        self.removePatternButton = QPushButton(self.widget)
-        self.removePatternButton.setObjectName(u"removePatternButton")
-
-        self.horizontalLayout.addWidget(self.removePatternButton)
-
-        self.duplicatePatternButton = QPushButton(self.widget)
-        self.duplicatePatternButton.setObjectName(u"duplicatePatternButton")
-
-        self.horizontalLayout.addWidget(self.duplicatePatternButton)
-
-
-        self.verticalLayout_2.addLayout(self.horizontalLayout)
+        self.verticalLayout_2.addWidget(self.savedPatternsPlaceholder)
 
         self.horizontalLayout_2 = QHBoxLayout()
         self.horizontalLayout_2.setObjectName(u"horizontalLayout_2")
@@ -209,9 +189,6 @@ class Ui_Dialog(object):
     def retranslateUi(self, Dialog):
         Dialog.setWindowTitle(QCoreApplication.translate("Dialog", u"Dialog", None))
         self.label.setText(QCoreApplication.translate("Dialog", u"<html><head/><body><p><span style=\" font-weight:600;\">Saved Patterns</span></p></body></html>", None))
-        self.addPatternButton.setText(QCoreApplication.translate("Dialog", u"+", None))
-        self.removePatternButton.setText(QCoreApplication.translate("Dialog", u"-", None))
-        self.duplicatePatternButton.setText(QCoreApplication.translate("Dialog", u"\u29c9", None))
         self.pushButton_2.setText(QCoreApplication.translate("Dialog", u"\u2605 Set Active", None))
         self.deactivateButton.setText(QCoreApplication.translate("Dialog", u"\u2606 Deactivate", None))
         self.conflictWarningLabel.setText("")

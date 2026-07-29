@@ -7,7 +7,7 @@ from PySide6.QtWidgets import QMainWindow, QVBoxLayout, QFileDialog, QMessageBox
 from sfg_app2.app.ui.ui_main_window import Ui_MainWindow
 from sfg_app2.app.utils.pattern_manager import PatternManager
 from sfg_app2.app.utils.plotting_settings import PlottingSettings
-from sfg_app2.app.utils.matching_settings import MatchingSettings
+from sfg_app2.app.utils.matching_settings import MatchingProfileManager
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +21,8 @@ class MainWindow(QMainWindow):
         self.matched_sets: list = []
         self.processed_results: dict = {}
         self.pattern_manager = PatternManager()
-        self.matching_settings = MatchingSettings()
+        self.matching_profiles = MatchingProfileManager()
+        self.matching_settings = self.matching_profiles.active_settings()
         self.plotting_settings = PlottingSettings()
         self.plotting_settings.apply_current()
         self._ignored_paths: set[Path] = set()  # resolved absolute paths
@@ -168,8 +169,9 @@ class MainWindow(QMainWindow):
 
     def _on_set_auto_matching_parameters(self):
         from sfg_app2.app.dialogs.auto_matching_settings_dialog import AutoMatchingSettingsDialog
-        dialog = AutoMatchingSettingsDialog(self.matching_settings, parent=self)
+        dialog = AutoMatchingSettingsDialog(self.matching_profiles, parent=self)
         if dialog.exec():
+            self.matching_settings = self.matching_profiles.active_settings()
             self.statusBar().showMessage("Auto-matching parameters updated.")
 
     def _on_set_plotting_settings(self):

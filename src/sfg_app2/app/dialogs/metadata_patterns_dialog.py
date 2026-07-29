@@ -7,11 +7,13 @@ from pathlib import Path
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
-    QAbstractItemView, QComboBox, QDialog, QListWidgetItem, QMessageBox
+    QAbstractItemView, QComboBox, QDialog, QListWidgetItem, QMessageBox, QVBoxLayout,
 )
 
 from sfg_app2.app.ui.ui_metadata_patterns_dialog import Ui_Dialog
 from sfg_app2.app.utils.pattern_manager import PatternManager
+from sfg_app2.app.utils.preset_tree import find_node, iter_leaves
+from sfg_app2.app.widgets.preset_tree_widget import PresetTreeWidget
 
 logger = logging.getLogger(__name__)
 
@@ -47,17 +49,28 @@ class MetadataPatternsDialog(QDialog):
 
         # work on a deep copy — only write back on OK
         self._manager = pattern_manager
-        self._patterns: list[dict] = copy.deepcopy(pattern_manager.all_patterns)
-        self._current_index: int | None = None   # index into self._patterns
+        self._tree: list[dict] = copy.deepcopy(pattern_manager.tree)
+        self._current_leaf_id: str | None = None
 
         self._setup_fields_list()
-        self._populate_saved_patterns()
+        self._setup_saved_patterns_tree()
         self._connect_signals()
         self._update_active_lengths_label()
         self._set_conflict_warning("")
 
         # nothing selected yet — disable editor
         self._set_editor_enabled(False)
+
+    def _setup_saved_patterns_tree(self):
+        layout = QVBoxLayout(self.ui.savedPatternsPlaceholder)
+        layout.setContentsMargins(0, 0, 0, 0)
+        self._tree_widget = PresetTreeWidget(
+            leaf_data_factory=lambda: {"fields": ["sample"]},
+            new_leaf_name="New Pattern",
+        )
+        self._tree_widget.leafSelected.connect(self._on_pattern_selected)
+        layout.addWidget(self._tree_widget)
+        self._tree_widget.set_tree(self._tree)
 
     # ── Setup ─────────────────────────────────────────────────────────────────
 
@@ -88,11 +101,7 @@ class MetadataPatternsDialog(QDialog):
             self._update_preview()
 
     def _connect_signals(self):
-        # saved patterns list
-        self.ui.savedPatternsListWidget.currentRowChanged.connect(self._on_pattern_selected)
-        self.ui.addPatternButton.clicked.connect(self._on_add_pattern)
-        self.ui.removePatternButton.clicked.connect(self._on_remove_pattern)
-        self.ui.duplicatePatternButton.clicked.connect(self._on_duplicate_pattern)
+        # saved patterns tree
         self.ui.pushButton_2.clicked.connect(self._on_set_active)
         self.ui.deactivateButton.clicked.connect(self._on_deactivate)
 
@@ -109,109 +118,59 @@ class MetadataPatternsDialog(QDialog):
         self.ui.buttonBox.accepted.connect(self._on_ok)
         self.ui.buttonBox.rejected.connect(self.reject)
 
-    # ── Saved patterns list ───────────────────────────────────────────────────
+    # ── Saved patterns tree ───────────────────────────────────────────────────
 
-    def _populate_saved_patterns(self):
-        self.ui.savedPatternsListWidget.blockSignals(True)
-        self.ui.savedPatternsListWidget.clear()
-        for pattern in self._patterns:
-            self.ui.savedPatternsListWidget.addItem(
-                self._make_pattern_list_item(pattern)
-            )
-        self.ui.savedPatternsListWidget.blockSignals(False)
+    def _all_patterns(self) -> list[dict]:
+        return list(iter_leaves(self._tree))
 
-    def _make_pattern_list_item(self, pattern: dict) -> QListWidgetItem:
-        active = pattern.get("active", False)
-        prefix = "★ " if active else "    "
-        item = QListWidgetItem(f"{prefix}{pattern['name']}")
-        font = item.font()
-        font.setBold(active)
-        item.setFont(font)
-        return item
-
-    def _refresh_saved_patterns_list(self):
-        """Refresh display names/bold without resetting selection."""
-        for i, pattern in enumerate(self._patterns):
-            item = self.ui.savedPatternsListWidget.item(i)
-            if item:
-                active = pattern.get("active", False)
-                item.setText(f"{'★ ' if active else '    '}{pattern['name']}")
-                font = item.font()
-                font.setBold(active)
-                item.setFont(font)
-
-    def _on_pattern_selected(self, row: int):
-        if row < 0 or row >= len(self._patterns):
-            self._current_index = None
+    def _on_pattern_selected(self, leaf_id: str | None):
+        if self._current_leaf_id is not None:
+            self._save_current_fields_to_pattern()   # persist edits before switching
+        self._current_leaf_id = leaf_id
+        if leaf_id is None:
             self._set_editor_enabled(False)
             return
-        self._save_current_fields_to_pattern()   # persist edits before switching
-        self._current_index = row
-        self._load_pattern_into_editor(self._patterns[row])
+        leaf = find_node(self._tree, leaf_id)
+        if leaf is None:
+            self._set_editor_enabled(False)
+            return
+        self._load_pattern_into_editor(leaf)
         self._set_editor_enabled(True)
-
-    def _on_add_pattern(self):
-        new_pattern = {"name": "New Pattern", "fields": ["sample"], "active": False}
-        self._patterns.append(new_pattern)
-        self.ui.savedPatternsListWidget.addItem(self._make_pattern_list_item(new_pattern))
-        self.ui.savedPatternsListWidget.setCurrentRow(len(self._patterns) - 1)
-
-    def _on_remove_pattern(self):
-        row = self.ui.savedPatternsListWidget.currentRow()
-        if row < 0:
-            return
-        name = self._patterns[row]["name"]
-        reply = QMessageBox.question(
-            self, "Remove Pattern",
-            f"Remove pattern \"{name}\"?",
-            QMessageBox.Yes | QMessageBox.No,
-        )
-        if reply == QMessageBox.Yes:
-            self._patterns.pop(row)
-            self.ui.savedPatternsListWidget.takeItem(row)
-            self._current_index = None
-            self._set_editor_enabled(False)
-            self._update_active_lengths_label()
-
-    def _on_duplicate_pattern(self):
-        row = self.ui.savedPatternsListWidget.currentRow()
-        if row < 0:
-            return
-        duplicate = copy.deepcopy(self._patterns[row])
-        duplicate["name"] = f"{duplicate['name']} (copy)"
-        duplicate["active"] = False
-        self._patterns.append(duplicate)
-        self.ui.savedPatternsListWidget.addItem(self._make_pattern_list_item(duplicate))
-        self.ui.savedPatternsListWidget.setCurrentRow(len(self._patterns) - 1)
 
     # ── Active / deactivate ───────────────────────────────────────────────────
 
     def _on_set_active(self):
-        row = self.ui.savedPatternsListWidget.currentRow()
-        if row < 0:
+        leaf_id = self._tree_widget.current_leaf_id()
+        if leaf_id is None:
             return
-        warning = self._set_active_local(row, True)
+        warning = self._set_active_local(leaf_id, True)
         if warning:
             self._set_conflict_warning(f"⚠ {warning}")
         else:
             self._set_conflict_warning("")
-            self._refresh_saved_patterns_list()
+            self._tree_widget.refresh_labels()
             self._update_active_lengths_label()
 
     def _on_deactivate(self):
-        row = self.ui.savedPatternsListWidget.currentRow()
-        if row < 0:
+        leaf_id = self._tree_widget.current_leaf_id()
+        if leaf_id is None:
             return
-        self._patterns[row]["active"] = False
+        leaf = find_node(self._tree, leaf_id)
+        if leaf is None:
+            return
+        leaf["active"] = False
         self._set_conflict_warning("")
-        self._refresh_saved_patterns_list()
+        self._tree_widget.refresh_labels()
         self._update_active_lengths_label()
 
-    def _set_active_local(self, index: int, active: bool) -> str | None:
+    def _set_active_local(self, leaf_id: str, active: bool) -> str | None:
         """Returns a conflict warning string, or None if clean."""
-        target_len = len(self._patterns[index]["fields"])
-        for i, p in enumerate(self._patterns):
-            if i != index and p.get("active") and len(p["fields"]) == target_len:
+        target = find_node(self._tree, leaf_id)
+        if target is None:
+            return None
+        target_len = len(target["data"]["fields"])
+        for p in self._all_patterns():
+            if p["id"] != leaf_id and p.get("active") and len(p["data"]["fields"]) == target_len:
                 # show inline warning with a resolve option
                 reply = QMessageBox.question(
                     self,
@@ -222,14 +181,14 @@ class MetadataPatternsDialog(QDialog):
                 )
                 if reply == QMessageBox.Yes:
                     p["active"] = False
-                    self._patterns[index]["active"] = True
-                    self._refresh_saved_patterns_list()
+                    target["active"] = True
+                    self._tree_widget.refresh_labels()
                     self._update_active_lengths_label()
                     return None
                 else:
                     return None   # user cancelled, do nothing
-        self._patterns[index]["active"] = True
-        self._refresh_saved_patterns_list()
+        target["active"] = True
+        self._tree_widget.refresh_labels()
         self._update_active_lengths_label()
         return None
 
@@ -239,7 +198,7 @@ class MetadataPatternsDialog(QDialog):
 
     def _update_active_lengths_label(self):
         lengths = sorted(
-            len(p["fields"]) for p in self._patterns if p.get("active")
+            len(p["data"]["fields"]) for p in self._all_patterns() if p.get("active")
         )
         text = ", ".join(str(l) for l in lengths) if lengths else "none"
         self.ui.activeLengthsLabel.setText(f"Active lengths: {text}")
@@ -258,21 +217,21 @@ class MetadataPatternsDialog(QDialog):
         ]:
             w.setEnabled(enabled)
 
-    def _load_pattern_into_editor(self, pattern: dict):
+    def _load_pattern_into_editor(self, leaf: dict):
         self.ui.patternNamemLineEdit.blockSignals(True)
-        self.ui.patternNamemLineEdit.setText(pattern["name"])
+        self.ui.patternNamemLineEdit.setText(leaf["name"])
         self.ui.patternNamemLineEdit.blockSignals(False)
-        self._rebuild_fields_list(pattern["fields"])
+        self._rebuild_fields_list(leaf["data"]["fields"])
         self._update_preview()
 
     def _on_name_changed(self, text: str):
-        if self._current_index is None:
+        if self._current_leaf_id is None:
             return
-        self._patterns[self._current_index]["name"] = text
-        item = self.ui.savedPatternsListWidget.item(self._current_index)
-        if item:
-            active = self._patterns[self._current_index].get("active", False)
-            item.setText(f"{'★ ' if active else '    '}{text}")
+        leaf = find_node(self._tree, self._current_leaf_id)
+        if leaf is None:
+            return
+        leaf["name"] = text
+        self._tree_widget.refresh_labels()
 
     # ── Fields list ───────────────────────────────────────────────────────────
 
@@ -317,9 +276,11 @@ class MetadataPatternsDialog(QDialog):
         return fields
 
     def _save_current_fields_to_pattern(self):
-        if self._current_index is None:
+        if self._current_leaf_id is None:
             return
-        self._patterns[self._current_index]["fields"] = self._get_current_fields()
+        leaf = find_node(self._tree, self._current_leaf_id)
+        if leaf is not None:
+            leaf["data"]["fields"] = self._get_current_fields()
 
     def _on_fields_reordered(self):
         """After drag-drop, item widgets don't move with items.
@@ -408,6 +369,6 @@ class MetadataPatternsDialog(QDialog):
 
     def _on_ok(self):
         self._save_current_fields_to_pattern()
-        self._manager._patterns = self._patterns
+        self._manager._tree = self._tree
         self._manager.save()
         self.accept()
