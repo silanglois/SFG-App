@@ -186,6 +186,7 @@ class LoadMatchTab(QWidget):
         return len(to_remove)
 
     def _refresh_file_list(self):
+        self._wire_color_coding()
         self.file_list_widget.set_files(self._files)
         # re-sync used markers against current table state
         self._on_table_changed()
@@ -319,6 +320,7 @@ class LoadMatchTab(QWidget):
         return self._get_matching_settings().role_kwargs()
 
     def _populate_table_from_matched(self, matched: list):
+        self._wire_color_coding()
         model = self.match_table._table_model
         while model.rowCount() > 0:
             model.remove_row(0)
@@ -349,6 +351,35 @@ class LoadMatchTab(QWidget):
             if reply == QMessageBox.No:
                 return
         self.matching_complete.emit(matched)
+
+    # ── Color coding ──────────────────────────────────────────────────────────
+
+    def _get_color_coding_settings(self):
+        try:
+            main = self.window()
+            if hasattr(main, "color_coding_settings"):
+                return main.color_coding_settings
+        except Exception:
+            pass
+        return None
+
+    def _metadata_for_path(self, path: str) -> dict:
+        f = self._file_registry.get(path)
+        return f.metadata if f is not None else {}
+
+    def _wire_color_coding(self):
+        settings = self._get_color_coding_settings()
+        self.file_list_widget.set_color_coding_settings(settings)
+        self.match_table.set_color_coding_settings(settings)
+        self.match_table.set_metadata_lookup(self._metadata_for_path)
+        return settings
+
+    def refresh_color_coding(self):
+        """Called by MainWindow after the color-coding settings dialog
+        closes, to re-color already-displayed files without reloading them."""
+        self._wire_color_coding()
+        self.file_list_widget.refresh_colors()
+        self.match_table.refresh_colors()
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 

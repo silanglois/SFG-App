@@ -8,6 +8,7 @@ from sfg_app2.app.ui.ui_main_window import Ui_MainWindow
 from sfg_app2.app.utils.pattern_manager import PatternManager
 from sfg_app2.app.utils.plotting_settings import PlottingSettings
 from sfg_app2.app.utils.matching_settings import MatchingProfileManager
+from sfg_app2.app.utils.color_coding_settings import ColorCodingSettings
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +26,7 @@ class MainWindow(QMainWindow):
         self.matching_settings = self.matching_profiles.active_settings()
         self.plotting_settings = PlottingSettings()
         self.plotting_settings.apply_current()
+        self.color_coding_settings = ColorCodingSettings()
         self._ignored_paths: set[Path] = set()  # resolved absolute paths
 
         self._init_tabs()
@@ -98,6 +100,7 @@ class MainWindow(QMainWindow):
             self._on_set_auto_matching_parameters
         )
         self.ui.actionSet_plotting_settings.triggered.connect(self._on_set_plotting_settings)
+        self.ui.actionSet_color_coding.triggered.connect(self._on_set_color_coding)
         self.ui.actionAbout.triggered.connect(self._on_about)
         self.ui.actionDocs_tutorials.triggered.connect(self._on_docs)
         self.ui.actionUse_metadata_patterns.setChecked(True)
@@ -182,6 +185,25 @@ class MainWindow(QMainWindow):
                 f"Plotting style set to '{self.plotting_settings.style}'. "
                 "Restart the app for already-open plots to fully update."
             )
+
+    def _on_set_color_coding(self):
+        from sfg_app2.app.dialogs.color_coding_settings_dialog import ColorCodingSettingsDialog
+        from sfg_app2.app.utils import color_coding
+
+        files = getattr(self.load_match_tab, "_files", [])
+        if files:
+            fields = color_coding.available_fields(f.metadata for f in files)
+        else:
+            fields = sorted({
+                field
+                for pattern in self.pattern_manager.active_patterns
+                for field in pattern
+            })
+
+        dialog = ColorCodingSettingsDialog(self.color_coding_settings, fields, parent=self)
+        if dialog.exec():
+            self.load_match_tab.refresh_color_coding()
+            self.statusBar().showMessage("Filename color-coding settings updated.")
 
     def _on_about(self):
         self.statusBar().showMessage("SFG-App")

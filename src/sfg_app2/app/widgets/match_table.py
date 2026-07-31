@@ -20,6 +20,37 @@ class MatchTableModel(QAbstractTableModel):
         super().__init__(parent)
         self._rows: list[list[tuple[str, str] | None]] = []
         self._types: list[str] = []
+        self._metadata_lookup = None   # Callable[[str], dict | None]
+        self._color_settings = None    # ColorCodingSettings
+
+    def set_metadata_lookup(self, fn) -> None:
+        self._metadata_lookup = fn
+
+    def set_color_coding_settings(self, settings) -> None:
+        self._color_settings = settings
+
+    def refresh_colors(self) -> None:
+        """Force re-render of every cell's color (e.g. after color-coding
+        settings change), without touching the underlying data."""
+        if not self._rows:
+            return
+        top_left = self.createIndex(0, 0)
+        bottom_right = self.createIndex(len(self._rows) - 1, len(COLUMNS) - 1)
+        self.dataChanged.emit(
+            top_left, bottom_right,
+            [Qt.ItemDataRole.BackgroundRole, Qt.ItemDataRole.ForegroundRole],
+        )
+
+    def _group_color(self, cell):
+        if cell is None or self._color_settings is None or self._metadata_lookup is None:
+            return None
+        settings = self._color_settings
+        if not (settings.enabled and settings.scope in ("match_table", "both")):
+            return None
+        from sfg_app2.app.utils import color_coding
+        metadata = self._metadata_lookup(cell[0]) or {}
+        key = color_coding.group_key(metadata, settings)
+        return color_coding.color_for_key(key) if key is not None else None
 
     def rowCount(self, parent=QModelIndex()):
         return len(self._rows)
@@ -51,8 +82,17 @@ class MatchTableModel(QAbstractTableModel):
             return cell[1] if cell else "—"
         if role == Qt.ItemDataRole.UserRole:
             return cell[0] if cell else None
+        if role == Qt.ItemDataRole.BackgroundRole:
+            color = self._group_color(cell)
+            return QBrush(color) if color is not None else None
         if role == Qt.ItemDataRole.ForegroundRole:
-            return QBrush(QColor(180, 180, 180)) if cell is None else None
+            if cell is None:
+                return QBrush(QColor(180, 180, 180))
+            color = self._group_color(cell)
+            if color is not None:
+                from sfg_app2.app.utils import color_coding
+                return QBrush(color_coding.contrasting_text_color(color))
+            return None
         if role == Qt.ItemDataRole.ToolTipRole:
             return cell[0] if cell else "Drop a file here"
         return None
@@ -185,6 +225,15 @@ class MatchTableView(QTableView):
         self.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self._on_context_menu)
+
+    def set_metadata_lookup(self, fn) -> None:
+        self._table_model.set_metadata_lookup(fn)
+
+    def set_color_coding_settings(self, settings) -> None:
+        self._table_model.set_color_coding_settings(settings)
+
+    def refresh_colors(self) -> None:
+        self._table_model.refresh_colors()
 
     def dragEnterEvent(self, event):
         if event.mimeData().hasFormat(MIME_FILE):
