@@ -17,9 +17,9 @@ from PySide6.QtGui import (QBrush, QColor, QConicalGradient, QCursor,
     QPalette, QPixmap, QRadialGradient, QTransform)
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDoubleSpinBox,
     QFrame, QGridLayout, QGroupBox, QHBoxLayout,
-    QLabel, QListWidget, QListWidgetItem, QPushButton,
-    QSizePolicy, QSpacerItem, QSplitter, QVBoxLayout,
-    QWidget)
+    QLabel, QLineEdit, QListWidget, QListWidgetItem,
+    QPushButton, QSizePolicy, QSpacerItem, QSplitter,
+    QVBoxLayout, QWidget)
 
 class Ui_Form(object):
     def setupUi(self, Form):
@@ -252,6 +252,37 @@ class Ui_Form(object):
 
         self.horizontalLayout_2.addWidget(self.frame_5, 0, Qt.AlignTop)
 
+        self.frame_6 = QFrame(self.visualizationParamsGroupBox)
+        self.frame_6.setObjectName(u"frame_6")
+        sizePolicy.setHeightForWidth(self.frame_6.sizePolicy().hasHeightForWidth())
+        self.frame_6.setSizePolicy(sizePolicy)
+        self.frame_6.setFrameShape(QFrame.StyledPanel)
+        self.frame_6.setFrameShadow(QFrame.Raised)
+        self.verticalLayout_8 = QVBoxLayout(self.frame_6)
+        self.verticalLayout_8.setObjectName(u"verticalLayout_8")
+        self.xAxisLabelLabel = QLabel(self.frame_6)
+        self.xAxisLabelLabel.setObjectName(u"xAxisLabelLabel")
+
+        self.verticalLayout_8.addWidget(self.xAxisLabelLabel)
+
+        self.xAxisLabelEdit = QLineEdit(self.frame_6)
+        self.xAxisLabelEdit.setObjectName(u"xAxisLabelEdit")
+
+        self.verticalLayout_8.addWidget(self.xAxisLabelEdit)
+
+        self.yAxisLabelLabel = QLabel(self.frame_6)
+        self.yAxisLabelLabel.setObjectName(u"yAxisLabelLabel")
+
+        self.verticalLayout_8.addWidget(self.yAxisLabelLabel)
+
+        self.yAxisLabelEdit = QLineEdit(self.frame_6)
+        self.yAxisLabelEdit.setObjectName(u"yAxisLabelEdit")
+
+        self.verticalLayout_8.addWidget(self.yAxisLabelEdit)
+
+
+        self.horizontalLayout_2.addWidget(self.frame_6, 0, Qt.AlignTop)
+
         self.horizontalSpacer = QSpacerItem(40, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
 
         self.horizontalLayout_2.addItem(self.horizontalSpacer)
@@ -293,5 +324,7 @@ class Ui_Form(object):
         self.hdCheckShowError.setText(QCoreApplication.translate("Form", u"Show error", None))
         self.label.setText(QCoreApplication.translate("Form", u"Offset:", None))
         self.legendFieldLabel.setText(QCoreApplication.translate("Form", u"Legend:", None))
+        self.xAxisLabelLabel.setText(QCoreApplication.translate("Form", u"X axis label:", None))
+        self.yAxisLabelLabel.setText(QCoreApplication.translate("Form", u"Y axis label:", None))
     # retranslateUi
 

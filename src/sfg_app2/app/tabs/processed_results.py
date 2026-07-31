@@ -162,7 +162,7 @@ class ProcessedResultsTab(QWidget):
 
     def _set_vis_params_orientation(self, horizontal: bool):
         gb = self.ui.visualizationParamsGroupBox
-        widgets = [self.ui.frame, self.ui.frame_4, self.ui.frame_2, self.ui.frame_3, self.ui.frame_5]
+        widgets = [self.ui.frame, self.ui.frame_4, self.ui.frame_2, self.ui.frame_3, self.ui.frame_5, self.ui.frame_6]
 
         old_layout = gb.layout()
         if old_layout is not None:
@@ -253,6 +253,9 @@ class ProcessedResultsTab(QWidget):
             cb.toggled.connect(self._refresh_plot)
         self.ui.hdCheckShowError.toggled.connect(self._refresh_plot)
         self.ui.legendFieldComboBox.currentIndexChanged.connect(self._refresh_plot)
+        self.ui.xAxisLabelEdit.editingFinished.connect(self._refresh_plot)
+        self.ui.yAxisLabelEdit.editingFinished.connect(self._refresh_plot)
+        self.plot_widget.xRangeEdited.connect(self._refresh_plot)
         self.ui.spectraList.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.ui.spectraList.customContextMenuRequested.connect(self._on_context_menu)
 
@@ -372,9 +375,18 @@ class ProcessedResultsTab(QWidget):
             target_wn = self.ui.doubleSpinBox.value()
             idx = np.argmin(np.abs(x - target_wn))
             ref = y[idx]
-            return 1.0 / ref if ref != 0 else 1.0
+            # divide by the magnitude, not the signed value, so a negative
+            # reference point doesn't invert the sign of the whole trace
+            return 1.0 / abs(ref) if ref != 0 else 1.0
         if mode == 2:
-            peak = np.nanmax(np.abs(y))
+            x_range = self.plot_widget.get_x_range()
+            if x_range is not None:
+                lo, hi = x_range
+                mask = (x >= lo) & (x <= hi)
+                y_visible = y[mask] if mask.any() else y
+            else:
+                y_visible = y
+            peak = np.nanmax(np.abs(y_visible))
             return 1.0 / peak if peak != 0 else 1.0
         return 1.0
 
@@ -504,9 +516,14 @@ class ProcessedResultsTab(QWidget):
             ylabel = ("Intensity" if self.ui.normalizationComboBox.currentIndex() == 0
                       else "Normalized Intensity")
 
+        self.ui.xAxisLabelEdit.setPlaceholderText(x_label)
+        self.ui.yAxisLabelEdit.setPlaceholderText(ylabel)
+        custom_x = self.ui.xAxisLabelEdit.text().strip()
+        custom_y = self.ui.yAxisLabelEdit.text().strip()
+
         self.plot_widget.set_labels(
-            xlabel=x_label,
-            ylabel=ylabel,
+            xlabel=custom_x or x_label,
+            ylabel=custom_y or ylabel,
             title=f"{len(entries)} spectrum/spectra",
         )
         self.plot_widget.sync_x_range()

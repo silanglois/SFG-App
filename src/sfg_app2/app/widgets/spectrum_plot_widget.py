@@ -5,7 +5,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QDoubleSpinBox, QSizePolicy, QPushButton,
     QDialog, QFileDialog, QMessageBox,
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 
 from sfg_app2.app.utils.plotting_settings import style_figure
 from sfg_app2.app.dialogs.save_plot_dialog import SavePlotDialog
@@ -25,6 +25,8 @@ class _ThemedFigureCanvas(FigureCanvasQTAgg):
 
 class SpectrumPlotWidget(QWidget):
     """Reusable matplotlib canvas with x-range spinboxes and auto y-scaling."""
+
+    xRangeEdited = Signal()   # emitted when the user manually changes/resets the visible x-range
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -268,6 +270,7 @@ class SpectrumPlotWidget(QWidget):
         self._x_range_locked = True
         self._remember_current_zoom()
         self._apply_x_range()
+        self.xRangeEdited.emit()
 
     def _apply_x_range(self):
         x_min = self._x_min_spin.value()
@@ -292,6 +295,13 @@ class SpectrumPlotWidget(QWidget):
         self._x_min_spin.blockSignals(False)
         self._x_max_spin.blockSignals(False)
         self._apply_x_range()
+        self.xRangeEdited.emit()
+
+    def get_x_range(self) -> tuple[float, float] | None:
+        """The currently visible x-range, or None if nothing's been plotted yet."""
+        if not (self._x_range_initialized or self._x_range_locked):
+            return None
+        return self._x_min_spin.value(), self._x_max_spin.value()
 
     def _autoscale_y(self, x_min: float, x_max: float):
         import numpy as np
