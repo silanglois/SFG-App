@@ -101,9 +101,11 @@ class MainWindow(QMainWindow):
         )
         self.ui.actionSet_plotting_settings.triggered.connect(self._on_set_plotting_settings)
         self.ui.actionSet_color_coding.triggered.connect(self._on_set_color_coding)
+        self.ui.actionLoad_from_multiple_folders.toggled.connect(self._on_toggle_multi_folder)
         self.ui.actionAbout.triggered.connect(self._on_about)
         self.ui.actionDocs_tutorials.triggered.connect(self._on_docs)
         self.ui.actionUse_metadata_patterns.setChecked(True)
+        self.ui.actionLoad_from_multiple_folders.setChecked(False)
 
     # ── Menu handlers ─────────────────────────────────────────────────────────
 
@@ -165,6 +167,11 @@ class MainWindow(QMainWindow):
         )
         self.load_match_tab.reparse_loaded_files()
 
+    def _on_toggle_multi_folder(self, checked: bool):
+        self.statusBar().showMessage(
+            f"Load files from multiple folders {'enabled' if checked else 'disabled'}"
+        )
+
     def _on_set_metadata_patterns(self):
         from sfg_app2.app.dialogs.metadata_patterns_dialog import MetadataPatternsDialog
         dialog = MetadataPatternsDialog(self.pattern_manager, parent=self)
@@ -220,3 +227,7 @@ class MainWindow(QMainWindow):
     @property
     def use_metadata_patterns(self) -> bool:
         return self.ui.actionUse_metadata_patterns.isChecked()
+
+    @property
+    def multi_folder_mode(self) -> bool:
+        return self.ui.actionLoad_from_multiple_folders.isChecked()

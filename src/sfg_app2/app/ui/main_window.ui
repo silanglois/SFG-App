@@ -78,7 +78,9 @@
      <string>File</string>
     </property>
     <addaction name="actionLoad_file_s"/>
+    <addaction name="separator"/>
     <addaction name="actionLoad_files_from_folder"/>
+    <addaction name="actionLoad_from_multiple_folders"/>
     <addaction name="actionIgnore_selected_files"/>
    </widget>
    <widget class="QMenu" name="menuPreferences">
@@ -141,6 +143,14 @@
   <action name="actionIgnore_selected_files">
    <property name="text">
     <string>Ignore selected files</string>
+   </property>
+  </action>
+  <action name="actionLoad_from_multiple_folders">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>Load files from multiple folders</string>
    </property>
   </action>
   <action name="actionSet_auto_matching_parameters">

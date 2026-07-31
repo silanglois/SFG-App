@@ -24,7 +24,8 @@ class LoadMatchTab(QWidget):
 
         self._files: list = []
         self._file_registry: dict = {}      # path str → DataFile
-        self._loaded_folder: Path | None = None
+        self._loaded_folders: list[Path] = []
+        self._folder_contents: dict[Path, set[str]] = {}   # folder -> resolved file paths loaded from it
         self._individual_file_paths: list[Path] = []
 
         self._replace_list_and_table()
@@ -67,18 +68,56 @@ class LoadMatchTab(QWidget):
     # ── File loading ──────────────────────────────────────────────────────────
 
     def load_from_folder(self, folder: str | Path):
+        folder = Path(folder).resolve()
         try:
             new_files = load_datafiles(
                 folder, patterns=self._get_active_patterns(), **self._role_kwargs()
             )
-            self._loaded_folder = Path(folder)
+            if self._get_multi_folder_mode():
+                # refresh this folder in place if it's already loaded, else add it
+                if folder in self._loaded_folders:
+                    self._remove_files_by_path(self._folder_contents.get(folder, set()))
+                else:
+                    self._loaded_folders.append(folder)
+            else:
+                # overwrite: drop every previously loaded folder's files first
+                for old_folder in self._loaded_folders:
+                    if old_folder != folder:
+                        self._remove_files_by_path(self._folder_contents.get(old_folder, set()))
+                self._folder_contents = {}
+                self._loaded_folders = [folder]
+
             added, skipped = self._merge_files(new_files)
+            self._folder_contents[folder] = {str(f.path.resolve()) for f in new_files}
             self._refresh_file_list()
+            self._on_table_changed()
             self._report_merge_result(added, skipped)
             self._set_buttons_enabled(files_loaded=bool(self._files), matched=False)
         except Exception as e:
             QMessageBox.critical(self, "Load Error", str(e))
             logger.error("Failed to load files: %s", e)
+
+    def _get_multi_folder_mode(self) -> bool:
+        try:
+            return bool(self.window().multi_folder_mode)
+        except Exception:
+            return False
+
+    def _remove_files_by_path(self, path_set: set[str]):
+        if not path_set:
+            return
+        model = self.match_table._table_model
+        for row in range(model.rowCount()):
+            for col in range(model.columnCount()):
+                if model.data(model.createIndex(row, col), Qt.ItemDataRole.UserRole) in path_set:
+                    model.clear_cell(row, col)
+
+        self._files = [f for f in self._files if str(f.path) not in path_set]
+        for p in path_set:
+            self._file_registry.pop(p, None)
+        self._individual_file_paths = [
+            p for p in self._individual_file_paths if str(p) not in path_set
+        ]
 
     def load_individual_files(self, paths: list[str]):
         from sfg_app2.processing.data_file import DataFile
@@ -246,17 +285,17 @@ class LoadMatchTab(QWidget):
     # ── Button handlers ───────────────────────────────────────────────────────
 
     def _on_update(self):
-        if not self._files and self._loaded_folder is None:
+        if not self._files and not self._loaded_folders:
             QMessageBox.information(self, "Nothing loaded",
                                     "Load a folder or files first.")
             return
         self._files = []
         self._file_registry = {}
 
-        if self._loaded_folder:
+        for folder in self._loaded_folders:
             try:
                 folder_files = load_datafiles(
-                    self._loaded_folder,
+                    folder,
                     patterns=self._get_active_patterns(),
                     **self._role_kwargs(),
                 )
@@ -265,6 +304,7 @@ class LoadMatchTab(QWidget):
                 folder_files = [f for f in folder_files
                                 if f.path.resolve() not in ignored]
                 self._merge_files(folder_files)
+                self._folder_contents[folder] = {str(f.path.resolve()) for f in folder_files}
             except Exception as e:
                 QMessageBox.critical(self, "Update Error", str(e))
 
@@ -429,23 +469,7 @@ class LoadMatchTab(QWidget):
             if reply == QMessageBox.StandardButton.No:
                 return
 
-        # remove from table first
-        for path in in_table:
-            model = self.match_table._table_model
-            for row in range(model.rowCount()):
-                for col in range(model.columnCount()):
-                    if model.data(model.createIndex(row, col),
-                                Qt.ItemDataRole.UserRole) == path:
-                        model.clear_cell(row, col)
-
-        # remove from file list and registry
-        path_set = set(paths)
-        self._files = [f for f in self._files if str(f.path) not in path_set]
-        for p in path_set:
-            self._file_registry.pop(p, None)
-        self._individual_file_paths = [
-            p for p in self._individual_file_paths if str(p) not in path_set
-        ]
+        self._remove_files_by_path(set(paths))
 
         self._refresh_file_list()
         self._on_table_changed()
