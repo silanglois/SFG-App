@@ -1,9 +1,9 @@
 from __future__ import annotations
 from PySide6.QtWidgets import (
-    QListWidget, QListWidgetItem, QAbstractItemView, QMenu
+    QListWidget, QListWidgetItem, QAbstractItemView, QMenu, QApplication
 )
 from PySide6.QtCore import Qt, QMimeData, QByteArray, Signal
-from PySide6.QtGui import QDrag, QColor, QFont, QBrush
+from PySide6.QtGui import QDrag, QFont, QBrush, QPalette
 
 from sfg_app2.app.utils import color_coding
 
@@ -125,7 +125,12 @@ class FileListWidget(QListWidget):
             item.setToolTip(f"Group: {key}")
         else:
             item.setBackground(QBrush())
-            item.setForeground(QColor(150, 150, 150) if used else QColor(0, 0, 0))
+            if used:
+                list_widget = item.listWidget()
+                palette = list_widget.palette() if list_widget is not None else QApplication.palette()
+                item.setForeground(palette.color(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Text))
+            else:
+                item.setForeground(QBrush())   # clear override -> Qt uses the palette's normal text color
             item.setToolTip("")
 
         font = item.font()
