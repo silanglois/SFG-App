@@ -10,6 +10,7 @@ from sfg_app2.app.widgets.file_list_widget import FileListWidget
 from sfg_app2.app.widgets.match_table import MatchTableView
 from sfg_app2.processing.utils import load_datafiles
 from sfg_app2.processing.data_file import UnrecognizedFormatError
+from sfg_app2.app.utils.loading_indicator import show_loading
 
 logger = logging.getLogger(__name__)
 
@@ -70,9 +71,13 @@ class LoadMatchTab(QWidget):
     def load_from_folder(self, folder: str | Path):
         folder = Path(folder).resolve()
         try:
-            new_files = load_datafiles(
-                folder, patterns=self._get_active_patterns(), **self._role_kwargs()
-            )
+            loading = show_loading(self, "Loading files from folder...")
+            try:
+                new_files = load_datafiles(
+                    folder, patterns=self._get_active_patterns(), **self._role_kwargs()
+                )
+            finally:
+                loading.close()
             if self._get_multi_folder_mode():
                 # refresh this folder in place if it's already loaded, else add it
                 if folder in self._loaded_folders:
@@ -125,22 +130,26 @@ class LoadMatchTab(QWidget):
 
         role_kwargs = self._role_kwargs()
         newly_loaded = []
-        for path_str in paths:
-            path = Path(path_str)
-            try:
-                patterns = self._get_active_patterns()
-                clean_stem, matched = resolve_role(
-                    path.stem, role_kwargs["role_mode"], role_kwargs["role_values"]
-                )
-                n_parts = len(clean_stem.split("_"))
-                pattern_map = {len(p): p for p in patterns} if patterns else {}
-                fields = pattern_map.get(n_parts) if pattern_map else None
-                extra_metadata = {"role": "background"} if matched else {}
-                newly_loaded.append(DataFile(path, filename_fields=fields, metadata=extra_metadata))
-            except UnrecognizedFormatError as e:
-                logger.warning("Skipping %s: %s", path.name, e)
-            except Exception as e:
-                logger.warning("Could not load %s: %s — skipping.", path.name, e)
+        loading = show_loading(self, "Loading files...")
+        try:
+            for path_str in paths:
+                path = Path(path_str)
+                try:
+                    patterns = self._get_active_patterns()
+                    clean_stem, matched = resolve_role(
+                        path.stem, role_kwargs["role_mode"], role_kwargs["role_values"]
+                    )
+                    n_parts = len(clean_stem.split("_"))
+                    pattern_map = {len(p): p for p in patterns} if patterns else {}
+                    fields = pattern_map.get(n_parts) if pattern_map else None
+                    extra_metadata = {"role": "background"} if matched else {}
+                    newly_loaded.append(DataFile(path, filename_fields=fields, metadata=extra_metadata))
+                except UnrecognizedFormatError as e:
+                    logger.warning("Skipping %s: %s", path.name, e)
+                except Exception as e:
+                    logger.warning("Could not load %s: %s — skipping.", path.name, e)
+        finally:
+            loading.close()
 
         added, skipped = self._merge_files(newly_loaded)
         self._individual_file_paths.extend(f.path for f in added)
@@ -292,21 +301,26 @@ class LoadMatchTab(QWidget):
         self._files = []
         self._file_registry = {}
 
-        for folder in self._loaded_folders:
+        if self._loaded_folders:
+            loading = show_loading(self, "Refreshing loaded folders...")
             try:
-                folder_files = load_datafiles(
-                    folder,
-                    patterns=self._get_active_patterns(),
-                    **self._role_kwargs(),
-                )
-                # filter ignored before merging
-                ignored = self._get_ignored_paths()
-                folder_files = [f for f in folder_files
-                                if f.path.resolve() not in ignored]
-                self._merge_files(folder_files)
-                self._folder_contents[folder] = {str(f.path.resolve()) for f in folder_files}
-            except Exception as e:
-                QMessageBox.critical(self, "Update Error", str(e))
+                for folder in self._loaded_folders:
+                    try:
+                        folder_files = load_datafiles(
+                            folder,
+                            patterns=self._get_active_patterns(),
+                            **self._role_kwargs(),
+                        )
+                        # filter ignored before merging
+                        ignored = self._get_ignored_paths()
+                        folder_files = [f for f in folder_files
+                                        if f.path.resolve() not in ignored]
+                        self._merge_files(folder_files)
+                        self._folder_contents[folder] = {str(f.path.resolve()) for f in folder_files}
+                    except Exception as e:
+                        QMessageBox.critical(self, "Update Error", str(e))
+            finally:
+                loading.close()
 
         if self._individual_file_paths:
             ignored = self._get_ignored_paths()
@@ -339,7 +353,11 @@ class LoadMatchTab(QWidget):
                 background_config=settings.background_config(),
                 reference_config=settings.reference_config(),
             )
-            matched = matcher.match()
+            loading = show_loading(self, "Auto-matching files...")
+            try:
+                matched = matcher.match()
+            finally:
+                loading.close()
             self._populate_table_from_matched(matched)
             self._set_buttons_enabled(files_loaded=True, matched=True)
         except Exception as e:

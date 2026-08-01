@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
 from sfg_app2.app.widgets.spectrum_plot_widget import SpectrumPlotWidget
 from sfg_app2.processing.baseline import subtract_background
 from sfg_app2.processing.processed_spectrum import ProcessedSpectrum
+from sfg_app2.app.utils.loading_indicator import show_loading
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +49,11 @@ class PolystyreneCalibrationDialog(QDialog):
         self._check_refractiveindex()
         self._build_ui(initial_wavelength)
         self._connect_signals()
-        self._compute_ratio()    # pre-compute ratio from initially selected set
+        loading = show_loading(self, "Computing calibration ratio...")
+        try:
+            self._compute_ratio()    # pre-compute ratio from initially selected set
+        finally:
+            loading.close()
         self._update_plot()
 
     # ── Dependency check ──────────────────────────────────────────────────────
@@ -119,7 +124,11 @@ class PolystyreneCalibrationDialog(QDialog):
     # ── Calibration computation ───────────────────────────────────────────────
 
     def _on_set_changed(self, idx: int):
-        self._compute_ratio()
+        loading = show_loading(self, "Computing calibration ratio...")
+        try:
+            self._compute_ratio()
+        finally:
+            loading.close()
         self._update_plot()
 
     def _compute_ratio(self):
@@ -168,7 +177,6 @@ class PolystyreneCalibrationDialog(QDialog):
 
         # get polystyrene extinction coefficient
         try:
-            from sfg_app2.app.utils.loading_indicator import show_loading
             loading = (
                 show_loading(self, "Loading polystyrene reference data (first time only)...")
                 if _ps_material_cache is None else None

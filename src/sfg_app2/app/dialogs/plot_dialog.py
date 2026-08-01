@@ -4,6 +4,7 @@ import logging
 from PySide6.QtWidgets import QDialog, QVBoxLayout, QDialogButtonBox
 
 from sfg_app2.app.widgets.spectrum_plot_widget import SpectrumPlotWidget
+from sfg_app2.app.utils.loading_indicator import show_loading
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +25,11 @@ class PlotDialog(QDialog):
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
 
-        self._plot_files(files)
+        loading = show_loading(self, "Loading spectra...")
+        try:
+            self._plot_files(files)
+        finally:
+            loading.close()
 
     def _plot_files(self, files: list):
         self.plot_widget.clear()

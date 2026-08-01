@@ -19,6 +19,7 @@ from sfg_app2.app.ui.ui_processed_results_tab import Ui_Form
 from sfg_app2.app.widgets.spectrum_plot_widget import SpectrumPlotWidget
 from sfg_app2.app.widgets.collapsible_group_box import make_collapsible
 from sfg_app2.processing.processed_spectrum import ProcessedSpectrum
+from sfg_app2.app.utils.loading_indicator import show_loading
 
 logger = logging.getLogger(__name__)
 
@@ -266,42 +267,46 @@ class ProcessedResultsTab(QWidget):
         from sfg_app2.processing.processed_spectrum import ProcessedSpectrum
 
         remembered: dict = {}
-        for filename, spectrum in results.items():
-            kind = "homodyne"
-            # convert HDSFGResult to ProcessedSpectrum for display, keeping
-            # every component (Real/Imaginary/Phase/Homodyne + per-frame-avg
-            # and error-bar variants) intact — no lossy column renaming
-            if isinstance(spectrum, HDSFGResult):
-                df = spectrum.to_dataframe()
-                df.insert(0, "Frame", 1)
-                ps = ProcessedSpectrum(
-                    df,
-                    metadata  = spectrum.metadata,
-                    history   = spectrum.history,
-                )
-                ps.provenance = spectrum.provenance
-                spectrum = ps
-                kind = "heterodyne"
+        loading = show_loading(self, "Adding results...")
+        try:
+            for filename, spectrum in results.items():
+                kind = "homodyne"
+                # convert HDSFGResult to ProcessedSpectrum for display, keeping
+                # every component (Real/Imaginary/Phase/Homodyne + per-frame-avg
+                # and error-bar variants) intact — no lossy column renaming
+                if isinstance(spectrum, HDSFGResult):
+                    df = spectrum.to_dataframe()
+                    df.insert(0, "Frame", 1)
+                    ps = ProcessedSpectrum(
+                        df,
+                        metadata  = spectrum.metadata,
+                        history   = spectrum.history,
+                    )
+                    ps.provenance = spectrum.provenance
+                    spectrum = ps
+                    kind = "heterodyne"
 
-            label = Path(filename).stem
-            existing_idx = next(
-                (i for i, e in enumerate(self._entries) if e.label == label), None
-            )
-            if existing_idx is not None:
-                choice = self._prompt_conflict(
-                    "Result already exists",
-                    f'A result named "{label}" already exists in Results. Overwrite it?',
-                    ["Overwrite", "Skip"], remembered,
+                label = Path(filename).stem
+                existing_idx = next(
+                    (i for i, e in enumerate(self._entries) if e.label == label), None
                 )
-                if choice == "Skip":
+                if existing_idx is not None:
+                    choice = self._prompt_conflict(
+                        "Result already exists",
+                        f'A result named "{label}" already exists in Results. Overwrite it?',
+                        ["Overwrite", "Skip"], remembered,
+                    )
+                    if choice == "Skip":
+                        continue
+                    self._entries[existing_idx] = SpectrumEntry(spectrum, label, kind=kind)
                     continue
-                self._entries[existing_idx] = SpectrumEntry(spectrum, label, kind=kind)
-                continue
 
-            self._entries.append(SpectrumEntry(spectrum, label, kind=kind))
-            self.ui.spectraList.addItem(
-                self._make_list_item(len(self._entries) - 1)
-            )
+                self._entries.append(SpectrumEntry(spectrum, label, kind=kind))
+                self.ui.spectraList.addItem(
+                    self._make_list_item(len(self._entries) - 1)
+                )
+        finally:
+            loading.close()
 
         self._refresh_legend_field_options()
         self._refresh_plot()
@@ -628,6 +633,7 @@ class ProcessedResultsTab(QWidget):
         role_kwargs = self._get_role_kwargs()
 
         added, skipped, failed = 0, 0, 0
+        loading = show_loading(self, "Loading files...")
         for path_str in paths:
             path = Path(path_str)
             try:
@@ -692,6 +698,7 @@ class ProcessedResultsTab(QWidget):
             except Exception as e:
                 logger.warning("Could not load %s: %s", path.name, e)
                 failed += 1
+        loading.close()
 
         if added:
             self._refresh_legend_field_options()
@@ -864,6 +871,7 @@ class ProcessedResultsTab(QWidget):
 
         remembered: dict = {}
         exported, skipped, failed = 0, 0, 0
+        loading = show_loading(self, "Exporting...")
         for entry in entries:
             try:
                 out_path = Path(folder) / f"{entry.label}.csv"
@@ -884,6 +892,7 @@ class ProcessedResultsTab(QWidget):
             except Exception as e:
                 logger.warning("Could not export %s: %s", entry.label, e)
                 failed += 1
+        loading.close()
 
         msg = f"{exported} file(s) exported to {folder}."
         if skipped:

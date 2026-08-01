@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
 
 from sfg_app2.app.widgets.spectrum_plot_widget import SpectrumPlotWidget
 from sfg_app2.app.widgets.collapsible_group_box import make_collapsible
+from sfg_app2.app.utils.loading_indicator import show_loading
 from sfg_app2.processing.baseline import subtract_background
 from sfg_app2.processing.normalization import normalize
 
@@ -702,15 +703,19 @@ class HomodynePanel(QWidget):
             return
 
         errors = []
-        for idx in self._selected_indices:
-            self._cache.pop(idx, None)
-            try:
-                self._get_step(idx, "normalized")
-            except Exception as e:
-                name = self._matched_sets[idx].signal.path.name \
-                    if self._matched_sets[idx].signal else f"Set {idx + 1}"
-                errors.append(f"{name}: {e}")
-                logger.error("Processing failed for set %d: %s", idx, e, exc_info=True)
+        loading = show_loading(self, "Processing...")
+        try:
+            for idx in self._selected_indices:
+                self._cache.pop(idx, None)
+                try:
+                    self._get_step(idx, "normalized")
+                except Exception as e:
+                    name = self._matched_sets[idx].signal.path.name \
+                        if self._matched_sets[idx].signal else f"Set {idx + 1}"
+                    errors.append(f"{name}: {e}")
+                    logger.error("Processing failed for set %d: %s", idx, e, exc_info=True)
+        finally:
+            loading.close()
 
         self._refresh_plot()
         if errors:

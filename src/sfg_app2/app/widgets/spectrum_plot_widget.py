@@ -9,6 +9,7 @@ from PySide6.QtCore import Qt, Signal
 
 from sfg_app2.app.utils.plotting_settings import style_figure
 from sfg_app2.app.dialogs.save_plot_dialog import SavePlotDialog
+from sfg_app2.app.utils.loading_indicator import show_loading
 
 
 class _ThemedFigureCanvas(FigureCanvasQTAgg):
@@ -108,6 +109,7 @@ class SpectrumPlotWidget(QWidget):
 
         orig_size = self.figure.get_size_inches()
         orig_title = self.ax.get_title()
+        loading = show_loading(self, "Saving plot...")
         try:
             w = opts["width"] if opts["width"] is not None else orig_size[0]
             h = opts["height"] if opts["height"] is not None else orig_size[1]
@@ -117,6 +119,7 @@ class SpectrumPlotWidget(QWidget):
         except Exception as e:
             QMessageBox.warning(self, "Save failed", f"Could not save plot: {e}")
         finally:
+            loading.close()
             self.figure.set_size_inches(*orig_size)
             self.ax.set_title(orig_title)
             self.canvas.draw_idle()

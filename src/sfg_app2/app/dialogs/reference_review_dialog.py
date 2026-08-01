@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 
 from sfg_app2.app.widgets.spectrum_plot_widget import SpectrumPlotWidget
+from sfg_app2.app.utils.loading_indicator import show_loading
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +23,11 @@ class ReferenceReviewDialog(QDialog):
         self._matched_sets = matched_sets
         self._checkboxes: list[tuple[QCheckBox, QCheckBox]] = []  # (ref_cb, ref_bg_cb)
         self._build_ui()
-        self._refresh_plot()
+        loading = show_loading(self, "Loading reference spectra...")
+        try:
+            self._refresh_plot()
+        finally:
+            loading.close()
 
     # ── UI ────────────────────────────────────────────────────────────────────
 

@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 
 from sfg_app2.app.widgets.spectrum_plot_widget import SpectrumPlotWidget
 from sfg_app2.app.widgets.collapsible_group_box import make_collapsible
+from sfg_app2.app.utils.loading_indicator import show_loading
 
 logger = logging.getLogger(__name__)
 
@@ -839,7 +840,11 @@ class HDSFGPanel(QWidget):
     def _on_process(self):
         """Run the full pipeline from scratch."""
         self._cache.pop(self._matched_index, None)
-        self._run_from_step("despiked", emit_result=True)
+        loading = show_loading(self, "Processing...")
+        try:
+            self._run_from_step("despiked", emit_result=True)
+        finally:
+            loading.close()
 
     def _run_from_step(self, from_step: str, emit_result: bool = False):
         """Run pipeline from from_step onward, using cached results for earlier steps."""
