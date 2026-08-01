@@ -15,6 +15,22 @@ from sfg_app2.processing.processed_spectrum import ProcessedSpectrum
 
 logger = logging.getLogger(__name__)
 
+_ps_material_cache = None
+
+
+def _get_polystyrene_material():
+    """Lazily construct and cache the polystyrene RefractiveIndexMaterial.
+    The first call may trigger a one-time download of the refractiveindex.info
+    database; subsequent calls (including across dialog instances in the same
+    session) reuse the cached object."""
+    global _ps_material_cache
+    if _ps_material_cache is None:
+        from refractiveindex import RefractiveIndexMaterial
+        _ps_material_cache = RefractiveIndexMaterial(
+            shelf="organic", book="polystyrene", page="Myers"
+        )
+    return _ps_material_cache
+
 
 class PolystyreneCalibrationDialog(QDialog):
     """Adjust upconversion wavelength by aligning SFG polystyrene spectrum
@@ -58,9 +74,18 @@ class PolystyreneCalibrationDialog(QDialog):
         controls.addWidget(QLabel("Calibration set:"))
 
         self._set_combo = QComboBox()
+        default_idx = 0
+        found_default = False
         for i, m in enumerate(self._matched_sets):
             name = m.signal.path.name if m.signal else f"Set {i + 1}"
             self._set_combo.addItem(name)
+            if not found_default:
+                sig = m.signal
+                text = (sig.metadata.get("sample", "") if sig else "") or (sig.path.stem if sig else "")
+                if "polystyrene" in text.lower():
+                    default_idx = i
+                    found_default = True
+        self._set_combo.setCurrentIndex(default_idx)
         controls.addWidget(self._set_combo)
 
         controls.addWidget(QLabel("Upconversion wavelength:"))
@@ -143,11 +168,17 @@ class PolystyreneCalibrationDialog(QDialog):
 
         # get polystyrene extinction coefficient
         try:
-            from refractiveindex import RefractiveIndexMaterial
-            ps = RefractiveIndexMaterial(
-                shelf="organic", book="polystyrene", page="Myers"
+            from sfg_app2.app.utils.loading_indicator import show_loading
+            loading = (
+                show_loading(self, "Loading polystyrene reference data (first time only)...")
+                if _ps_material_cache is None else None
             )
-            ps_ext = ps.get_extinction_coefficient(wavenumber, unit="cm-1")
+            try:
+                ps = _get_polystyrene_material()
+                ps_ext = ps.get_extinction_coefficient(wavenumber, unit="cm-1")
+            finally:
+                if loading is not None:
+                    loading.close()
         except Exception as e:
             logger.warning("Could not load polystyrene data: %s", e)
             ps_ext = None
