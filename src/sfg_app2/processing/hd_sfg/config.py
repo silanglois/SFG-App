@@ -64,7 +64,7 @@ class HDSFGConfig:
         self.edge_right = int(self.edge_right)
         self.fft_start  = int(self.fft_start)
         self.fft_end    = int(self.fft_end)
-        if self.bg_smoothing_window % 2 == 0:
+        if self.bg_smoothing_window > 0 and self.bg_smoothing_window % 2 == 0:
             self.bg_smoothing_window += 1
         if self.sig_smoothing_window > 0 and self.sig_smoothing_window % 2 == 0:
             self.sig_smoothing_window += 1
