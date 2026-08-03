@@ -25,6 +25,7 @@ DEFAULT_TYPE_RULES: list[dict] = []
 DEFAULT_BACKGROUND_ROLE_MODE = "suffix"
 DEFAULT_BACKGROUND_ROLE_VALUES = sorted(DEFAULT_ROLE_SUFFIXES)
 DEFAULT_BACKGROUND_ROLE_FIELD = ""
+DEFAULT_BACKGROUND_ROLE_PRIORITY: dict[str, list[str]] = {}
 
 TYPE_RULE_TYPES = ("heterodyne", "homodyne")
 TYPE_RULE_SCOPES = ("signal", "background", "both")
@@ -44,6 +45,7 @@ _FIELDS = [
     ("background_role_mode", DEFAULT_BACKGROUND_ROLE_MODE),
     ("background_role_values", DEFAULT_BACKGROUND_ROLE_VALUES),
     ("background_role_field", DEFAULT_BACKGROUND_ROLE_FIELD),
+    ("background_role_priority", DEFAULT_BACKGROUND_ROLE_PRIORITY),
 ]
 
 
@@ -105,6 +107,7 @@ class MatchingSettings:
         self.background_role_mode: str = DEFAULT_BACKGROUND_ROLE_MODE
         self.background_role_values: list[str] = list(DEFAULT_BACKGROUND_ROLE_VALUES)
         self.background_role_field: str = DEFAULT_BACKGROUND_ROLE_FIELD
+        self.background_role_priority: dict[str, list[str]] = copy.deepcopy(DEFAULT_BACKGROUND_ROLE_PRIORITY)
 
     def to_dict(self) -> dict:
         return {name: getattr(self, name) for name, _ in _FIELDS}
@@ -113,7 +116,7 @@ class MatchingSettings:
     def from_dict(cls, data: dict) -> "MatchingSettings":
         obj = cls()
         for name, default in _FIELDS:
-            fallback = list(default) if isinstance(default, list) else default
+            fallback = copy.deepcopy(default) if isinstance(default, (list, dict)) else default
             setattr(obj, name, data.get(name, fallback))
         return obj
 
@@ -122,6 +125,7 @@ class MatchingSettings:
             required_keys=list(self.background_required_keys),
             optional_keys=list(self.background_optional_keys),
             closest_keys=list(self.background_closest_keys),
+            role_priority=copy.deepcopy(self.background_role_priority),
         )
 
     def reference_config(self) -> MatchingConfig:

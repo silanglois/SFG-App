@@ -7,16 +7,15 @@ from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QListWidget, QListWidgetItem,
     QPushButton, QTableWidget, QTableWidgetItem, QComboBox, QDialogButtonBox,
     QInputDialog, QAbstractItemView, QHeaderView, QMessageBox, QGroupBox, QWidget,
-    QSplitter, QScrollArea,
+    QSplitter, QScrollArea, QToolBox,
 )
 
 from sfg_app2.app.utils.matching_settings import (
-    MatchingSettings, MatchingProfileManager, type_rules_conflicts,
+    MatchingSettings, MatchingProfileManager, type_rules_conflicts, TYPE_RULE_TYPES,
 )
 from sfg_app2.app.utils.preset_tree import find_node, iter_leaves
 from sfg_app2.app.widgets.preset_tree_widget import PresetTreeWidget
 from sfg_app2.app.dialogs.metadata_patterns_dialog import KNOWN_FIELDS
-from sfg_app2.app.widgets.collapsible_group_box import make_collapsible
 
 logger = logging.getLogger(__name__)
 
@@ -65,18 +64,7 @@ class AutoMatchingSettingsDialog(QDialog):
         self._build_ui()
         self._tree_widget.set_tree(self._tree)
 
-        for box in (self._ref_box, self._role_box, self._rules_box, self._fields_box):
-            box.setCheckable(True)
-            box.setChecked(True)
-            make_collapsible(box)
-
-        # make_collapsible() forces every direct child visible whenever the
-        # box is expanded, which would override the role field row's own
-        # mode-dependent visibility — reassert it now and on every future
-        # expand/collapse toggle.
-        self._role_box.toggled.connect(lambda _checked: self._update_role_box_visibility())
         self._update_role_box_visibility()
-
         self._set_editor_enabled(False)
 
     # ── UI ────────────────────────────────────────────────────────────────────
@@ -88,16 +76,21 @@ class AutoMatchingSettingsDialog(QDialog):
 
         splitter.addWidget(self._build_tree_pane())
 
-        editor = QWidget()
-        editor_layout = QVBoxLayout(editor)
-        editor_layout.addWidget(self._build_reference_names_box())
-        editor_layout.addWidget(self._build_role_box())
-        editor_layout.addWidget(self._build_type_rules_box())
-        editor_layout.addWidget(self._build_fields_box())
+        self._toolbox = QToolBox()
+
+        def add_page(box: QGroupBox):
+            title = box.title()
+            box.setTitle("")   # QToolBox already shows a page header — avoid double title
+            self._toolbox.addItem(box, title)
+
+        add_page(self._build_reference_names_box())
+        add_page(self._build_role_box())
+        add_page(self._build_type_rules_box())
+        add_page(self._build_fields_box())
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setWidget(editor)
+        scroll.setWidget(self._toolbox)
         splitter.addWidget(scroll)
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
@@ -190,6 +183,32 @@ class AutoMatchingSettingsDialog(QDialog):
         values_buttons.addStretch()
         values_row.addLayout(values_buttons)
         box_layout.addLayout(values_row)
+
+        priority_label = QLabel(
+            "Preferred background role order, when more than one background "
+            "matches the same signal (first = highest priority, "
+            "comma-separated; blank = no preference). The spectrum type is "
+            "guessed from the signal alone (via the rules in \"Force "
+            "homodyne / heterodyne processing\") before a background is "
+            "picked:"
+        )
+        priority_label.setWordWrap(True)
+        box_layout.addWidget(priority_label)
+
+        self._role_priority_table = QTableWidget(len(TYPE_RULE_TYPES), 2)
+        self._role_priority_table.setHorizontalHeaderLabels(
+            ["Spectrum type", "Preferred role order"]
+        )
+        self._role_priority_table.horizontalHeader().setSectionResizeMode(
+            1, QHeaderView.ResizeMode.Stretch
+        )
+        self._role_priority_table.verticalHeader().setVisible(False)
+        for row, spectrum_type in enumerate(TYPE_RULE_TYPES):
+            type_item = QTableWidgetItem(spectrum_type.capitalize())
+            type_item.setFlags(type_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            self._role_priority_table.setItem(row, 0, type_item)
+            self._role_priority_table.setItem(row, 1, QTableWidgetItem(""))
+        box_layout.addWidget(self._role_priority_table)
 
         return self._role_box
 
@@ -313,6 +332,13 @@ class AutoMatchingSettingsDialog(QDialog):
                 role_values.append(text)
                 seen_role_values.add(text.lower())
 
+        role_priority = {}
+        for row, spectrum_type in enumerate(TYPE_RULE_TYPES):
+            text = self._role_priority_table.item(row, 1).text().strip()
+            tokens = [t.strip() for t in text.split(",") if t.strip()]
+            if tokens:
+                role_priority[spectrum_type] = tokens
+
         names = []
         seen = set()
         for i in range(self._ref_list.count()):
@@ -348,6 +374,7 @@ class AutoMatchingSettingsDialog(QDialog):
             "background_role_mode": role_mode,
             "background_role_field": role_field,
             "background_role_values": role_values,
+            "background_role_priority": role_priority,
             "background_required_keys": bg_required,
             "background_optional_keys": bg_optional,
             "background_closest_keys": bg_closest,
@@ -389,6 +416,9 @@ class AutoMatchingSettingsDialog(QDialog):
             item = QListWidgetItem(value)
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsEditable)
             self._role_values_list.addItem(item)
+        for row, spectrum_type in enumerate(TYPE_RULE_TYPES):
+            order = settings.background_role_priority.get(spectrum_type, [])
+            self._role_priority_table.item(row, 1).setText(", ".join(order))
         self._update_role_box_visibility()
 
     def _on_role_mode_changed(self, _text: str):

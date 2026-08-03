@@ -36,17 +36,18 @@ def _strip_role_token(stem: str, mode: str, values: set[str]) -> tuple[str, str 
     return stem, None
 
 
-def resolve_role(stem: str, mode: str, values: set[str]) -> tuple[str, bool]:
-    """Resolve (clean_stem, is_background) for a filename stem given a role
-    detection mode ("suffix" | "prefix" | "field"). For "field" mode, role
-    is decided from metadata (not the filename), so stem is returned
-    unchanged and is_background is always False here — callers must check
-    the relevant metadata field themselves once it's available.
+def resolve_role(stem: str, mode: str, values: set[str]) -> tuple[str, bool, str | None]:
+    """Resolve (clean_stem, is_background, role_token) for a filename stem
+    given a role detection mode ("suffix" | "prefix" | "field"). For "field"
+    mode, role is decided from metadata (not the filename), so stem is
+    returned unchanged, is_background is always False, and role_token is
+    None here — callers must check the relevant metadata field themselves
+    once it's available.
     """
     if mode == "field":
-        return stem, False
+        return stem, False, None
     clean_stem, token = _strip_role_token(stem, mode, values)
-    return clean_stem, token is not None
+    return clean_stem, token is not None, token
 
 
 def load_datafiles(
@@ -66,7 +67,7 @@ def load_datafiles(
     skipped = []
 
     for path in sorted(Path(folder).glob(glob)):
-        clean_stem, matched = resolve_role(path.stem, role_mode, role_values)
+        clean_stem, matched, role_token = resolve_role(path.stem, role_mode, role_values)
         n_parts = len(clean_stem.split("_"))
         fields = pattern_map.get(n_parts) if pattern_map else None
 
@@ -77,7 +78,7 @@ def load_datafiles(
                 path.name, n_parts, list(pattern_map.keys()),
             )
 
-        extra_metadata = {"role": "background"} if matched else {}
+        extra_metadata = {"role": "background", "role_token": role_token} if matched else {}
 
         try:
             files.append(DataFile(path, filename_fields=fields, metadata=extra_metadata))

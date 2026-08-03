@@ -136,13 +136,13 @@ class LoadMatchTab(QWidget):
                 path = Path(path_str)
                 try:
                     patterns = self._get_active_patterns()
-                    clean_stem, matched = resolve_role(
+                    clean_stem, matched, role_token = resolve_role(
                         path.stem, role_kwargs["role_mode"], role_kwargs["role_values"]
                     )
                     n_parts = len(clean_stem.split("_"))
                     pattern_map = {len(p): p for p in patterns} if patterns else {}
                     fields = pattern_map.get(n_parts) if pattern_map else None
-                    extra_metadata = {"role": "background"} if matched else {}
+                    extra_metadata = {"role": "background", "role_token": role_token} if matched else {}
                     newly_loaded.append(DataFile(path, filename_fields=fields, metadata=extra_metadata))
                 except UnrecognizedFormatError as e:
                     logger.warning("Skipping %s: %s", path.name, e)
@@ -277,7 +277,7 @@ class LoadMatchTab(QWidget):
         pattern_map = {len(p): p for p in patterns} if patterns else {}
 
         for f in self._files:
-            clean_stem, _ = resolve_role(
+            clean_stem, _, _ = resolve_role(
                 f.path.stem, role_kwargs["role_mode"], role_kwargs["role_values"]
             )
             n_parts = len(clean_stem.split("_"))

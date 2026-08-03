@@ -123,10 +123,19 @@ class MatchingConfig:
                     candidates, narrow to whichever has the numerically/
                     temporally closest value for each key in turn. A key
                     with no comparable value on any candidate is skipped.
+    role_priority : maps a spectrum_type ("homodyne"/"heterodyne") to an
+                    ordered list of preferred `role_token` metadata values
+                    (e.g. {"heterodyne": ["irbg", "bg"]}) — lets multiple
+                    background-naming variants (bg vs. irbg, etc.) be
+                    disambiguated by preference instead of only by
+                    closest_keys. Applied before closest_keys so it takes
+                    priority over incidental timestamp closeness. Empty
+                    (default) = no effect, current behavior unchanged.
     """
     required_keys: list[str] = field(default_factory=lambda: ["sample", "polarization"])
     optional_keys: list[str] = field(default_factory=lambda: ["center wavelength", "acquisition time"])
     closest_keys: list[str] = field(default_factory=lambda: list(DEFAULT_CLOSEST_KEYS))
+    role_priority: dict[str, list[str]] = field(default_factory=dict)
 
 
 # ── Matcher ──────────────────────────────────────────────────────────────────
@@ -260,7 +269,8 @@ class DataFileMatcher:
         min_dist = min(d for d, _ in scored)
         return [c for d, c in scored if d == min_dist]
 
-    def _find_closest(self, target, candidates: list, config: MatchingConfig):
+    def _find_closest(self, target, candidates: list, config: MatchingConfig,
+                       target_type: str | None = None):
         if target is None:
             return None
 
@@ -274,6 +284,19 @@ class DataFileMatcher:
             matching = [c for c in eligible if self._values_match(target, c, key)]
             if matching:
                 eligible = matching
+
+        # role-token preference (e.g. prefer "irbg" over "bg" for heterodyne
+        # sets) — applied before closest_keys so a deliberate preference
+        # wins over incidental timestamp closeness
+        if target_type and config.role_priority.get(target_type):
+            for token in config.role_priority[target_type]:
+                matching = [
+                    c for c in eligible
+                    if self._normalize(c.metadata.get("role_token")) == token.lower()
+                ]
+                if matching:
+                    eligible = matching
+                    break
 
         # cascading closest-key tiebreak, in priority order
         for key in config.closest_keys:
@@ -326,9 +349,16 @@ class DataFileMatcher:
 
         results = []
         for signal in signals:
-            bg = self._find_closest(signal, backgrounds, self.background_config)
+            # best-effort guess at spectrum_type from the signal alone (before
+            # a background is chosen), so background selection can honor a
+            # per-type role preference (e.g. prefer "irbg" for heterodyne)
+            tentative_type = self._forced_type(signal, None) or "homodyne"
+
+            bg = self._find_closest(signal, backgrounds, self.background_config,
+                                     target_type=tentative_type)
             ref = self._find_closest(signal, references, self.reference_config)
-            ref_bg = self._find_closest(ref, ref_backgrounds, self.background_config) if ref else None
+            ref_bg = self._find_closest(ref, ref_backgrounds, self.background_config,
+                                        target_type=tentative_type) if ref else None
 
             if bg is None:
                 logger.warning(

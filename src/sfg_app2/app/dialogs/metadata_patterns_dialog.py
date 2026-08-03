@@ -345,7 +345,7 @@ class MetadataPatternsDialog(QDialog):
 
         role_kwargs = self._role_kwargs()
         stem = Path(filename).stem
-        clean_stem, matched = resolve_role(
+        clean_stem, matched, _ = resolve_role(
             stem, role_kwargs["role_mode"], role_kwargs["role_values"]
         )
         role = "background" if matched else None

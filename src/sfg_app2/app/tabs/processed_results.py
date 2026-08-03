@@ -648,7 +648,7 @@ class ProcessedResultsTab(QWidget):
                     # before parsing filename fields, so it doesn't get
                     # absorbed into the last underscore-separated field
                     metadata_stem = re.sub(r"\s\(\d+\)$", "", path.stem)
-                    clean_stem, _ = resolve_role(
+                    clean_stem, _, _ = resolve_role(
                         metadata_stem, role_kwargs["role_mode"], role_kwargs["role_values"]
                     )
                     n_parts = len(clean_stem.split("_"))
