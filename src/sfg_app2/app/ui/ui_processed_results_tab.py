@@ -48,6 +48,11 @@ class Ui_Form(object):
 
         self.horizontalLayout_3.addWidget(self.pushButton)
 
+        self.annotationsButton = QPushButton(self.verticalLayoutWidget)
+        self.annotationsButton.setObjectName(u"annotationsButton")
+
+        self.horizontalLayout_3.addWidget(self.annotationsButton)
+
 
         self.verticalLayout.addLayout(self.horizontalLayout_3)
 
@@ -309,6 +314,7 @@ class Ui_Form(object):
         Form.setWindowTitle(QCoreApplication.translate("Form", u"Form", None))
         self.addSpectraButton.setText(QCoreApplication.translate("Form", u"Add spectra from file", None))
         self.pushButton.setText(QCoreApplication.translate("Form", u"Sort by metadata", None))
+        self.annotationsButton.setText(QCoreApplication.translate("Form", u"Annotations...", None))
         self.exportSelectedButton.setText(QCoreApplication.translate("Form", u"Export selected", None))
         self.exportAllButton.setText(QCoreApplication.translate("Form", u"Export all", None))
         self.visualizationParamsGroupBox.setTitle(QCoreApplication.translate("Form", u"Visualization parameters", None))

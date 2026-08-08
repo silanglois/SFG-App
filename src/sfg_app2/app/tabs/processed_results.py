@@ -2,6 +2,7 @@ from __future__ import annotations
 import logging
 import csv
 import re
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
@@ -9,10 +10,11 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QListWidgetItem, QFileDialog,
     QMessageBox, QAbstractItemView, QInputDialog, QMenu, QCheckBox,
-    QMainWindow, QDockWidget,
+    QMainWindow, QDockWidget, QColorDialog,
 )
 
 from sfg_app2.app.ui.ui_processed_results_tab import Ui_Form
@@ -86,12 +88,51 @@ _HD_LEGEND_LABEL = {
 }
 
 
+# key used for the (sole) plotted line of a homodyne entry in
+# SpectrumEntry.styles — heterodyne entries use the _HD_COMPONENT_COLUMN
+# display names ("Imaginary"/"Real"/"Phase"/"|χ⁽²⁾|² (Homodyne)") instead
+AMPLITUDE_COMPONENT = "__amplitude__"
+
+_LINESTYLE_CHOICES = [("Solid", "-"), ("Dashed", "--"), ("Dotted", ":"), ("Dash-dot", "-.")]
+
+
+@dataclass
+class TraceStyle:
+    """User-configurable overrides for a single plotted line. `None`/default
+    values mean "use the automatic behavior _refresh_plot already has"."""
+    color: str | None = None       # None = auto-assigned positional color
+    linestyle: str = "-"
+    axis: str = "primary"          # "primary" | "secondary"
+    label: str | None = None       # None = use the computed legend label
+    visible: bool = True
+
+    def is_default(self) -> bool:
+        return self == TraceStyle()
+
+
+@dataclass
+class PlotAnnotation:
+    """A free-form element drawn on top of the plotted traces."""
+    kind: str               # "vline" | "hline" | "region" | "text"
+    x: float | None = None        # vline, text
+    y: float | None = None        # hline, text
+    x0: float | None = None       # region
+    x1: float | None = None       # region
+    text: str = ""
+    color: str = "#000000"
+    linestyle: str = "--"
+
+
 class SpectrumEntry:
     """Lightweight container binding a ProcessedSpectrum to a display label."""
     def __init__(self, spectrum: ProcessedSpectrum, label: str, kind: str = "homodyne"):
         self.spectrum = spectrum
         self.label = label
         self.kind = kind   # "homodyne" | "heterodyne"
+        self.styles: dict[str, TraceStyle] = {}
+
+    def style_for(self, component: str) -> TraceStyle:
+        return self.styles.setdefault(component, TraceStyle())
 
     def __repr__(self):
         return f"SpectrumEntry({self.label})"
@@ -104,6 +145,7 @@ class ProcessedResultsTab(QWidget):
         self.ui.setupUi(self)
 
         self._entries: list[SpectrumEntry] = []
+        self._annotations: list[PlotAnnotation] = []
 
         self._setup_plot()
         self._setup_list()
@@ -234,6 +276,7 @@ class ProcessedResultsTab(QWidget):
     def _connect_signals(self):
         self.ui.addSpectraButton.clicked.connect(self._on_add_from_file)
         self.ui.pushButton.clicked.connect(self._on_sort_by_metadata)
+        self.ui.annotationsButton.clicked.connect(self._on_edit_annotations)
         self.ui.exportSelectedButton.clicked.connect(self._on_export_selected)
         self.ui.exportAllButton.clicked.connect(self._on_export_all)
 
@@ -431,10 +474,35 @@ class ProcessedResultsTab(QWidget):
         value = entry.spectrum.metadata.get(legend_field)
         return str(value) if value not in (None, "") else entry.label
 
+    def _ylabel_for(self, hd_components: list[str], has_amplitude_line: bool) -> str:
+        if hd_components:
+            return (_HD_YLABEL.get(hd_components[0], "Amplitude")
+                    if len(set(hd_components)) == 1 else "Amplitude")
+        if has_amplitude_line:
+            return ("Intensity" if self.ui.normalizationComboBox.currentIndex() == 0
+                     else "Normalized Intensity")
+        return ""
+
+    def _draw_annotations(self):
+        ax = self.plot_widget.ax
+        for ann in self._annotations:
+            try:
+                if ann.kind == "region" and ann.x0 is not None and ann.x1 is not None:
+                    ax.axvspan(ann.x0, ann.x1, color=ann.color, alpha=0.15, zorder=0.5, linewidth=0)
+                elif ann.kind == "vline" and ann.x is not None:
+                    ax.axvline(ann.x, color=ann.color, linestyle=ann.linestyle, zorder=3)
+                elif ann.kind == "hline" and ann.y is not None:
+                    ax.axhline(ann.y, color=ann.color, linestyle=ann.linestyle, zorder=3)
+                elif ann.kind == "text" and ann.x is not None and ann.y is not None:
+                    ax.text(ann.x, ann.y, ann.text, color=ann.color, zorder=4)
+            except Exception as e:
+                logger.warning("Could not draw annotation %r: %s", ann, e)
+
     def _refresh_plot(self):
-        self.plot_widget.clear()
+        self.plot_widget.soft_clear()
         entries = self._selected_entries()
         if not entries:
+            self.plot_widget.canvas.draw_idle()
             return
 
         offset_step = self.ui.offsetSpectraSpinner.value()
@@ -458,11 +526,14 @@ class ProcessedResultsTab(QWidget):
         )
         show_error = self.ui.hdCheckShowError.isChecked()
 
-        specs = []   # (entry, y_col, err_col, label)
+        specs = []   # (entry, component, y_col, err_col, label, style)
         for entry in entries:
             base_label = self._legend_base(entry, legend_field)
             if entry.kind == "heterodyne":
                 for component in checked_components:
+                    style = entry.style_for(component)
+                    if not style.visible:
+                        continue
                     y_col = _HD_COMPONENT_COLUMN[component]
                     err_col = _HD_ERROR_COLUMN[component]
                     if suppress_suffix:
@@ -471,14 +542,17 @@ class ProcessedResultsTab(QWidget):
                         label = f"{base_label} ({_HD_LEGEND_LABEL[component]})"
                     else:
                         label = base_label
-                    specs.append((entry, y_col, err_col, label))
+                    specs.append((entry, component, y_col, err_col, style.label or label, style))
             else:
-                specs.append((entry, "Intensity", None, base_label))
+                style = entry.style_for(AMPLITUDE_COMPONENT)
+                if style.visible:
+                    specs.append((entry, None, "Intensity", None, style.label or base_label, style))
 
         colors = self._get_colors(len(specs))
-        any_hd_plotted = False
+        primary_hd, secondary_hd = [], []
+        primary_amp, secondary_amp = False, False
 
-        for i, (entry, y_col, err_col, label) in enumerate(specs):
+        for i, (entry, component, y_col, err_col, label, style) in enumerate(specs):
             try:
                 if entry.kind == "heterodyne":
                     # already one row per wavenumber point — bypass .frame(),
@@ -486,7 +560,6 @@ class ProcessedResultsTab(QWidget):
                     # doesn't have
                     data = entry.spectrum.data
                     x_col = "Wavenumber"
-                    any_hd_plotted = True
                 else:
                     data = entry.spectrum.frame(1)
                     x_col = "Wavenumber" if "Wavenumber" in data.columns else "Wavelength"
@@ -496,40 +569,56 @@ class ProcessedResultsTab(QWidget):
                 factor = self._normalize_factor(x, raw_y)
                 y_offset = raw_y * factor + i * offset_step
 
-                self.plot_widget.ax.plot(
+                color = style.color or colors[i]
+                is_secondary = style.axis == "secondary"
+                target_ax = self.plot_widget.secondary_axis() if is_secondary else self.plot_widget.ax
+
+                target_ax.plot(
                     x, y_offset,
-                    color=colors[i],
+                    color=color,
+                    linestyle=style.linestyle,
                     label=label,
                 )
 
                 if show_error and entry.kind == "heterodyne" and err_col in data.columns:
                     y_err = data[err_col].to_numpy() * factor
-                    self.plot_widget.ax.fill_between(
+                    target_ax.fill_between(
                         x, y_offset - y_err, y_offset + y_err,
-                        color=colors[i], alpha=0.25, linewidth=0,
+                        color=color, alpha=0.25, linewidth=0,
                     )
+
+                if entry.kind == "heterodyne":
+                    (secondary_hd if is_secondary else primary_hd).append(component)
+                elif is_secondary:
+                    secondary_amp = True
+                else:
+                    primary_amp = True
             except Exception as e:
                 logger.warning("Could not plot %s: %s", label, e)
 
-        if len(specs) > 1 and legend_field != "None":
-            self.plot_widget.ax.legend(fontsize=8)
+        self._draw_annotations()
 
-        if any_hd_plotted:
-            ylabel = (_HD_YLABEL.get(checked_components[0], "Amplitude")
-                      if len(checked_components) == 1 else "Amplitude")
-        else:
-            ylabel = ("Intensity" if self.ui.normalizationComboBox.currentIndex() == 0
-                      else "Normalized Intensity")
+        handles, labels = self.plot_widget.ax.get_legend_handles_labels()
+        if self.plot_widget.ax2 is not None:
+            h2, l2 = self.plot_widget.ax2.get_legend_handles_labels()
+            handles, labels = handles + h2, labels + l2
+        if len(handles) > 1 and legend_field != "None":
+            self.plot_widget.ax.legend(handles, labels, fontsize=8)
+
+        primary_ylabel = self._ylabel_for(primary_hd, primary_amp)
+        secondary_ylabel = (self._ylabel_for(secondary_hd, secondary_amp)
+                             if self.plot_widget.ax2 is not None else None)
 
         self.ui.xAxisLabelEdit.setPlaceholderText(x_label)
-        self.ui.yAxisLabelEdit.setPlaceholderText(ylabel)
+        self.ui.yAxisLabelEdit.setPlaceholderText(primary_ylabel)
         custom_x = self.ui.xAxisLabelEdit.text().strip()
         custom_y = self.ui.yAxisLabelEdit.text().strip()
 
         self.plot_widget.set_labels(
             xlabel=custom_x or x_label,
-            ylabel=custom_y or ylabel,
+            ylabel=custom_y or primary_ylabel,
             title=f"{len(entries)} spectrum/spectra",
+            ylabel2=secondary_ylabel,
         )
         self.plot_widget.sync_x_range()
 
@@ -1071,14 +1160,55 @@ class ProcessedResultsTab(QWidget):
         menu = QMenu(self)
         metadata_action = menu.addAction(f"Review / Edit metadata — {label}")
         menu.addSeparator()
+        trace_props_action = None
+        if n == 1:
+            trace_props_action = menu.addAction("Trace properties...")
+        color_action = menu.addAction(f"Set color for {label}...")
+        menu.addSeparator()
         remove_action = menu.addAction(f"Remove {label}")
 
         action = menu.exec(self.ui.spectraList.viewport().mapToGlobal(pos))
 
         if action == metadata_action:
             self._on_review_metadata(selected)
+        elif trace_props_action is not None and action == trace_props_action:
+            self._on_trace_properties(selected[0])
+        elif action == color_action:
+            self._on_set_color(selected)
         elif action == remove_action:
             self._on_remove(selected)
+
+    def _on_edit_annotations(self):
+        from sfg_app2.app.dialogs.plot_annotations_dialog import PlotAnnotationsDialog
+        dialog = PlotAnnotationsDialog(self._annotations, self)
+        if dialog.exec() == dialog.DialogCode.Accepted:
+            self._annotations = dialog.result_annotations()
+            self._refresh_plot()
+
+    def _entry_component_rows(self, entry: SpectrumEntry) -> list[tuple[str, str]]:
+        """(style_key, display_name) rows to show in the trace properties
+        dialog for this entry — all HD components for heterodyne entries
+        (not just the currently-checked ones), or a single amplitude row
+        for homodyne entries."""
+        if entry.kind == "heterodyne":
+            return [(component, component) for component in _HD_COMPONENT_COLUMN]
+        return [(AMPLITUDE_COMPONENT, "Amplitude")]
+
+    def _on_trace_properties(self, entry: SpectrumEntry):
+        from sfg_app2.app.dialogs.trace_style_dialog import TraceStyleDialog
+        dialog = TraceStyleDialog(entry.label, self._entry_component_rows(entry), entry.styles, self)
+        if dialog.exec() == dialog.DialogCode.Accepted:
+            self._refresh_plot()
+
+    def _on_set_color(self, entries: list[SpectrumEntry]):
+        current = QColor(entries[0].style_for(self._entry_component_rows(entries[0])[0][0]).color or "#1f77b4")
+        chosen = QColorDialog.getColor(current, self, "Trace color")
+        if not chosen.isValid():
+            return
+        for entry in entries:
+            for key, _display_name in self._entry_component_rows(entry):
+                entry.style_for(key).color = chosen.name()
+        self._refresh_plot()
 
 
     def _on_review_metadata(self, entries: list[SpectrumEntry]):

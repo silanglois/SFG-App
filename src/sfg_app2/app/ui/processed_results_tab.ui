@@ -37,6 +37,13 @@
            </property>
           </widget>
          </item>
+         <item>
+          <widget class="QPushButton" name="annotationsButton">
+           <property name="text">
+            <string>Annotations...</string>
+           </property>
+          </widget>
+         </item>
         </layout>
        </item>
        <item>

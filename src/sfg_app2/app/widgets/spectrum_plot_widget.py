@@ -35,6 +35,7 @@ class SpectrumPlotWidget(QWidget):
         self.canvas = _ThemedFigureCanvas(self.figure)
         self.toolbar = NavigationToolbar2QT(self.canvas, self)
         self.ax = self.figure.add_subplot(111)
+        self.ax2 = None   # lazily created twin axis, see secondary_axis()
 
         self._x_range_widget = self._build_x_range_controls()
         self._x_range_initialized = False
@@ -138,11 +139,21 @@ class SpectrumPlotWidget(QWidget):
         self._sync_x_range_from_data()
         self.canvas.draw_idle()
 
-    def set_labels(self, xlabel: str = "", ylabel: str = "", title: str = ""):
+    def set_labels(self, xlabel: str = "", ylabel: str = "", title: str = "", ylabel2: str | None = None):
         self.ax.set_xlabel(xlabel)
         self.ax.set_ylabel(ylabel)
         self.ax.set_title(title)
+        if self.ax2 is not None and ylabel2:
+            self.ax2.set_ylabel(ylabel2)
         self.canvas.draw_idle()
+
+    def secondary_axis(self):
+        """Lazily create (or return the already-created) twin y-axis for
+        this redraw. Torn down again by soft_clear()/full_clear() so a
+        redraw with nothing on the secondary axis doesn't leave a stale one."""
+        if self.ax2 is None:
+            self.ax2 = self.ax.twinx()
+        return self.ax2
 
     def set_x_range(self, x_min: float, x_max: float):
         """Programmatically set the x range (e.g. from calibration dialog)."""
@@ -347,6 +358,7 @@ class SpectrumPlotWidget(QWidget):
         """
         self.figure.clf()
         self.ax = self.figure.add_subplot(111)
+        self.ax2 = None
         self._x_range_initialized = False
 
     def soft_clear(self):
@@ -358,6 +370,7 @@ class SpectrumPlotWidget(QWidget):
         # remove all secondary axes (twin axes created by twinx())
         for ax in axes[1:]:
             self.figure.delaxes(ax)
+        self.ax2 = None
 
         # clear primary axis artists without destroying it
         if axes:
