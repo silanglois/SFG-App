@@ -10,11 +10,10 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QListWidgetItem, QFileDialog,
     QMessageBox, QAbstractItemView, QInputDialog, QMenu, QCheckBox,
-    QMainWindow, QDockWidget, QColorDialog,
+    QMainWindow, QDockWidget,
 )
 
 from sfg_app2.app.ui.ui_processed_results_tab import Ui_Form
@@ -302,6 +301,7 @@ class ProcessedResultsTab(QWidget):
         self.plot_widget.xRangeEdited.connect(self._refresh_plot)
         self.ui.spectraList.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.ui.spectraList.customContextMenuRequested.connect(self._on_context_menu)
+        self.ui.spectraList.itemDoubleClicked.connect(self._on_item_double_clicked)
 
     # ── Public API — called by MainWindow ─────────────────────────────────────
 
@@ -566,11 +566,13 @@ class ProcessedResultsTab(QWidget):
 
                 x = data[x_col].to_numpy()
                 raw_y = data[y_col].to_numpy()
-                factor = self._normalize_factor(x, raw_y)
+                is_secondary = style.axis == "secondary"
+                # normalization is scoped to the primary axis — a secondary
+                # axis is meant to show a trace in its own native units
+                factor = 1.0 if is_secondary else self._normalize_factor(x, raw_y)
                 y_offset = raw_y * factor + i * offset_step
 
                 color = style.color or colors[i]
-                is_secondary = style.axis == "secondary"
                 target_ax = self.plot_widget.secondary_axis() if is_secondary else self.plot_widget.ax
 
                 target_ax.plot(
@@ -1160,10 +1162,7 @@ class ProcessedResultsTab(QWidget):
         menu = QMenu(self)
         metadata_action = menu.addAction(f"Review / Edit metadata — {label}")
         menu.addSeparator()
-        trace_props_action = None
-        if n == 1:
-            trace_props_action = menu.addAction("Trace properties...")
-        color_action = menu.addAction(f"Set color for {label}...")
+        trace_props_action = menu.addAction("Trace properties...")
         menu.addSeparator()
         remove_action = menu.addAction(f"Remove {label}")
 
@@ -1171,10 +1170,8 @@ class ProcessedResultsTab(QWidget):
 
         if action == metadata_action:
             self._on_review_metadata(selected)
-        elif trace_props_action is not None and action == trace_props_action:
-            self._on_trace_properties(selected[0])
-        elif action == color_action:
-            self._on_set_color(selected)
+        elif action == trace_props_action:
+            self._on_trace_properties(selected)
         elif action == remove_action:
             self._on_remove(selected)
 
@@ -1194,21 +1191,24 @@ class ProcessedResultsTab(QWidget):
             return [(component, component) for component in _HD_COMPONENT_COLUMN]
         return [(AMPLITUDE_COMPONENT, "Amplitude")]
 
-    def _on_trace_properties(self, entry: SpectrumEntry):
+    def _on_trace_properties(self, entries: list[SpectrumEntry]):
         from sfg_app2.app.dialogs.trace_style_dialog import TraceStyleDialog
-        dialog = TraceStyleDialog(entry.label, self._entry_component_rows(entry), entry.styles, self)
+        rows = [
+            (entry, key, display_name)
+            for entry in entries
+            for key, display_name in self._entry_component_rows(entry)
+        ]
+        dialog = TraceStyleDialog(rows, self)
         if dialog.exec() == dialog.DialogCode.Accepted:
             self._refresh_plot()
 
-    def _on_set_color(self, entries: list[SpectrumEntry]):
-        current = QColor(entries[0].style_for(self._entry_component_rows(entries[0])[0][0]).color or "#1f77b4")
-        chosen = QColorDialog.getColor(current, self, "Trace color")
-        if not chosen.isValid():
+    def _on_item_double_clicked(self, item: QListWidgetItem):
+        idx = item.data(Qt.ItemDataRole.UserRole)
+        if idx is None or not (0 <= idx < len(self._entries)):
             return
-        for entry in entries:
-            for key, _display_name in self._entry_component_rows(entry):
-                entry.style_for(key).color = chosen.name()
-        self._refresh_plot()
+        self.ui.spectraList.clearSelection()
+        item.setSelected(True)
+        self._on_trace_properties([self._entries[idx]])
 
 
     def _on_review_metadata(self, entries: list[SpectrumEntry]):

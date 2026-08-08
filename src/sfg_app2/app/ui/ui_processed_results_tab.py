@@ -48,11 +48,6 @@ class Ui_Form(object):
 
         self.horizontalLayout_3.addWidget(self.pushButton)
 
-        self.annotationsButton = QPushButton(self.verticalLayoutWidget)
-        self.annotationsButton.setObjectName(u"annotationsButton")
-
-        self.horizontalLayout_3.addWidget(self.annotationsButton)
-
 
         self.verticalLayout.addLayout(self.horizontalLayout_3)
 
@@ -288,6 +283,22 @@ class Ui_Form(object):
 
         self.horizontalLayout_2.addWidget(self.frame_6, 0, Qt.AlignTop)
 
+        self.frame_7 = QFrame(self.visualizationParamsGroupBox)
+        self.frame_7.setObjectName(u"frame_7")
+        sizePolicy.setHeightForWidth(self.frame_7.sizePolicy().hasHeightForWidth())
+        self.frame_7.setSizePolicy(sizePolicy)
+        self.frame_7.setFrameShape(QFrame.StyledPanel)
+        self.frame_7.setFrameShadow(QFrame.Raised)
+        self.verticalLayout_9 = QVBoxLayout(self.frame_7)
+        self.verticalLayout_9.setObjectName(u"verticalLayout_9")
+        self.annotationsButton = QPushButton(self.frame_7)
+        self.annotationsButton.setObjectName(u"annotationsButton")
+
+        self.verticalLayout_9.addWidget(self.annotationsButton)
+
+
+        self.horizontalLayout_2.addWidget(self.frame_7, 0, Qt.AlignTop)
+
         self.horizontalSpacer = QSpacerItem(40, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
 
         self.horizontalLayout_2.addItem(self.horizontalSpacer)
@@ -314,7 +325,6 @@ class Ui_Form(object):
         Form.setWindowTitle(QCoreApplication.translate("Form", u"Form", None))
         self.addSpectraButton.setText(QCoreApplication.translate("Form", u"Add spectra from file", None))
         self.pushButton.setText(QCoreApplication.translate("Form", u"Sort by metadata", None))
-        self.annotationsButton.setText(QCoreApplication.translate("Form", u"Annotations...", None))
         self.exportSelectedButton.setText(QCoreApplication.translate("Form", u"Export selected", None))
         self.exportAllButton.setText(QCoreApplication.translate("Form", u"Export all", None))
         self.visualizationParamsGroupBox.setTitle(QCoreApplication.translate("Form", u"Visualization parameters", None))
@@ -332,5 +342,6 @@ class Ui_Form(object):
         self.legendFieldLabel.setText(QCoreApplication.translate("Form", u"Legend:", None))
         self.xAxisLabelLabel.setText(QCoreApplication.translate("Form", u"X axis label:", None))
         self.yAxisLabelLabel.setText(QCoreApplication.translate("Form", u"Y axis label:", None))
+        self.annotationsButton.setText(QCoreApplication.translate("Form", u"Annotations...", None))
     # retranslateUi
 

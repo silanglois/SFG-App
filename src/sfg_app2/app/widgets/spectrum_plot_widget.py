@@ -12,6 +12,17 @@ from sfg_app2.app.dialogs.save_plot_dialog import SavePlotDialog
 from sfg_app2.app.utils.loading_indicator import show_loading
 
 
+def _is_overlay_line(xd, yd) -> bool:
+    """True for a 2-point axhline/axvline artist, which store one of their
+    two coordinate arrays as [0, 1] in axes-fraction space rather than real
+    data — axhline puts that placeholder in xdata, axvline in ydata, so
+    both must be checked or the un-checked one leaks into range/autoscale
+    computations as if it were real plotted data."""
+    import numpy as np
+    return ((len(xd) == 2 and np.allclose(xd, [0.0, 1.0])) or
+            (len(yd) == 2 and np.allclose(yd, [0.0, 1.0])))
+
+
 class _ThemedFigureCanvas(FigureCanvasQTAgg):
     """FigureCanvasQTAgg that re-asserts the active plotting style's
     background on every draw, so it can't drift out of sync no matter
@@ -246,10 +257,10 @@ class SpectrumPlotWidget(QWidget):
         for ax in self.figure.get_axes():
             for line in ax.get_lines():
                 xd = np.asarray(line.get_xdata(), dtype=float)
+                yd = np.asarray(line.get_ydata(), dtype=float)
                 if not len(xd):
                     continue
-                # skip axhline — its xdata is exactly [0, 1] in axes fraction space
-                if len(xd) == 2 and np.allclose(xd, [0.0, 1.0]):
+                if _is_overlay_line(xd, yd):
                     continue
                 all_x.extend(xd)
 
@@ -328,8 +339,7 @@ class SpectrumPlotWidget(QWidget):
                 yd = np.asarray(line.get_ydata(), dtype=float)
                 if not len(xd):
                     continue
-                # skip axhline/axvline
-                if len(xd) == 2 and np.allclose(xd, [0.0, 1.0]):
+                if _is_overlay_line(xd, yd):
                     continue
                 mask = (xd >= x_min) & (xd <= x_max)
                 if mask.any():
