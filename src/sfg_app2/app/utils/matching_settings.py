@@ -18,9 +18,11 @@ DEFAULT_REFERENCE_NAMES = ["Au", "gold", "quartz"]
 DEFAULT_BACKGROUND_REQUIRED_KEYS = ["polarization", "date"]
 DEFAULT_BACKGROUND_OPTIONAL_KEYS = ["center_wavelength", "acquisition_time"]
 DEFAULT_BACKGROUND_CLOSEST_KEYS = ["timestamp"]
+DEFAULT_BACKGROUND_HIGHEST_KEYS: list[str] = []
 DEFAULT_REFERENCE_REQUIRED_KEYS = ["polarization"]
 DEFAULT_REFERENCE_OPTIONAL_KEYS = ["center_wavelength"]
 DEFAULT_REFERENCE_CLOSEST_KEYS = ["timestamp"]
+DEFAULT_REFERENCE_HIGHEST_KEYS: list[str] = []
 DEFAULT_TYPE_RULES: list[dict] = []
 DEFAULT_BACKGROUND_ROLE_MODE = "suffix"
 DEFAULT_BACKGROUND_ROLE_VALUES = sorted(DEFAULT_ROLE_SUFFIXES)
@@ -38,9 +40,11 @@ _FIELDS = [
     ("background_required_keys", DEFAULT_BACKGROUND_REQUIRED_KEYS),
     ("background_optional_keys", DEFAULT_BACKGROUND_OPTIONAL_KEYS),
     ("background_closest_keys", DEFAULT_BACKGROUND_CLOSEST_KEYS),
+    ("background_highest_keys", DEFAULT_BACKGROUND_HIGHEST_KEYS),
     ("reference_required_keys", DEFAULT_REFERENCE_REQUIRED_KEYS),
     ("reference_optional_keys", DEFAULT_REFERENCE_OPTIONAL_KEYS),
     ("reference_closest_keys", DEFAULT_REFERENCE_CLOSEST_KEYS),
+    ("reference_highest_keys", DEFAULT_REFERENCE_HIGHEST_KEYS),
     ("type_rules", DEFAULT_TYPE_RULES),
     ("background_role_mode", DEFAULT_BACKGROUND_ROLE_MODE),
     ("background_role_values", DEFAULT_BACKGROUND_ROLE_VALUES),
@@ -100,9 +104,11 @@ class MatchingSettings:
         self.background_required_keys: list[str] = list(DEFAULT_BACKGROUND_REQUIRED_KEYS)
         self.background_optional_keys: list[str] = list(DEFAULT_BACKGROUND_OPTIONAL_KEYS)
         self.background_closest_keys: list[str] = list(DEFAULT_BACKGROUND_CLOSEST_KEYS)
+        self.background_highest_keys: list[str] = list(DEFAULT_BACKGROUND_HIGHEST_KEYS)
         self.reference_required_keys: list[str] = list(DEFAULT_REFERENCE_REQUIRED_KEYS)
         self.reference_optional_keys: list[str] = list(DEFAULT_REFERENCE_OPTIONAL_KEYS)
         self.reference_closest_keys: list[str] = list(DEFAULT_REFERENCE_CLOSEST_KEYS)
+        self.reference_highest_keys: list[str] = list(DEFAULT_REFERENCE_HIGHEST_KEYS)
         self.type_rules: list[dict] = list(DEFAULT_TYPE_RULES)
         self.background_role_mode: str = DEFAULT_BACKGROUND_ROLE_MODE
         self.background_role_values: list[str] = list(DEFAULT_BACKGROUND_ROLE_VALUES)
@@ -125,6 +131,7 @@ class MatchingSettings:
             required_keys=list(self.background_required_keys),
             optional_keys=list(self.background_optional_keys),
             closest_keys=list(self.background_closest_keys),
+            highest_keys=list(self.background_highest_keys),
             role_priority=copy.deepcopy(self.background_role_priority),
         )
 
@@ -133,6 +140,7 @@ class MatchingSettings:
             required_keys=list(self.reference_required_keys),
             optional_keys=list(self.reference_optional_keys),
             closest_keys=list(self.reference_closest_keys),
+            highest_keys=list(self.reference_highest_keys),
         )
 
     def role_kwargs(self) -> dict:

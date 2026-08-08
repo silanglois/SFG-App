@@ -360,9 +360,28 @@ class LoadMatchTab(QWidget):
                 loading.close()
             self._populate_table_from_matched(matched)
             self._set_buttons_enabled(files_loaded=True, matched=True)
+            self._report_match_diagnostics(matcher)
         except Exception as e:
             QMessageBox.critical(self, "Match Error", str(e))
             logger.error("Auto-match failed: %s", e)
+
+    def _report_match_diagnostics(self, matcher):
+        """Surface ambiguous-tie issues in the GUI — previously these only
+        went to logger.warning, which is invisible in a normally launched
+        app (no logging handlers are configured). Missing background/
+        reference/reference-background matches are intentionally not shown
+        here (often expected, e.g. references not loaded yet) — they're
+        still logged and available via matcher.diagnostics/.unmatched."""
+        diagnostics = [d for d in matcher.diagnostics if d.get("type") == "ambiguous"]
+        if not diagnostics:
+            return
+        shown = [d["message"] for d in diagnostics[:10]]
+        if len(diagnostics) > 10:
+            shown.append(f"...and {len(diagnostics) - 10} more — see log for full details.")
+        QMessageBox.warning(
+            self, "Auto-match issues",
+            f"{len(diagnostics)} issue(s) found during auto-matching:\n\n" + "\n\n".join(shown),
+        )
 
     def _get_matching_settings(self):
         try:

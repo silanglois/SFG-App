@@ -19,7 +19,7 @@ from sfg_app2.app.dialogs.metadata_patterns_dialog import KNOWN_FIELDS
 
 logger = logging.getLogger(__name__)
 
-STATE_OPTIONS = ["Ignore", "Optional", "Required", "Closest"]
+STATE_OPTIONS = ["Ignore", "Optional", "Required", "Closest", "Highest"]
 TYPE_OPTIONS = ["Heterodyne", "Homodyne"]
 SCOPE_OPTIONS = ["Signal", "Background", "Both"]
 DEFAULT_RULE_FIELD = "sample"
@@ -252,8 +252,14 @@ class AutoMatchingSettingsDialog(QDialog):
         fields_label = QLabel(
             "Metadata fields used to match a signal to its background/reference — "
             "Required must match exactly. Optional prefers a match but is skipped "
-            "if no candidate matches. Closest picks the nearest numeric/date value, "
-            "in priority order (top row highest priority):"
+            "if no candidate matches. Closest picks the nearest numeric/date value; "
+            "Highest picks the largest numeric value (independent of the signal's "
+            "own value) — both in priority order (top row highest priority; use "
+            "↑/↓ to reorder — a higher Closest/Highest field fully decides "
+            "the match before a lower one is ever consulted). This order is shared "
+            "between the Background and Reference columns. Unit-suffixed values "
+            "(e.g. \"30kHz\", \"3.4um\", \"0.1V\") compare on their numeric part, "
+            "ignoring the unit:"
         )
         fields_label.setWordWrap(True)
         box_layout.addWidget(fields_label)
@@ -271,8 +277,14 @@ class AutoMatchingSettingsDialog(QDialog):
         add_field_btn.clicked.connect(self._on_add_field)
         remove_field_btn = QPushButton("Remove selected field")
         remove_field_btn.clicked.connect(self._on_remove_field)
+        move_up_btn = QPushButton("↑ Move Up")
+        move_up_btn.clicked.connect(self._on_move_field_up)
+        move_down_btn = QPushButton("↓ Move Down")
+        move_down_btn.clicked.connect(self._on_move_field_down)
         add_field_row.addWidget(add_field_btn)
         add_field_row.addWidget(remove_field_btn)
+        add_field_row.addWidget(move_up_btn)
+        add_field_row.addWidget(move_down_btn)
         add_field_row.addStretch()
         box_layout.addLayout(add_field_row)
         return self._fields_box
@@ -347,8 +359,8 @@ class AutoMatchingSettingsDialog(QDialog):
                 names.append(text)
                 seen.add(text.lower())
 
-        bg_required, bg_optional, bg_closest = [], [], []
-        ref_required, ref_optional, ref_closest = [], [], []
+        bg_required, bg_optional, bg_closest, bg_highest = [], [], [], []
+        ref_required, ref_optional, ref_closest, ref_highest = [], [], [], []
         for row in range(self._fields_table.rowCount()):
             field = self._fields_table.item(row, 0).text().strip()
             if not field:
@@ -361,12 +373,16 @@ class AutoMatchingSettingsDialog(QDialog):
                 bg_optional.append(field)
             elif bg_state == "Closest":
                 bg_closest.append(field)
+            elif bg_state == "Highest":
+                bg_highest.append(field)
             if ref_state == "Required":
                 ref_required.append(field)
             elif ref_state == "Optional":
                 ref_optional.append(field)
             elif ref_state == "Closest":
                 ref_closest.append(field)
+            elif ref_state == "Highest":
+                ref_highest.append(field)
 
         return {
             "reference_names": names,
@@ -378,9 +394,11 @@ class AutoMatchingSettingsDialog(QDialog):
             "background_required_keys": bg_required,
             "background_optional_keys": bg_optional,
             "background_closest_keys": bg_closest,
+            "background_highest_keys": bg_highest,
             "reference_required_keys": ref_required,
             "reference_optional_keys": ref_optional,
             "reference_closest_keys": ref_closest,
+            "reference_highest_keys": ref_highest,
         }
 
     # ── Reference names ──────────────────────────────────────────────────────
@@ -522,34 +540,60 @@ class AutoMatchingSettingsDialog(QDialog):
     # ── Fields table ──────────────────────────────────────────────────────────
 
     def _state_for(self, field: str, required_keys: list[str],
-                    optional_keys: list[str], closest_keys: list[str]) -> str:
+                    optional_keys: list[str], closest_keys: list[str],
+                    highest_keys: list[str]) -> str:
         if field in required_keys:
             return "Required"
         if field in optional_keys:
             return "Optional"
         if field in closest_keys:
             return "Closest"
+        if field in highest_keys:
+            return "Highest"
         return "Ignore"
 
     def _populate_fields_table(self, settings: MatchingSettings):
+        # Row order encodes tie-break priority (top row = highest priority)
+        # for Closest/Highest — seed it from the actually-saved priority
+        # lists first (in their saved order) so reordering via Move Up/Down
+        # round-trips instead of resetting to KNOWN_FIELDS order every time
+        # the dialog is reopened.
+        # A list with only one entry carries no real order information, so
+        # don't let it force its field ahead of a longer list's carefully
+        # (re)ordered fields — process longer lists first (stable sort, so
+        # ties keep the bg-closest/ref-closest/bg-highest/ref-highest order).
+        key_lists = (settings.background_closest_keys, settings.reference_closest_keys,
+                     settings.background_highest_keys, settings.reference_highest_keys)
+        ordered: list[str] = []
+        seen: set[str] = set()
+        for key_list in sorted(key_lists, key=len, reverse=True):
+            for f in key_list:
+                if f not in seen:
+                    ordered.append(f)
+                    seen.add(f)
+
         configured = (
             settings.background_required_keys + settings.background_optional_keys +
-            settings.background_closest_keys + settings.reference_required_keys +
-            settings.reference_optional_keys + settings.reference_closest_keys
+            settings.background_closest_keys + settings.background_highest_keys +
+            settings.reference_required_keys + settings.reference_optional_keys +
+            settings.reference_closest_keys + settings.reference_highest_keys
         )
-        fields = list(KNOWN_FIELDS)
-        for f in configured:
-            if f not in fields:
+        fields = list(ordered)
+        for f in list(KNOWN_FIELDS) + configured:
+            if f not in seen:
                 fields.append(f)
+                seen.add(f)
 
         self._fields_table.setRowCount(0)
         for field in fields:
             self._add_field_row(
                 field,
                 self._state_for(field, settings.background_required_keys,
-                                 settings.background_optional_keys, settings.background_closest_keys),
+                                 settings.background_optional_keys, settings.background_closest_keys,
+                                 settings.background_highest_keys),
                 self._state_for(field, settings.reference_required_keys,
-                                 settings.reference_optional_keys, settings.reference_closest_keys),
+                                 settings.reference_optional_keys, settings.reference_closest_keys,
+                                 settings.reference_highest_keys),
             )
 
     def _add_field_row(self, field: str, bg_state: str, ref_state: str):
@@ -584,6 +628,32 @@ class AutoMatchingSettingsDialog(QDialog):
         row = self._fields_table.currentRow()
         if row >= 0:
             self._fields_table.removeRow(row)
+
+    def _swap_field_rows(self, row_a: int, row_b: int):
+        field_a = self._fields_table.item(row_a, 0).text()
+        field_b = self._fields_table.item(row_b, 0).text()
+        bg_a = self._fields_table.cellWidget(row_a, 1).currentText()
+        bg_b = self._fields_table.cellWidget(row_b, 1).currentText()
+        ref_a = self._fields_table.cellWidget(row_a, 2).currentText()
+        ref_b = self._fields_table.cellWidget(row_b, 2).currentText()
+        self._fields_table.item(row_a, 0).setText(field_b)
+        self._fields_table.item(row_b, 0).setText(field_a)
+        self._fields_table.cellWidget(row_a, 1).setCurrentText(bg_b)
+        self._fields_table.cellWidget(row_b, 1).setCurrentText(bg_a)
+        self._fields_table.cellWidget(row_a, 2).setCurrentText(ref_b)
+        self._fields_table.cellWidget(row_b, 2).setCurrentText(ref_a)
+
+    def _on_move_field_up(self):
+        row = self._fields_table.currentRow()
+        if row > 0:
+            self._swap_field_rows(row, row - 1)
+            self._fields_table.setCurrentCell(row - 1, 0)
+
+    def _on_move_field_down(self):
+        row = self._fields_table.currentRow()
+        if 0 <= row < self._fields_table.rowCount() - 1:
+            self._swap_field_rows(row, row + 1)
+            self._fields_table.setCurrentCell(row + 1, 0)
 
     # ── OK ────────────────────────────────────────────────────────────────────
 

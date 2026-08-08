@@ -1,5 +1,6 @@
 from __future__ import annotations
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
@@ -14,6 +15,16 @@ DEFAULT_REQUIRED_KEYS = ["center wavelength", "acquisition time"]
 DEFAULT_OPTIONAL_KEYS = ["polarization", "date"]
 DEFAULT_CLOSEST_KEYS = ["timestamp"]
 DEFAULT_SAMPLE_KEY = "sample"
+
+# leading numeric portion of a unit-suffixed value, e.g. "30kHz" -> "30",
+# "3.4um" -> "3.4", "-0.1V" -> "-0.1"
+_NUMERIC_PREFIX_RE = re.compile(r"^\s*([+-]?\d+(?:\.\d+)?)")
+
+# a bare HHMM-style clock value, e.g. "1230", "930" — used to special-case
+# the "timestamp" field, which is parsed straight from filenames in this
+# format and must NOT be compared as a raw float (that treats the clock as
+# base-100 instead of base-60)
+_HHMM_RE = re.compile(r"^\d{3,4}$")
 
 
 # ── Role detection ──────────────────────────────────────────────────────────
@@ -123,6 +134,12 @@ class MatchingConfig:
                     candidates, narrow to whichever has the numerically/
                     temporally closest value for each key in turn. A key
                     with no comparable value on any candidate is skipped.
+    highest_keys  : like closest_keys, but narrows to whichever remaining
+                    candidate(s) have the *largest* parsed value for each
+                    key in turn — independent of the target's own value
+                    (e.g. prefer the highest-power reference). Applied
+                    after closest_keys. A key with no comparable value on
+                    any candidate is skipped.
     role_priority : maps a spectrum_type ("homodyne"/"heterodyne") to an
                     ordered list of preferred `role_token` metadata values
                     (e.g. {"heterodyne": ["irbg", "bg"]}) — lets multiple
@@ -135,6 +152,7 @@ class MatchingConfig:
     required_keys: list[str] = field(default_factory=lambda: ["sample", "polarization"])
     optional_keys: list[str] = field(default_factory=lambda: ["center wavelength", "acquisition time"])
     closest_keys: list[str] = field(default_factory=lambda: list(DEFAULT_CLOSEST_KEYS))
+    highest_keys: list[str] = field(default_factory=list)
     role_priority: dict[str, list[str]] = field(default_factory=dict)
 
 
@@ -193,11 +211,21 @@ class DataFileMatcher:
         )
         self.sample_key = sample_key
         self._unmatched: list = []
+        self._diagnostics: list[dict] = []
 
     @property
     def unmatched(self) -> list:
         """Files for which no match was found — populated after .match() is called."""
         return self._unmatched
+
+    @property
+    def diagnostics(self) -> list[dict]:
+        """Structured issues found during .match() — ambiguous ties and
+        missing background/reference/reference-background matches. Each
+        entry is {"type", "role", "signal", "message"}, where "type" is
+        "ambiguous" or "missing". Populated after .match() is called;
+        everything here is also logged via logger.warning."""
+        return self._diagnostics
 
     # ── Internal helpers ─────────────────────────────────────────────────────
 
@@ -227,6 +255,12 @@ class DataFileMatcher:
     def _required_match(self, target, candidate, required_keys: list[str]) -> bool:
         for key in required_keys:
             t_val = self._normalize(target.metadata.get(key))
+            if t_val is None:
+                # the target has no value at all for a required key — can't
+                # be confirmed, so fail closed (exclude the candidate)
+                # rather than letting None == None silently pass every
+                # candidate as if the field weren't required at all
+                return False
             c_val = self._normalize(candidate.metadata.get(key))
             if t_val != c_val:
                 return False
@@ -240,7 +274,11 @@ class DataFileMatcher:
     @staticmethod
     def _parse_comparable(value):
         """Parse a metadata value into a float distance-comparable form —
-        tries a plain number first, then a timestamp (as ns since epoch)."""
+        tries a plain number first, then a timestamp (as ns since epoch),
+        then a leading numeric prefix (so unit-suffixed values like
+        "30kHz", "3.4um", "0.1V", "180s" compare on their numeric part,
+        ignoring the unit — correct as long as candidates for the same
+        field share the same unit, which holds within one experiment)."""
         if value is None:
             return None
         try:
@@ -249,19 +287,59 @@ class DataFileMatcher:
             pass
         try:
             return float(pd.Timestamp(value).value)
-        except (TypeError, ValueError):
+        except Exception:
+            # pd.Timestamp's fuzzy parser can raise more than ValueError for
+            # odd inputs — e.g. "10s" parses as a bare time-of-day on a
+            # placeholder date so far in the past that .value overflows
+            # int64 nanoseconds (OverflowError, not ValueError). Any
+            # failure here just means "not a timestamp" — fall through.
+            pass
+        match = _NUMERIC_PREFIX_RE.match(str(value))
+        if match:
+            return float(match.group(1))
+        return None
+
+    @staticmethod
+    def _parse_hhmm_minutes(value):
+        """Parse a bare HHMM-style clock value (e.g. "1230", "930") into
+        minutes since midnight, or None if it doesn't look like one."""
+        if value is None:
             return None
+        s = str(value).strip()
+        if not _HHMM_RE.match(s):
+            return None
+        s = s.zfill(4)
+        hh, mm = int(s[:2]), int(s[2:])
+        if not (0 <= hh <= 23 and 0 <= mm <= 59):
+            return None
+        return hh * 60 + mm
 
     def _narrow_by_closest(self, target, candidates: list, key: str) -> list:
-        t_val = self._parse_comparable(target.metadata.get(key))
+        # the "timestamp" field is a bare HHMM clock value parsed from
+        # filenames — comparing it as a raw float treats the clock as
+        # base-100 instead of base-60 (e.g. "1259" vs "1300" would score
+        # as 41 apart instead of the true 1 minute). Use minutes-since-
+        # midnight + circular distance instead, but only when the
+        # target's own value actually looks like HHMM — otherwise fall
+        # back to the generic linear parsing used for every other field.
+        use_time_of_day = key.strip().lower() == "timestamp"
+        t_val = self._parse_hhmm_minutes(target.metadata.get(key)) if use_time_of_day else None
+        if t_val is None:
+            use_time_of_day = False
+            t_val = self._parse_comparable(target.metadata.get(key))
         if t_val is None or not candidates:
             return candidates  # nothing to compare against — behaves like ignore
 
         scored = []
         for c in candidates:
-            c_val = self._parse_comparable(c.metadata.get(key))
+            c_raw = c.metadata.get(key)
+            c_val = self._parse_hhmm_minutes(c_raw) if use_time_of_day else None
+            if c_val is None:
+                c_val = self._parse_comparable(c_raw)
             if c_val is not None:
-                scored.append((abs(t_val - c_val), c))
+                diff = abs(t_val - c_val)
+                dist = min(diff, 1440 - diff) if use_time_of_day else diff
+                scored.append((dist, c))
 
         if not scored:
             return candidates  # no candidate has a comparable value — ignore this key
@@ -269,8 +347,21 @@ class DataFileMatcher:
         min_dist = min(d for d, _ in scored)
         return [c for d, c in scored if d == min_dist]
 
+    def _narrow_by_highest(self, candidates: list, key: str) -> list:
+        scored = []
+        for c in candidates:
+            c_val = self._parse_comparable(c.metadata.get(key))
+            if c_val is not None:
+                scored.append((c_val, c))
+
+        if not scored:
+            return candidates  # no candidate has a comparable value — ignore this key
+
+        max_val = max(v for v, _ in scored)
+        return [c for v, c in scored if v == max_val]
+
     def _find_closest(self, target, candidates: list, config: MatchingConfig,
-                       target_type: str | None = None):
+                       target_type: str | None = None, role_label: str = "match"):
         if target is None:
             return None
 
@@ -298,16 +389,37 @@ class DataFileMatcher:
                     eligible = matching
                     break
 
-        # cascading closest-key tiebreak, in priority order
+        # cascading closest-key and highest-key tiebreaks, in priority
+        # order — track which keys failed to narrow anything because a
+        # value couldn't be parsed, so the final tie message (if any) can
+        # explain why rather than just reporting a bare count.
+        unusable_keys = []
         for key in config.closest_keys:
+            before = eligible
             eligible = self._narrow_by_closest(target, eligible, key)
+            if len(eligible) == len(before) and self._parse_comparable(target.metadata.get(key)) is None:
+                unusable_keys.append(f'"{key}" (closest — target value {target.metadata.get(key)!r} not numeric)')
+
+        for key in config.highest_keys:
+            before = eligible
+            eligible = self._narrow_by_highest(eligible, key)
+            if len(eligible) == len(before) and not any(
+                self._parse_comparable(c.metadata.get(key)) is not None for c in eligible
+            ):
+                unusable_keys.append(f'"{key}" (highest — no candidate had a numeric value)')
 
         if len(eligible) > 1:
-            logger.warning(
-                "%d equally good matches for %s — using first: %s. "
-                "Use .with_background()/.with_reference() to override manually.",
-                len(eligible), target.path.name, eligible[0].path.name,
+            candidate_names = ", ".join(c.path.name for c in eligible)
+            note = f" Unusable tie-break field(s): {'; '.join(unusable_keys)}." if unusable_keys else ""
+            message = (
+                f"{len(eligible)} equally good {role_label} matches for {target.path.name}: "
+                f"{candidate_names}. Using {eligible[0].path.name}.{note} "
+                f"Use .with_background()/.with_reference() to override manually."
             )
+            logger.warning(message)
+            self._diagnostics.append({
+                "type": "ambiguous", "role": role_label, "signal": target.path.name, "message": message,
+            })
 
         return eligible[0]
 
@@ -340,6 +452,7 @@ class DataFileMatcher:
         Files with no match found are logged as warnings and accessible via .unmatched.
         """
         self._unmatched = []
+        self._diagnostics = []
         signals, backgrounds, references, ref_backgrounds = self._classify()
 
         logger.info(
@@ -355,32 +468,36 @@ class DataFileMatcher:
             tentative_type = self._forced_type(signal, None) or "homodyne"
 
             bg = self._find_closest(signal, backgrounds, self.background_config,
-                                     target_type=tentative_type)
-            ref = self._find_closest(signal, references, self.reference_config)
+                                     target_type=tentative_type, role_label="background")
+            ref = self._find_closest(signal, references, self.reference_config,
+                                      role_label="reference")
             ref_bg = self._find_closest(ref, ref_backgrounds, self.background_config,
-                                        target_type=tentative_type) if ref else None
+                                        target_type=tentative_type, role_label="reference background") if ref else None
 
             if bg is None:
-                logger.warning(
-                    "No background match found for %s. "
-                    "Use .with_background() to set one manually.",
-                    signal.path.name,
+                message = (
+                    f"No background match found for {signal.path.name}. "
+                    "Use .with_background() to set one manually."
                 )
+                logger.warning(message)
+                self._diagnostics.append({"type": "missing", "role": "background", "signal": signal.path.name, "message": message})
                 self._unmatched.append(signal)
 
             if ref is None:
-                logger.warning(
-                    "No reference match found for %s. "
-                    "Use .with_reference() to set one manually.",
-                    signal.path.name,
+                message = (
+                    f"No reference match found for {signal.path.name}. "
+                    "Use .with_reference() to set one manually."
                 )
+                logger.warning(message)
+                self._diagnostics.append({"type": "missing", "role": "reference", "signal": signal.path.name, "message": message})
 
             if ref is not None and ref_bg is None:
-                logger.warning(
-                    "Reference %s has no matching background. "
-                    "Use .with_reference_background() to set one manually.",
-                    ref.path.name,
+                message = (
+                    f"Reference {ref.path.name} has no matching background. "
+                    "Use .with_reference_background() to set one manually."
                 )
+                logger.warning(message)
+                self._diagnostics.append({"type": "missing", "role": "reference background", "signal": signal.path.name, "message": message})
 
             spectrum_type = self._forced_type(signal, bg) or "homodyne"
 
