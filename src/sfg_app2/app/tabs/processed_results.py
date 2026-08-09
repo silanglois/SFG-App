@@ -18,7 +18,6 @@ from PySide6.QtWidgets import (
 
 from sfg_app2.app.ui.ui_processed_results_tab import Ui_Form
 from sfg_app2.app.widgets.spectrum_plot_widget import SpectrumPlotWidget
-from sfg_app2.app.widgets.collapsible_group_box import make_collapsible
 from sfg_app2.processing.processed_spectrum import ProcessedSpectrum
 from sfg_app2.app.utils.loading_indicator import show_loading
 
@@ -154,8 +153,6 @@ class ProcessedResultsTab(QWidget):
         self._refresh_legend_field_options()
         self._connect_signals()
 
-        make_collapsible(self.ui.visualizationParamsGroupBox)
-
     # ── Setup ─────────────────────────────────────────────────────────────────
 
     def _setup_plot(self):
@@ -164,22 +161,20 @@ class ProcessedResultsTab(QWidget):
         self.plot_widget = SpectrumPlotWidget()
         layout.addWidget(self.plot_widget)
 
-        self._vis_params_frame3_detached = False
-
-        # Host the plot + visualization-params box inside a nested QMainWindow
+        # Host the plot + visualization-params tabs inside a nested QMainWindow
         # purely as a local dock area — QDockWidget requires a QMainWindow to
         # dock into, and docking against the app's single real MainWindow
-        # would snap the box to the whole app window's edges instead of
+        # would snap the panel to the whole app window's edges instead of
         # staying scoped to this tab's plot.
         outer_layout = self.ui.verticalLayout_4
-        outer_layout.removeWidget(self.ui.visualizationParamsGroupBox)
+        outer_layout.removeWidget(self.ui.visualizationParamsTabWidget)
         outer_layout.removeWidget(self.ui.plotWidget)
 
         self._plot_main_window = QMainWindow()
         self._plot_main_window.setCentralWidget(self.ui.plotWidget)
 
         self._vis_params_dock = QDockWidget("Visualization parameters", self._plot_main_window)
-        self._vis_params_dock.setWidget(self.ui.visualizationParamsGroupBox)
+        self._vis_params_dock.setWidget(self.ui.visualizationParamsTabWidget)
         self._vis_params_dock.setFeatures(
             QDockWidget.DockWidgetFeature.DockWidgetMovable
             | QDockWidget.DockWidgetFeature.DockWidgetFloatable
@@ -187,48 +182,7 @@ class ProcessedResultsTab(QWidget):
         self._vis_params_dock.setAllowedAreas(Qt.DockWidgetArea.AllDockWidgetAreas)
         self._plot_main_window.addDockWidget(Qt.DockWidgetArea.TopDockWidgetArea, self._vis_params_dock)
 
-        self._vis_params_dock.dockLocationChanged.connect(self._on_vis_params_area_changed)
-        self._vis_params_dock.topLevelChanged.connect(self._on_vis_params_floating_changed)
-
         outer_layout.addWidget(self._plot_main_window)
-
-    def _on_vis_params_area_changed(self, area):
-        horizontal = area in (Qt.DockWidgetArea.TopDockWidgetArea, Qt.DockWidgetArea.BottomDockWidgetArea)
-        self._set_vis_params_orientation(horizontal)
-
-    def _on_vis_params_floating_changed(self, floating):
-        if floating:
-            self._set_vis_params_orientation(horizontal=False)   # default: vertical once floating
-        # re-docking triggers dockLocationChanged too, which sets the right
-        # orientation for whichever edge it lands on
-
-    def _set_vis_params_orientation(self, horizontal: bool):
-        gb = self.ui.visualizationParamsGroupBox
-        widgets = [self.ui.frame, self.ui.frame_4, self.ui.frame_2, self.ui.frame_3, self.ui.frame_5, self.ui.frame_6]
-
-        old_layout = gb.layout()
-        if old_layout is not None:
-            # frame_3 starts out nested one level deeper (inside the .ui's
-            # verticalLayout_5), so a flat removeWidget() on the groupbox's
-            # top-level layout alone would miss it the first time around —
-            # and QLayout deletes any widget still inside it when the layout
-            # itself is destroyed. verticalLayout_5 itself gets discarded
-            # (and its C++ object dies) the first time this runs, so only
-            # attempt this one-time detach before that's happened.
-            if not self._vis_params_frame3_detached:
-                self.ui.verticalLayout_5.removeWidget(self.ui.frame_3)
-                self._vis_params_frame3_detached = True
-            for w in widgets:
-                old_layout.removeWidget(w)
-            QWidget().setLayout(old_layout)   # orphan the now-empty layout so gb can take a new one
-
-        new_layout = QHBoxLayout() if horizontal else QVBoxLayout()
-        new_layout.setContentsMargins(4, 4, 4, 4)
-        new_layout.setSpacing(4)
-        for w in widgets:
-            new_layout.addWidget(w)
-        new_layout.addStretch()
-        gb.setLayout(new_layout)
 
     def _setup_list(self):
         lw = self.ui.spectraList

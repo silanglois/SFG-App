@@ -16,10 +16,10 @@ from PySide6.QtGui import (QBrush, QColor, QConicalGradient, QCursor,
     QImage, QKeySequence, QLinearGradient, QPainter,
     QPalette, QPixmap, QRadialGradient, QTransform)
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDoubleSpinBox,
-    QFrame, QGridLayout, QGroupBox, QHBoxLayout,
-    QLabel, QLineEdit, QListWidget, QListWidgetItem,
-    QPushButton, QSizePolicy, QSpacerItem, QSplitter,
-    QVBoxLayout, QWidget)
+    QGridLayout, QHBoxLayout, QLabel, QLineEdit,
+    QListWidget, QListWidgetItem, QPushButton, QSizePolicy,
+    QSpacerItem, QSplitter, QTabWidget, QVBoxLayout,
+    QWidget)
 
 class Ui_Form(object):
     def setupUi(self, Form):
@@ -78,233 +78,242 @@ class Ui_Form(object):
         self.verticalLayout_4 = QVBoxLayout(self.verticalLayoutWidget_2)
         self.verticalLayout_4.setObjectName(u"verticalLayout_4")
         self.verticalLayout_4.setContentsMargins(0, 0, 0, 0)
-        self.visualizationParamsGroupBox = QGroupBox(self.verticalLayoutWidget_2)
-        self.visualizationParamsGroupBox.setObjectName(u"visualizationParamsGroupBox")
-        sizePolicy = QSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
-        sizePolicy.setHorizontalStretch(0)
-        sizePolicy.setVerticalStretch(0)
-        sizePolicy.setHeightForWidth(self.visualizationParamsGroupBox.sizePolicy().hasHeightForWidth())
-        self.visualizationParamsGroupBox.setSizePolicy(sizePolicy)
-        font = QFont()
-        font.setBold(False)
-        self.visualizationParamsGroupBox.setFont(font)
-        self.visualizationParamsGroupBox.setCheckable(True)
-        self.visualizationParamsGroupBox.setChecked(True)
-        self.horizontalLayout_2 = QHBoxLayout(self.visualizationParamsGroupBox)
-        self.horizontalLayout_2.setSpacing(4)
-        self.horizontalLayout_2.setObjectName(u"horizontalLayout_2")
-        self.horizontalLayout_2.setContentsMargins(4, 4, 4, 4)
-        self.frame = QFrame(self.visualizationParamsGroupBox)
-        self.frame.setObjectName(u"frame")
-        sizePolicy.setHeightForWidth(self.frame.sizePolicy().hasHeightForWidth())
-        self.frame.setSizePolicy(sizePolicy)
-        self.frame.setFrameShape(QFrame.StyledPanel)
-        self.frame.setFrameShadow(QFrame.Raised)
-        self.verticalLayout_2 = QVBoxLayout(self.frame)
+        self.visualizationParamsTabWidget = QTabWidget(self.verticalLayoutWidget_2)
+        self.visualizationParamsTabWidget.setObjectName(u"visualizationParamsTabWidget")
+        self.dataDisplayTab = QWidget()
+        self.dataDisplayTab.setObjectName(u"dataDisplayTab")
+        self.verticalLayout_2 = QVBoxLayout(self.dataDisplayTab)
         self.verticalLayout_2.setObjectName(u"verticalLayout_2")
-        self.normalizationComboBox = QComboBox(self.frame)
+        self.normalizationComboBox = QComboBox(self.dataDisplayTab)
         self.normalizationComboBox.addItem("")
         self.normalizationComboBox.addItem("")
         self.normalizationComboBox.addItem("")
         self.normalizationComboBox.setObjectName(u"normalizationComboBox")
+        self.normalizationComboBox.setMaximumSize(QSize(260, 16777215))
 
         self.verticalLayout_2.addWidget(self.normalizationComboBox)
 
-        self.doubleSpinBox = QDoubleSpinBox(self.frame)
+        self.doubleSpinBox = QDoubleSpinBox(self.dataDisplayTab)
         self.doubleSpinBox.setObjectName(u"doubleSpinBox")
         self.doubleSpinBox.setEnabled(False)
+        self.doubleSpinBox.setMaximumSize(QSize(120, 16777215))
 
         self.verticalLayout_2.addWidget(self.doubleSpinBox)
 
+        self.horizontalLayout_7 = QHBoxLayout()
+        self.horizontalLayout_7.setObjectName(u"horizontalLayout_7")
+        self.label = QLabel(self.dataDisplayTab)
+        self.label.setObjectName(u"label")
+        sizePolicy = QSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
+        sizePolicy.setHorizontalStretch(0)
+        sizePolicy.setVerticalStretch(0)
+        sizePolicy.setHeightForWidth(self.label.sizePolicy().hasHeightForWidth())
+        self.label.setSizePolicy(sizePolicy)
 
-        self.horizontalLayout_2.addWidget(self.frame, 0, Qt.AlignTop)
+        self.horizontalLayout_7.addWidget(self.label)
 
-        self.frame_4 = QFrame(self.visualizationParamsGroupBox)
-        self.frame_4.setObjectName(u"frame_4")
-        sizePolicy.setHeightForWidth(self.frame_4.sizePolicy().hasHeightForWidth())
-        self.frame_4.setSizePolicy(sizePolicy)
-        self.frame_4.setFrameShape(QFrame.StyledPanel)
-        self.frame_4.setFrameShadow(QFrame.Raised)
-        self.verticalLayout_6 = QVBoxLayout(self.frame_4)
+        self.offsetSpectraSpinner = QDoubleSpinBox(self.dataDisplayTab)
+        self.offsetSpectraSpinner.setObjectName(u"offsetSpectraSpinner")
+        self.offsetSpectraSpinner.setMaximumSize(QSize(100, 16777215))
+
+        self.horizontalLayout_7.addWidget(self.offsetSpectraSpinner)
+
+        self.horizontalSpacer_2 = QSpacerItem(40, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+
+        self.horizontalLayout_7.addItem(self.horizontalSpacer_2)
+
+
+        self.verticalLayout_2.addLayout(self.horizontalLayout_7)
+
+        self.verticalSpacer = QSpacerItem(20, 40, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding)
+
+        self.verticalLayout_2.addItem(self.verticalSpacer)
+
+        self.visualizationParamsTabWidget.addTab(self.dataDisplayTab, "")
+        self.hdComponentsTab = QWidget()
+        self.hdComponentsTab.setObjectName(u"hdComponentsTab")
+        self.verticalLayout_6 = QVBoxLayout(self.hdComponentsTab)
         self.verticalLayout_6.setObjectName(u"verticalLayout_6")
-        self.hdComponentLabel = QLabel(self.frame_4)
-        self.hdComponentLabel.setObjectName(u"hdComponentLabel")
-
-        self.verticalLayout_6.addWidget(self.hdComponentLabel)
-
         self.hdComponentGridLayout = QGridLayout()
         self.hdComponentGridLayout.setObjectName(u"hdComponentGridLayout")
-        self.hdCheckImaginary = QCheckBox(self.frame_4)
+        self.hdCheckReal = QCheckBox(self.hdComponentsTab)
+        self.hdCheckReal.setObjectName(u"hdCheckReal")
+
+        self.hdComponentGridLayout.addWidget(self.hdCheckReal, 0, 1, 1, 1)
+
+        self.hdCheckHomodyne = QCheckBox(self.hdComponentsTab)
+        self.hdCheckHomodyne.setObjectName(u"hdCheckHomodyne")
+
+        self.hdComponentGridLayout.addWidget(self.hdCheckHomodyne, 1, 1, 1, 1)
+
+        self.hdCheckPhase = QCheckBox(self.hdComponentsTab)
+        self.hdCheckPhase.setObjectName(u"hdCheckPhase")
+
+        self.hdComponentGridLayout.addWidget(self.hdCheckPhase, 1, 0, 1, 1)
+
+        self.hdCheckImaginary = QCheckBox(self.hdComponentsTab)
         self.hdCheckImaginary.setObjectName(u"hdCheckImaginary")
         self.hdCheckImaginary.setChecked(True)
 
         self.hdComponentGridLayout.addWidget(self.hdCheckImaginary, 0, 0, 1, 1)
 
-        self.hdCheckReal = QCheckBox(self.frame_4)
-        self.hdCheckReal.setObjectName(u"hdCheckReal")
+        self.horizontalSpacer = QSpacerItem(40, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
 
-        self.hdComponentGridLayout.addWidget(self.hdCheckReal, 0, 1, 1, 1)
-
-        self.hdCheckPhase = QCheckBox(self.frame_4)
-        self.hdCheckPhase.setObjectName(u"hdCheckPhase")
-
-        self.hdComponentGridLayout.addWidget(self.hdCheckPhase, 1, 0, 1, 1)
-
-        self.hdCheckHomodyne = QCheckBox(self.frame_4)
-        self.hdCheckHomodyne.setObjectName(u"hdCheckHomodyne")
-
-        self.hdComponentGridLayout.addWidget(self.hdCheckHomodyne, 1, 1, 1, 1)
+        self.hdComponentGridLayout.addItem(self.horizontalSpacer, 1, 2, 1, 1)
 
 
         self.verticalLayout_6.addLayout(self.hdComponentGridLayout)
 
-        self.hdCheckShowError = QCheckBox(self.frame_4)
+        self.hdCheckShowError = QCheckBox(self.hdComponentsTab)
         self.hdCheckShowError.setObjectName(u"hdCheckShowError")
 
         self.verticalLayout_6.addWidget(self.hdCheckShowError)
 
+        self.verticalSpacer_2 = QSpacerItem(20, 40, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding)
 
-        self.horizontalLayout_2.addWidget(self.frame_4, 0, Qt.AlignTop)
+        self.verticalLayout_6.addItem(self.verticalSpacer_2)
 
-        self.frame_2 = QFrame(self.visualizationParamsGroupBox)
-        self.frame_2.setObjectName(u"frame_2")
-        sizePolicy.setHeightForWidth(self.frame_2.sizePolicy().hasHeightForWidth())
-        self.frame_2.setSizePolicy(sizePolicy)
-        self.frame_2.setFrameShape(QFrame.StyledPanel)
-        self.frame_2.setFrameShadow(QFrame.Raised)
-        self.gridLayout = QGridLayout(self.frame_2)
-        self.gridLayout.setObjectName(u"gridLayout")
-        self.colorMapComboBox = QComboBox(self.frame_2)
+        self.visualizationParamsTabWidget.addTab(self.hdComponentsTab, "")
+        self.colorsTab = QWidget()
+        self.colorsTab.setObjectName(u"colorsTab")
+        self.verticalLayout_5 = QVBoxLayout(self.colorsTab)
+        self.verticalLayout_5.setObjectName(u"verticalLayout_5")
+        self.colorMapComboBox = QComboBox(self.colorsTab)
         self.colorMapComboBox.setObjectName(u"colorMapComboBox")
+        self.colorMapComboBox.setMaximumSize(QSize(200, 16777215))
 
-        self.gridLayout.addWidget(self.colorMapComboBox, 0, 0, 1, 2)
+        self.verticalLayout_5.addWidget(self.colorMapComboBox)
 
-        self.colormapStartSpinner = QDoubleSpinBox(self.frame_2)
+        self.horizontalLayout_8 = QHBoxLayout()
+        self.horizontalLayout_8.setObjectName(u"horizontalLayout_8")
+        self.colormapStartSpinner = QDoubleSpinBox(self.colorsTab)
         self.colormapStartSpinner.setObjectName(u"colormapStartSpinner")
         self.colormapStartSpinner.setEnabled(False)
+        sizePolicy1 = QSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        sizePolicy1.setHorizontalStretch(0)
+        sizePolicy1.setVerticalStretch(0)
+        sizePolicy1.setHeightForWidth(self.colormapStartSpinner.sizePolicy().hasHeightForWidth())
+        self.colormapStartSpinner.setSizePolicy(sizePolicy1)
+        self.colormapStartSpinner.setMaximumSize(QSize(80, 16777215))
         self.colormapStartSpinner.setMaximum(1.000000000000000)
         self.colormapStartSpinner.setSingleStep(0.050000000000000)
 
-        self.gridLayout.addWidget(self.colormapStartSpinner, 1, 0, 1, 1)
+        self.horizontalLayout_8.addWidget(self.colormapStartSpinner)
 
-        self.colormapStopSpinner = QDoubleSpinBox(self.frame_2)
+        self.colormapStopSpinner = QDoubleSpinBox(self.colorsTab)
         self.colormapStopSpinner.setObjectName(u"colormapStopSpinner")
         self.colormapStopSpinner.setEnabled(False)
+        sizePolicy1.setHeightForWidth(self.colormapStopSpinner.sizePolicy().hasHeightForWidth())
+        self.colormapStopSpinner.setSizePolicy(sizePolicy1)
+        self.colormapStopSpinner.setMaximumSize(QSize(80, 16777215))
         self.colormapStopSpinner.setMaximum(1.000000000000000)
         self.colormapStopSpinner.setSingleStep(0.050000000000000)
         self.colormapStopSpinner.setValue(1.000000000000000)
 
-        self.gridLayout.addWidget(self.colormapStopSpinner, 1, 1, 1, 1)
+        self.horizontalLayout_8.addWidget(self.colormapStopSpinner)
+
+        self.horizontalSpacer_3 = QSpacerItem(40, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+
+        self.horizontalLayout_8.addItem(self.horizontalSpacer_3)
 
 
-        self.horizontalLayout_2.addWidget(self.frame_2, 0, Qt.AlignTop)
+        self.verticalLayout_5.addLayout(self.horizontalLayout_8)
 
-        self.verticalLayout_5 = QVBoxLayout()
-        self.verticalLayout_5.setObjectName(u"verticalLayout_5")
-        self.frame_3 = QFrame(self.visualizationParamsGroupBox)
-        self.frame_3.setObjectName(u"frame_3")
-        sizePolicy.setHeightForWidth(self.frame_3.sizePolicy().hasHeightForWidth())
-        self.frame_3.setSizePolicy(sizePolicy)
-        self.frame_3.setFrameShape(QFrame.StyledPanel)
-        self.frame_3.setFrameShadow(QFrame.Raised)
-        self.verticalLayout_3 = QVBoxLayout(self.frame_3)
+        self.verticalSpacer_3 = QSpacerItem(20, 40, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding)
+
+        self.verticalLayout_5.addItem(self.verticalSpacer_3)
+
+        self.visualizationParamsTabWidget.addTab(self.colorsTab, "")
+        self.labelsTab = QWidget()
+        self.labelsTab.setObjectName(u"labelsTab")
+        self.verticalLayout_3 = QVBoxLayout(self.labelsTab)
         self.verticalLayout_3.setObjectName(u"verticalLayout_3")
-        self.label = QLabel(self.frame_3)
-        self.label.setObjectName(u"label")
-        sizePolicy.setHeightForWidth(self.label.sizePolicy().hasHeightForWidth())
-        self.label.setSizePolicy(sizePolicy)
-
-        self.verticalLayout_3.addWidget(self.label)
-
-        self.offsetSpectraSpinner = QDoubleSpinBox(self.frame_3)
-        self.offsetSpectraSpinner.setObjectName(u"offsetSpectraSpinner")
-
-        self.verticalLayout_3.addWidget(self.offsetSpectraSpinner)
-
-
-        self.verticalLayout_5.addWidget(self.frame_3)
-
-        self.verticalSpacer = QSpacerItem(0, 0, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding)
-
-        self.verticalLayout_5.addItem(self.verticalSpacer)
-
-
-        self.horizontalLayout_2.addLayout(self.verticalLayout_5)
-
-        self.frame_5 = QFrame(self.visualizationParamsGroupBox)
-        self.frame_5.setObjectName(u"frame_5")
-        sizePolicy.setHeightForWidth(self.frame_5.sizePolicy().hasHeightForWidth())
-        self.frame_5.setSizePolicy(sizePolicy)
-        self.frame_5.setFrameShape(QFrame.StyledPanel)
-        self.frame_5.setFrameShadow(QFrame.Raised)
-        self.verticalLayout_7 = QVBoxLayout(self.frame_5)
-        self.verticalLayout_7.setObjectName(u"verticalLayout_7")
-        self.legendFieldLabel = QLabel(self.frame_5)
-        self.legendFieldLabel.setObjectName(u"legendFieldLabel")
-
-        self.verticalLayout_7.addWidget(self.legendFieldLabel)
-
-        self.legendFieldComboBox = QComboBox(self.frame_5)
-        self.legendFieldComboBox.setObjectName(u"legendFieldComboBox")
-
-        self.verticalLayout_7.addWidget(self.legendFieldComboBox)
-
-
-        self.horizontalLayout_2.addWidget(self.frame_5, 0, Qt.AlignTop)
-
-        self.frame_6 = QFrame(self.visualizationParamsGroupBox)
-        self.frame_6.setObjectName(u"frame_6")
-        sizePolicy.setHeightForWidth(self.frame_6.sizePolicy().hasHeightForWidth())
-        self.frame_6.setSizePolicy(sizePolicy)
-        self.frame_6.setFrameShape(QFrame.StyledPanel)
-        self.frame_6.setFrameShadow(QFrame.Raised)
-        self.verticalLayout_8 = QVBoxLayout(self.frame_6)
-        self.verticalLayout_8.setObjectName(u"verticalLayout_8")
-        self.xAxisLabelLabel = QLabel(self.frame_6)
+        self.horizontalLayout_2 = QHBoxLayout()
+        self.horizontalLayout_2.setObjectName(u"horizontalLayout_2")
+        self.xAxisLabelLabel = QLabel(self.labelsTab)
         self.xAxisLabelLabel.setObjectName(u"xAxisLabelLabel")
 
-        self.verticalLayout_8.addWidget(self.xAxisLabelLabel)
+        self.horizontalLayout_2.addWidget(self.xAxisLabelLabel)
 
-        self.xAxisLabelEdit = QLineEdit(self.frame_6)
+        self.xAxisLabelEdit = QLineEdit(self.labelsTab)
         self.xAxisLabelEdit.setObjectName(u"xAxisLabelEdit")
+        self.xAxisLabelEdit.setMaximumSize(QSize(220, 16777215))
 
-        self.verticalLayout_8.addWidget(self.xAxisLabelEdit)
+        self.horizontalLayout_2.addWidget(self.xAxisLabelEdit)
 
-        self.yAxisLabelLabel = QLabel(self.frame_6)
+        self.horizontalSpacer_4 = QSpacerItem(40, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+
+        self.horizontalLayout_2.addItem(self.horizontalSpacer_4)
+
+
+        self.verticalLayout_3.addLayout(self.horizontalLayout_2)
+
+        self.horizontalLayout_5 = QHBoxLayout()
+        self.horizontalLayout_5.setObjectName(u"horizontalLayout_5")
+        self.yAxisLabelLabel = QLabel(self.labelsTab)
         self.yAxisLabelLabel.setObjectName(u"yAxisLabelLabel")
 
-        self.verticalLayout_8.addWidget(self.yAxisLabelLabel)
+        self.horizontalLayout_5.addWidget(self.yAxisLabelLabel)
 
-        self.yAxisLabelEdit = QLineEdit(self.frame_6)
+        self.yAxisLabelEdit = QLineEdit(self.labelsTab)
         self.yAxisLabelEdit.setObjectName(u"yAxisLabelEdit")
+        self.yAxisLabelEdit.setMaximumSize(QSize(220, 16777215))
 
-        self.verticalLayout_8.addWidget(self.yAxisLabelEdit)
+        self.horizontalLayout_5.addWidget(self.yAxisLabelEdit)
+
+        self.horizontalSpacer_5 = QSpacerItem(40, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+
+        self.horizontalLayout_5.addItem(self.horizontalSpacer_5)
 
 
-        self.horizontalLayout_2.addWidget(self.frame_6, 0, Qt.AlignTop)
+        self.verticalLayout_3.addLayout(self.horizontalLayout_5)
 
-        self.frame_7 = QFrame(self.visualizationParamsGroupBox)
-        self.frame_7.setObjectName(u"frame_7")
-        sizePolicy.setHeightForWidth(self.frame_7.sizePolicy().hasHeightForWidth())
-        self.frame_7.setSizePolicy(sizePolicy)
-        self.frame_7.setFrameShape(QFrame.StyledPanel)
-        self.frame_7.setFrameShadow(QFrame.Raised)
-        self.verticalLayout_9 = QVBoxLayout(self.frame_7)
-        self.verticalLayout_9.setObjectName(u"verticalLayout_9")
-        self.annotationsButton = QPushButton(self.frame_7)
+        self.horizontalLayout_6 = QHBoxLayout()
+        self.horizontalLayout_6.setObjectName(u"horizontalLayout_6")
+        self.legendFieldLabel = QLabel(self.labelsTab)
+        self.legendFieldLabel.setObjectName(u"legendFieldLabel")
+
+        self.horizontalLayout_6.addWidget(self.legendFieldLabel)
+
+        self.legendFieldComboBox = QComboBox(self.labelsTab)
+        self.legendFieldComboBox.setObjectName(u"legendFieldComboBox")
+        self.legendFieldComboBox.setMaximumSize(QSize(200, 16777215))
+
+        self.horizontalLayout_6.addWidget(self.legendFieldComboBox)
+
+        self.horizontalSpacer_6 = QSpacerItem(40, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+
+        self.horizontalLayout_6.addItem(self.horizontalSpacer_6)
+
+
+        self.verticalLayout_3.addLayout(self.horizontalLayout_6)
+
+        self.horizontalLayout_9 = QHBoxLayout()
+        self.horizontalLayout_9.setObjectName(u"horizontalLayout_9")
+        self.annotationsButton = QPushButton(self.labelsTab)
         self.annotationsButton.setObjectName(u"annotationsButton")
+        sizePolicy2 = QSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        sizePolicy2.setHorizontalStretch(0)
+        sizePolicy2.setVerticalStretch(0)
+        sizePolicy2.setHeightForWidth(self.annotationsButton.sizePolicy().hasHeightForWidth())
+        self.annotationsButton.setSizePolicy(sizePolicy2)
 
-        self.verticalLayout_9.addWidget(self.annotationsButton)
+        self.horizontalLayout_9.addWidget(self.annotationsButton)
+
+        self.horizontalSpacer_7 = QSpacerItem(40, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+
+        self.horizontalLayout_9.addItem(self.horizontalSpacer_7)
 
 
-        self.horizontalLayout_2.addWidget(self.frame_7, 0, Qt.AlignTop)
+        self.verticalLayout_3.addLayout(self.horizontalLayout_9)
 
-        self.horizontalSpacer = QSpacerItem(40, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        self.verticalSpacer_4 = QSpacerItem(20, 40, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding)
 
-        self.horizontalLayout_2.addItem(self.horizontalSpacer)
+        self.verticalLayout_3.addItem(self.verticalSpacer_4)
 
+        self.visualizationParamsTabWidget.addTab(self.labelsTab, "")
 
-        self.verticalLayout_4.addWidget(self.visualizationParamsGroupBox)
+        self.verticalLayout_4.addWidget(self.visualizationParamsTabWidget)
 
         self.plotWidget = QWidget(self.verticalLayoutWidget_2)
         self.plotWidget.setObjectName(u"plotWidget")
@@ -318,6 +327,9 @@ class Ui_Form(object):
 
         self.retranslateUi(Form)
 
+        self.visualizationParamsTabWidget.setCurrentIndex(0)
+
+
         QMetaObject.connectSlotsByName(Form)
     # setupUi
 
@@ -327,21 +339,23 @@ class Ui_Form(object):
         self.pushButton.setText(QCoreApplication.translate("Form", u"Sort by metadata", None))
         self.exportSelectedButton.setText(QCoreApplication.translate("Form", u"Export selected", None))
         self.exportAllButton.setText(QCoreApplication.translate("Form", u"Export all", None))
-        self.visualizationParamsGroupBox.setTitle(QCoreApplication.translate("Form", u"Visualization parameters", None))
         self.normalizationComboBox.setItemText(0, QCoreApplication.translate("Form", u"Plot \"as is\"", None))
         self.normalizationComboBox.setItemText(1, QCoreApplication.translate("Form", u"Normalize to given wavenumber", None))
         self.normalizationComboBox.setItemText(2, QCoreApplication.translate("Form", u"Normalize to highest peak", None))
 
-        self.hdComponentLabel.setText(QCoreApplication.translate("Form", u"HD-SFG component(s):", None))
-        self.hdCheckImaginary.setText(QCoreApplication.translate("Form", u"Imaginary", None))
-        self.hdCheckReal.setText(QCoreApplication.translate("Form", u"Real", None))
-        self.hdCheckPhase.setText(QCoreApplication.translate("Form", u"Phase", None))
-        self.hdCheckHomodyne.setText(QCoreApplication.translate("Form", u"|\u03c7\u207d\u00b2\u207e|\u00b2 (Homodyne)", None))
-        self.hdCheckShowError.setText(QCoreApplication.translate("Form", u"Show error", None))
         self.label.setText(QCoreApplication.translate("Form", u"Offset:", None))
-        self.legendFieldLabel.setText(QCoreApplication.translate("Form", u"Legend:", None))
+        self.visualizationParamsTabWidget.setTabText(self.visualizationParamsTabWidget.indexOf(self.dataDisplayTab), QCoreApplication.translate("Form", u"Data display", None))
+        self.hdCheckReal.setText(QCoreApplication.translate("Form", u"Real", None))
+        self.hdCheckHomodyne.setText(QCoreApplication.translate("Form", u"|\u03c7\u207d\u00b2\u207e|\u00b2 (Homodyne)", None))
+        self.hdCheckPhase.setText(QCoreApplication.translate("Form", u"Phase", None))
+        self.hdCheckImaginary.setText(QCoreApplication.translate("Form", u"Imaginary", None))
+        self.hdCheckShowError.setText(QCoreApplication.translate("Form", u"Show error", None))
+        self.visualizationParamsTabWidget.setTabText(self.visualizationParamsTabWidget.indexOf(self.hdComponentsTab), QCoreApplication.translate("Form", u"HD-SFG components", None))
+        self.visualizationParamsTabWidget.setTabText(self.visualizationParamsTabWidget.indexOf(self.colorsTab), QCoreApplication.translate("Form", u"Colors", None))
         self.xAxisLabelLabel.setText(QCoreApplication.translate("Form", u"X axis label:", None))
         self.yAxisLabelLabel.setText(QCoreApplication.translate("Form", u"Y axis label:", None))
+        self.legendFieldLabel.setText(QCoreApplication.translate("Form", u"Legend:", None))
         self.annotationsButton.setText(QCoreApplication.translate("Form", u"Annotations...", None))
+        self.visualizationParamsTabWidget.setTabText(self.visualizationParamsTabWidget.indexOf(self.labelsTab), QCoreApplication.translate("Form", u"Labels, legend && annotations", None))
     # retranslateUi
 
