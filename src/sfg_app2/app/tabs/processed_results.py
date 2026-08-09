@@ -79,8 +79,8 @@ _HD_YLABEL = {
 # _HD_YLABEL — the checkbox display name itself contains raw Unicode
 # superscript parentheses that most fonts lack a glyph for)
 _HD_LEGEND_LABEL = {
-    "Imaginary": "Imaginary",
-    "Real": "Real",
+    "Imaginary": "Im($\\chi^{(2)}$)",
+    "Real": "Re($\\chi^{(2)}$)",
     "Phase": "Phase",
     "|χ⁽²⁾|² (Homodyne)": r"$|\chi^{(2)}|^2$",
 }
@@ -472,6 +472,10 @@ class ProcessedResultsTab(QWidget):
         # one line per checked component, a homodyne entry always one line —
         # so colors/offset are assigned per line, not per entry
         multi_line = len(entries) > 1 or len(checked_components) > 1
+        # with only one spectrum selected, the filename is redundant (it's
+        # already obvious from the selection/plot title) — show just the
+        # component name instead
+        single_entry = len(entries) == 1
         # the y-axis already names the sole component when it's Im/Re/Phase,
         # so repeating it on every line's legend would be redundant
         suppress_suffix = (
@@ -490,7 +494,9 @@ class ProcessedResultsTab(QWidget):
                         continue
                     y_col = _HD_COMPONENT_COLUMN[component]
                     err_col = _HD_ERROR_COLUMN[component]
-                    if suppress_suffix:
+                    if single_entry:
+                        label = _HD_LEGEND_LABEL[component]
+                    elif suppress_suffix:
                         label = base_label
                     elif multi_line:
                         label = f"{base_label} ({_HD_LEGEND_LABEL[component]})"
