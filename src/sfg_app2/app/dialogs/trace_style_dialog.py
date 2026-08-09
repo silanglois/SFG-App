@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (
     QLabel, QWidget, QMenu,
 )
 
-from sfg_app2.app.tabs.processed_results import TraceStyle, _LINESTYLE_CHOICES
+from sfg_app2.app.tabs.processed_results import TraceStyle, _LINESTYLE_CHOICES, _default_trace_style
 
 _LINESTYLE_NAMES = [name for name, _ in _LINESTYLE_CHOICES]
 _LINESTYLE_BY_NAME = dict(_LINESTYLE_CHOICES)
@@ -53,7 +53,7 @@ class TraceStyleDialog(QDialog):
         layout.addWidget(self._table)
 
         for row, (entry, key, display_name) in enumerate(rows):
-            style = entry.styles.get(key, TraceStyle())
+            style = entry.styles.get(key, _default_trace_style(key))
             self._init_row(row, entry.label, display_name, style)
 
         self._table.resizeColumnsToContents()
@@ -144,7 +144,11 @@ class TraceStyleDialog(QDialog):
         elif col == _COL_LINESTYLE:
             self._table.cellWidget(row, _COL_LINESTYLE).setCurrentText("Solid")
         elif col == _COL_AXIS:
-            self._table.cellWidget(row, _COL_AXIS).setCurrentText("Primary")
+            _entry, key, _name = self._rows[row]
+            default_axis = _default_trace_style(key).axis
+            self._table.cellWidget(row, _COL_AXIS).setCurrentText(
+                "Secondary" if default_axis == "secondary" else "Primary"
+            )
         elif col == _COL_VISIBLE:
             self._visible_checkbox(row).setChecked(True)
 

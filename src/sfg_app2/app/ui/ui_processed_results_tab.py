@@ -138,6 +138,7 @@ class Ui_Form(object):
         self.hdComponentGridLayout.setObjectName(u"hdComponentGridLayout")
         self.hdCheckReal = QCheckBox(self.hdComponentsTab)
         self.hdCheckReal.setObjectName(u"hdCheckReal")
+        self.hdCheckReal.setChecked(True)
 
         self.hdComponentGridLayout.addWidget(self.hdCheckReal, 0, 1, 1, 1)
 
@@ -166,6 +167,7 @@ class Ui_Form(object):
 
         self.hdCheckShowError = QCheckBox(self.hdComponentsTab)
         self.hdCheckShowError.setObjectName(u"hdCheckShowError")
+        self.hdCheckShowError.setChecked(True)
 
         self.verticalLayout_6.addWidget(self.hdCheckShowError)
 

@@ -108,6 +108,16 @@ class TraceStyle:
         return self == TraceStyle()
 
 
+# components whose auto (un-overridden) axis isn't "primary" — Phase is in
+# degrees, a very different scale from the other chi(2) components, so it
+# defaults to the secondary axis rather than sharing the primary one
+_DEFAULT_AXIS_BY_COMPONENT = {"Phase": "secondary"}
+
+
+def _default_trace_style(component: str) -> TraceStyle:
+    return TraceStyle(axis=_DEFAULT_AXIS_BY_COMPONENT.get(component, "primary"))
+
+
 @dataclass
 class PlotAnnotation:
     """A free-form element drawn on top of the plotted traces."""
@@ -130,7 +140,7 @@ class SpectrumEntry:
         self.styles: dict[str, TraceStyle] = {}
 
     def style_for(self, component: str) -> TraceStyle:
-        return self.styles.setdefault(component, TraceStyle())
+        return self.styles.setdefault(component, _default_trace_style(component))
 
     def __repr__(self):
         return f"SpectrumEntry({self.label})"

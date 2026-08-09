@@ -183,6 +183,9 @@
                <property name="text">
                 <string>Real</string>
                </property>
+               <property name="checked">
+                <bool>true</bool>
+               </property>
               </widget>
              </item>
              <item row="1" column="1">
@@ -228,6 +231,9 @@
             <widget class="QCheckBox" name="hdCheckShowError">
              <property name="text">
               <string>Show error</string>
+             </property>
+             <property name="checked">
+              <bool>true</bool>
              </property>
             </widget>
            </item>
