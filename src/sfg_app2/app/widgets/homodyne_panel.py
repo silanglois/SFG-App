@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
 from sfg_app2.app.widgets.spectrum_plot_widget import SpectrumPlotWidget
 from sfg_app2.app.widgets.collapsible_group_box import make_collapsible
 from sfg_app2.app.utils.loading_indicator import show_loading
-from sfg_app2.processing.baseline import subtract_background
+from sfg_app2.processing.baseline import subtract_background, apply_offset
 from sfg_app2.processing.normalization import normalize
 
 logger = logging.getLogger(__name__)
@@ -665,17 +665,22 @@ class HomodynePanel(QWidget):
     def _plot_bg_averaged_view(self, idx: int, label: str, color):
         """'Signal + Background' view at the bg_subtracted step: both
         pre-subtraction averaged traces for whichever pair(s) are selected,
-        regardless of the (hidden, possibly stale) source combo."""
+        regardless of the (hidden, possibly stale) source combo. The
+        background trace has the current offset applied (via apply_offset,
+        the same helper subtract_background uses internally) so this view
+        lets you visually check the offset before it's baked into the
+        subtracted result."""
         self._get_step(idx, "bg_subtracted")
         c = self._cache.get(idx, {})
+        sig_offset, ref_offset = self._current_offsets()
 
         pairs = []
         if self._show_sample():
-            pairs.append(("signal", "background", "averaged_signal", "averaged_bg"))
+            pairs.append(("signal", "background", "averaged_signal", "averaged_bg", sig_offset))
         if self._show_reference():
-            pairs.append(("reference", "ref_background", "averaged_ref", "averaged_ref_bg"))
+            pairs.append(("reference", "ref_background", "averaged_ref", "averaged_ref_bg", ref_offset))
 
-        for sig_comp, bg_comp, sig_key, bg_key in pairs:
+        for sig_comp, bg_comp, sig_key, bg_key, offset in pairs:
             sig_data = c.get(sig_key)
             if sig_data is not None:
                 fd = sig_data.frame(1)
@@ -686,6 +691,7 @@ class HomodynePanel(QWidget):
                 )
             bg_data = c.get(bg_key)
             if bg_data is not None:
+                bg_data = apply_offset(bg_data, offset)
                 fd = bg_data.frame(1)
                 self.plot_widget.ax.plot(
                     fd["Wavelength"].to_numpy(), fd["Intensity"].to_numpy(),
