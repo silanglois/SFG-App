@@ -932,9 +932,14 @@ class ProcessedResultsTab(QWidget):
             provenance["n_frames"] = raw.get("frames processed")
         else:
             provenance["despike"] = {
-                "applied":          raw.get("despike", "").lower() == "applied",
-                "window":           raw.get("window"),
-                "threshold_factor": raw.get("threshold_factor"),
+                "signal":               {"window": raw.get("despike signal window"),
+                                          "threshold": raw.get("despike signal threshold")},
+                "background":           {"window": raw.get("despike background window"),
+                                          "threshold": raw.get("despike background threshold")},
+                "reference":            {"window": raw.get("despike reference window"),
+                                          "threshold": raw.get("despike reference threshold")},
+                "reference_background": {"window": raw.get("despike reference_background window"),
+                                          "threshold": raw.get("despike reference_background threshold")},
             }
             provenance["background_subtraction"] = {
                 "applied":       raw.get("background subtraction", "").lower() == "applied",
@@ -1076,16 +1081,20 @@ class ProcessedResultsTab(QWidget):
     def _format_homodyne_provenance(provenance: dict) -> list[str]:
         lines = []
 
-        # despike
-        despike = provenance.get("despike", {})
-        if despike.get("applied"):
-            lines += [
-                f"# Despike:              applied",
-                f"#   window:             {despike.get('window', 'N/A')}",
-                f"#   threshold_factor:   {despike.get('threshold_factor', 'N/A')}",
+        # despike — per component, same shape/format as heterodyne
+        d = provenance.get("despike", {})
+
+        def comp(key, label):
+            c = d.get(key) or {}
+            return [
+                f"# Despike {label} window:      {c.get('window', 'N/A')}",
+                f"# Despike {label} threshold:   {c.get('threshold', 'N/A')}",
             ]
-        else:
-            lines.append("# Despike:              not applied")
+
+        lines += comp("signal", "signal")
+        lines += comp("background", "background")
+        lines += comp("reference", "reference")
+        lines += comp("reference_background", "reference_background")
 
         # background subtraction
         bg = provenance.get("background_subtraction", {})
@@ -1183,6 +1192,7 @@ class ProcessedResultsTab(QWidget):
 
         menu = QMenu(self)
         metadata_action = menu.addAction(f"Review / Edit metadata — {label}")
+        params_action = menu.addAction(f"View processing parameters — {label}")
         menu.addSeparator()
         trace_props_action = menu.addAction("Trace properties...")
         menu.addSeparator()
@@ -1192,6 +1202,8 @@ class ProcessedResultsTab(QWidget):
 
         if action == metadata_action:
             self._on_review_metadata(selected)
+        elif action == params_action:
+            self._on_view_processing_params(selected)
         elif action == trace_props_action:
             self._on_trace_properties(selected)
         elif action == remove_action:
@@ -1243,6 +1255,11 @@ class ProcessedResultsTab(QWidget):
             if not hasattr(s, "path"):
                 s._display_name = e.label   # temporary attr for dialog display
         dialog = MetadataEditDialog(spectra, parent=self)
+        dialog.exec()
+
+    def _on_view_processing_params(self, entries: list[SpectrumEntry]):
+        from sfg_app2.app.dialogs.processing_params_dialog import ProcessingParamsDialog
+        dialog = ProcessingParamsDialog(entries, parent=self)
         dialog.exec()
 
 

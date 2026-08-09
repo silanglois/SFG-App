@@ -482,10 +482,38 @@ class HomodynePanel(QWidget):
                     ref_bg = c.get("averaged_ref_bg") or m.reference_background.average_spectrum()
                     ref = subtract_background(ref, ref_bg, offset=ref_offset)
                 c["normalized"] = normalize(bg_sub, ref).upconvert_to_wavenumber(wl)
+                c["normalized"].provenance = self._build_provenance(idx, wl)
                 c["_upconversion_wl"] = wl
             return c["normalized"]
 
         return None
+
+    def _build_provenance(self, idx: int, wl: float) -> dict:
+        """Snapshot of the parameters actually used to produce the
+        'normalized' result for this set — attached to the final
+        ProcessedSpectrum so it can be inspected/exported later."""
+        m = self._matched_sets[idx]
+        sig_offset, ref_offset = self._current_offsets()
+        return {
+            "signal":               m.signal.path.name if m.signal else None,
+            "background":           m.background.path.name if m.background else None,
+            "reference":            m.reference.path.name if m.reference else None,
+            "reference_background": m.reference_background.path.name if m.reference_background else None,
+            "despike": {
+                "signal":               self._get_despike_cfg(idx, "signal"),
+                "background":           self._get_despike_cfg(idx, "background"),
+                "reference":            self._get_despike_cfg(idx, "reference"),
+                "reference_background": self._get_despike_cfg(idx, "ref_background"),
+            },
+            "background_subtraction": {
+                "applied":       self._bg_group.isChecked(),
+                "signal_offset": str(sig_offset) if sig_offset is not None else "None",
+                "ref_offset":    str(ref_offset) if ref_offset is not None else "None",
+            },
+            "normalization":  {"applied": m.reference is not None},
+            "upconversion":   {"applied": m.reference is not None,
+                                "wavelength_nm": wl if m.reference is not None else None},
+        }
 
     def _recompute_and_refresh(self):
         step = self._current_step()
