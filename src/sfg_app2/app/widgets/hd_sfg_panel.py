@@ -92,12 +92,15 @@ class HDSFGPanel(QWidget):
         self._component_row = self._build_component_row()
         main_layout.addWidget(self._component_row)
 
-        # ── Row 3: plot area ──────────────────────────────────────────────────
+        # ── Row 3: plot area (FFT window params sit beside it, not below —
+        # that section can need up to 7 fields and got cramped/overflowed
+        # when stacked in the same wide row as the other sections below) ──
         self.plot_widget = SpectrumPlotWidget()
         self.plot_widget.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
-        main_layout.addWidget(self.plot_widget)
+        plot_row = QHBoxLayout()
+        plot_row.addWidget(self.plot_widget, 1)
 
         # ── Row 4: param sections (collapsible, only one visible at a time) ───
         self._param_sections: dict[str, QGroupBox] = {}
@@ -106,11 +109,24 @@ class HDSFGPanel(QWidget):
         self._param_sections["fft_window"]    = self._build_fft_window_section()
         self._param_sections["normalization"] = self._build_normalization_section()
 
-        for gb in self._param_sections.values():
+        plot_row.addWidget(self._param_sections["fft_window"])
+        main_layout.addLayout(plot_row)
+
+        for key, gb in self._param_sections.items():
             make_collapsible(gb)
             gb.setChecked(False)
             gb.setVisible(False)   # all hidden initially
-            main_layout.addWidget(gb)
+            if key != "fft_window":
+                main_layout.addWidget(gb)
+
+        # make_collapsible's expand step shows *all* direct-child widgets of
+        # the groupbox, which would undo our per-window-type field hiding
+        # every time this section is (re-)expanded (e.g. switching to the
+        # FFT step) — reapply the filter right after, once make_collapsible's
+        # own toggled handler (connected above) has run
+        self._param_sections["fft_window"].toggled.connect(
+            lambda checked: self._update_fft_window_visibility() if checked else None
+        )
 
         self._connect_signals()
         self._on_step_changed()
@@ -270,12 +286,39 @@ class HDSFGPanel(QWidget):
         layout.addStretch()
         return gb
 
+    # window type -> human-readable name, and which params each type reads
+    # (see src/sfg_app2/processing/hd_sfg/windows.py:fft_mask_window)
+    _FFT_WINDOW_TYPE_NAMES = {
+        1: "Box-Car",
+        2: "Box-Car + HG",
+        3: "Double HG",
+        4: "Masking HG",
+    }
+    _FFT_WINDOW_TYPE_PARAMS = {
+        1: {"_fft_start", "_fft_end"},
+        2: {"_fft_start", "_fft_end", "_hg_left"},
+        3: {"_fft_start", "_fft_end", "_hg_left", "_hg_right"},
+        4: {"_fft_start", "_fft_end", "_hg_left",
+            "_mask_start", "_mask_end", "_mask_transition", "_mask_factor"},
+    }
+
     def _build_fft_window_section(self) -> QGroupBox:
+        from PySide6.QtWidgets import QGridLayout
+
         gb = QGroupBox("FFT filter window parameters")
         gb.setCheckable(True)
-        layout = QHBoxLayout(gb)
-        layout.addWidget(QLabel("Type:"))
+        outer = QVBoxLayout(gb)
+
+        type_row = QHBoxLayout()
+        type_row.addWidget(QLabel("Type:"))
         self._fft_window_type = QComboBox()
+        self._fft_window_type.setToolTip(
+            "1 — Box-Car: hard cutoff at Start/End, no taper.\n"
+            "2 — Box-Car + HG: soft taper on the left edge only (HG L).\n"
+            "3 — Double HG: soft taper on both edges (HG L and HG R).\n"
+            "4 — Masking HG: type 2's left taper, plus an attenuated notch\n"
+            "     region (Mask start/end/transition/factor) inside the passband."
+        )
         for label, val in [
             ("1 — Box-Car", 1),
             ("2 — Box-Car + HG", 2),
@@ -284,21 +327,69 @@ class HDSFGPanel(QWidget):
         ]:
             self._fft_window_type.addItem(label, userData=val)
         self._fft_window_type.setCurrentIndex(2)   # default to type 3
-        layout.addWidget(self._fft_window_type)
-        for label, attr, default in [
-            ("Start (pts):", "_fft_start",  30),
-            ("End (pts):",   "_fft_end",   110),
-            ("HG L (pts):",  "_hg_left",    10),
-            ("HG R (pts):",  "_hg_right",   10),
-        ]:
-            layout.addWidget(QLabel(label))
+        type_row.addWidget(self._fft_window_type)
+        type_row.addStretch()
+        outer.addLayout(type_row)
+
+        # form-style rows (label | spinbox), one per param, stacked
+        # vertically — this section now lives in a narrow side column next
+        # to the plot rather than a wide row, so there's no need to cram
+        # everything horizontally
+        grid = QGridLayout()
+
+        # (label widget, spinbox widget, attr name) — attr name is looked up
+        # against _FFT_WINDOW_TYPE_PARAMS to decide visibility per type
+        self._fft_window_rows: list[tuple[QLabel, QWidget, str]] = []
+        for row_idx, (label, attr, default, tooltip) in enumerate([
+            ("Start (pts):", "_fft_start",  30, None),
+            ("End (pts):",   "_fft_end",   110, None),
+            ("HG L (pts):",  "_hg_left",    10, None),
+            ("HG R (pts):",  "_hg_right",   10, None),
+            ("Mask start (pts):", "_mask_start", 150,
+             "Start of the attenuated region within the passband."),
+            ("Mask end (pts):", "_mask_end", 160,
+             "End of the attenuated region within the passband."),
+            ("Mask transition (pts):", "_mask_transition", 5,
+             "HG taper width into and out of the masked region."),
+        ]):
+            lbl = QLabel(label)
             sb = QSpinBox()
             sb.setRange(1, 1000)
             sb.setValue(default)
+            if tooltip:
+                lbl.setToolTip(tooltip)
+                sb.setToolTip(tooltip)
             setattr(self, attr, sb)
-            layout.addWidget(sb)
-        layout.addStretch()
+            grid.addWidget(lbl, row_idx, 0)
+            grid.addWidget(sb, row_idx, 1)
+            self._fft_window_rows.append((lbl, sb, attr))
+
+        mask_factor_row = len(self._fft_window_rows)
+        mask_factor_lbl = QLabel("Mask factor:")
+        mask_factor_tooltip = "Attenuation level inside the masked region (0-1)."
+        mask_factor_lbl.setToolTip(mask_factor_tooltip)
+        self._mask_factor = QDoubleSpinBox()
+        self._mask_factor.setRange(0.0, 1.0)
+        self._mask_factor.setDecimals(2)
+        self._mask_factor.setSingleStep(0.01)
+        self._mask_factor.setValue(0.08)
+        self._mask_factor.setToolTip(mask_factor_tooltip)
+        grid.addWidget(mask_factor_lbl, mask_factor_row, 0)
+        grid.addWidget(self._mask_factor, mask_factor_row, 1)
+        self._fft_window_rows.append((mask_factor_lbl, self._mask_factor, "_mask_factor"))
+
+        outer.addLayout(grid)
+        outer.addStretch()
+        self._update_fft_window_visibility()
         return gb
+
+    def _update_fft_window_visibility(self):
+        window_type = self._fft_window_type.currentData()
+        needed = self._FFT_WINDOW_TYPE_PARAMS.get(window_type, set())
+        for lbl, widget, attr in self._fft_window_rows:
+            visible = attr in needed
+            lbl.setVisible(visible)
+            widget.setVisible(visible)
 
     def _build_normalization_section(self) -> QGroupBox:
         gb = QGroupBox("Normalization parameters")
@@ -377,10 +468,15 @@ class HDSFGPanel(QWidget):
             sb.valueChanged.connect(lambda: self._auto_process_from("bg_smooth"))
 
         # FFT params → auto-reprocess from fft_filter step
-        for sb in [self._fft_start, self._fft_end, self._hg_left, self._hg_right]:
+        for sb in [self._fft_start, self._fft_end, self._hg_left, self._hg_right,
+                   self._mask_start, self._mask_end, self._mask_transition,
+                   self._mask_factor]:
             sb.valueChanged.connect(lambda: self._auto_process_from("fft_filter"))
         self._fft_window_type.currentIndexChanged.connect(
             lambda: self._auto_process_from("fft_filter")
+        )
+        self._fft_window_type.currentIndexChanged.connect(
+            self._update_fft_window_visibility
         )
 
         # normalization params → auto-reprocess from normalization step
@@ -680,9 +776,11 @@ class HDSFGPanel(QWidget):
         lines1, labels1 = self.plot_widget.ax.get_legend_handles_labels()
         lines2, labels2 = ax2.get_legend_handles_labels()
         self.plot_widget.ax.legend(lines1 + lines2, labels1 + labels2, fontsize=8)
+        window_type = self._fft_window_type.currentData()
+        type_name = self._FFT_WINDOW_TYPE_NAMES.get(window_type, "?")
         self.plot_widget.set_labels(
             xlabel="Time (ps)", ylabel="FFT amplitude (imag)",
-            title="FFT + filter window"
+            title=f"FFT + filter window — {window_type}: {type_name}"
         )
 
     def _plot_ifft(self, data):
@@ -996,6 +1094,10 @@ class HDSFGPanel(QWidget):
             fft_end                 = self._fft_end.value(),
             hg_left                 = self._hg_left.value(),
             hg_right                = self._hg_right.value(),
+            mask_start               = self._mask_start.value(),
+            mask_end                 = self._mask_end.value(),
+            mask_transition          = self._mask_transition.value(),
+            mask_factor              = self._mask_factor.value(),
             sample_exposure         = self._sample_exp.value(),
             reference_exposure      = self._ref_exp.value(),
             phase_correction_deg    = self._phase_corr.value(),
