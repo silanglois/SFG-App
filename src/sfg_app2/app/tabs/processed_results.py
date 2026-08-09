@@ -298,12 +298,22 @@ class ProcessedResultsTab(QWidget):
                     (i for i, e in enumerate(self._entries) if e.label == label), None
                 )
                 if existing_idx is not None:
+                    if self._same_content(self._entries[existing_idx].spectrum, spectrum):
+                        continue   # byte-identical — nothing to resolve, skip silently
                     choice = self._prompt_conflict(
                         "Result already exists",
-                        f'A result named "{label}" already exists in Results. Overwrite it?',
-                        ["Overwrite", "Skip"], remembered,
+                        f'A result named "{label}" already exists in Results with '
+                        f'different data. Overwrite it?',
+                        ["Overwrite", "Keep Both", "Skip"], remembered,
                     )
                     if choice == "Skip":
+                        continue
+                    if choice == "Keep Both":
+                        new_label = self._unique_label(label)
+                        self._entries.append(SpectrumEntry(spectrum, new_label, kind=kind))
+                        self.ui.spectraList.addItem(
+                            self._make_list_item(len(self._entries) - 1)
+                        )
                         continue
                     self._entries[existing_idx] = SpectrumEntry(spectrum, label, kind=kind)
                     continue
@@ -345,6 +355,22 @@ class ProcessedResultsTab(QWidget):
 
     def _entry_exists(self, label: str) -> bool:
         return any(e.label == label for e in self._entries)
+
+    def _same_content(self, a: ProcessedSpectrum, b: ProcessedSpectrum) -> bool:
+        """Exact comparison of the underlying spectral data only — ignores
+        metadata (sample name, exposure, load timestamp), which doesn't
+        reflect the actual measurement."""
+        return a.data.reset_index(drop=True).equals(b.data.reset_index(drop=True))
+
+    def _unique_label(self, label: str) -> str:
+        """Mirrors _unique_path()'s ' (2)', ' (3)', ... convention, but
+        against in-memory entry labels instead of filesystem paths."""
+        n = 2
+        candidate = f"{label} ({n})"
+        while self._entry_exists(candidate):
+            n += 1
+            candidate = f"{label} ({n})"
+        return candidate
 
     def _make_list_item(self, index: int) -> QListWidgetItem:
         entry = self._entries[index]
@@ -693,7 +719,8 @@ class ProcessedResultsTab(QWidget):
         pattern_map = {len(p): p for p in patterns} if patterns else {}
         role_kwargs = self._get_role_kwargs()
 
-        added, skipped, failed = 0, 0, 0
+        added, skipped, failed, renamed = 0, 0, 0, 0
+        remembered: dict = {}
         loading = show_loading(self, "Loading files...")
         for path_str in paths:
             path = Path(path_str)
@@ -746,15 +773,38 @@ class ProcessedResultsTab(QWidget):
                             else "homodyne")
 
                 label = path.stem
-                if not self._entry_exists(label):
+                existing_idx = next(
+                    (i for i, e in enumerate(self._entries) if e.label == label), None
+                )
+                if existing_idx is None:
                     self._entries.append(SpectrumEntry(spectrum, label, kind=kind))
                     self.ui.spectraList.addItem(
                         self._make_list_item(len(self._entries) - 1)
                     )
                     added += 1
-                else:
+                elif self._same_content(self._entries[existing_idx].spectrum, spectrum):
                     skipped += 1
-                    logger.info("Skipping duplicate: %s", label)
+                    logger.info("Skipping identical duplicate: %s", label)
+                else:
+                    choice = self._prompt_conflict(
+                        "Name collision, different content",
+                        f'"{label}" already exists in Results with different '
+                        f'data. Overwrite it?',
+                        ["Overwrite", "Keep Both", "Skip"], remembered,
+                    )
+                    if choice == "Skip":
+                        skipped += 1
+                    elif choice == "Keep Both":
+                        new_label = self._unique_label(label)
+                        self._entries.append(SpectrumEntry(spectrum, new_label, kind=kind))
+                        self.ui.spectraList.addItem(
+                            self._make_list_item(len(self._entries) - 1)
+                        )
+                        added += 1
+                        renamed += 1
+                    else:  # Overwrite
+                        self._entries[existing_idx] = SpectrumEntry(spectrum, label, kind=kind)
+                        added += 1
 
             except Exception as e:
                 logger.warning("Could not load %s: %s", path.name, e)
@@ -768,6 +818,8 @@ class ProcessedResultsTab(QWidget):
         msg_parts = []
         if added:
             msg_parts.append(f"{added} added")
+        if renamed:
+            msg_parts.append(f"{renamed} kept as a new copy (renamed)")
         if skipped:
             msg_parts.append(f"{skipped} duplicate(s) skipped")
         if failed:
