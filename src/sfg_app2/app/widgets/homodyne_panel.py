@@ -18,7 +18,7 @@ from sfg_app2.processing.normalization import normalize
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_DESPIKE = {"window": 20, "threshold": 500.0}
+DEFAULT_DESPIKE = {"window": 50, "threshold": 20.0}
 
 COMPONENTS = ["signal", "background", "reference", "ref_background"]
 COMPONENT_LABELS = {

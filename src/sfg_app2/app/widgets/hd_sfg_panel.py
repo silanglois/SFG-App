@@ -225,7 +225,7 @@ class HDSFGPanel(QWidget):
             threshold_sb.setRange(0.5, 10000.0)
             threshold_sb.setSingleStep(5.0)
             threshold_sb.setDecimals(1)
-            threshold_sb.setValue(10.0)
+            threshold_sb.setValue(20.0)
             grid.addWidget(threshold_sb, row_idx, 2)
 
             self._despike_params[key] = {
