@@ -948,15 +948,18 @@ class HDSFGPanel(QWidget):
         if show_err and use_avg:
             if self._cb_imag.isChecked():
                 ax.fill_between(wn, y_imag - data.imag_err,
-                                y_imag + data.imag_err, alpha=0.3)
+                                y_imag + data.imag_err, alpha=0.3,
+                                color=self._norm_lines["imag"].get_color())
             if self._cb_real.isChecked():
                 ax.fill_between(wn, y_real - data.real_err,
-                                y_real + data.real_err, alpha=0.3)
+                                y_real + data.real_err, alpha=0.3,
+                                color=self._norm_lines["real"].get_color())
             if self._cb_homodyne.isChecked():
                 ax.fill_between(wn,
                                 (y_homo - data.homodyne_err) * scale,
                                 (y_homo + data.homodyne_err) * scale,
-                                alpha=0.3)
+                                alpha=0.3,
+                                color=self._norm_lines["homo"].get_color())
             if self._cb_phase.isChecked():
                 self._norm_ax2.fill_between(
                     wn, y_phase - data.phase_err,
