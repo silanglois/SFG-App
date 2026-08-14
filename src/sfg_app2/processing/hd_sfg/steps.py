@@ -156,36 +156,44 @@ def step_average(
     """Step 2 — average frames and interpolate to uniform wavenumber grid.
     Signal keeps per-frame arrays for downstream error statistics.
     """
-    # wavenumber axis from signal's first frame
+    exclude = config.exclude_frames or {}
+    excluded_sig = set(exclude.get("signal") or [])
+
     sig_df = despiked.signal
-    wl_nm = sig_df.frame(sig_df.data["Frame"].iloc[0])["Wavelength"].to_numpy()
+    included_fids = [fid for fid in sig_df.data["Frame"].unique() if fid not in excluded_sig]
+    if not included_fids:
+        raise ValueError("exclude_frames would exclude every signal frame")
+
+    # wavenumber axis from signal's first *included* frame
+    wl_nm = sig_df.frame(included_fids[0])["Wavelength"].to_numpy()
     wn_raw = _to_wavenumber(wl_nm, config.upconversion_wavelength)
     n_pts = config.n_interpolation_points or len(wn_raw)
 
     # per-frame signal
     sig_frames = []
-    for fid in sig_df.data["Frame"].unique():
+    for fid in included_fids:
         intensity = sig_df.frame(fid)["Intensity"].to_numpy()
         wn_uniform, interp = _interpolate(wn_raw, intensity, n_pts)
         sig_frames.append(interp)
 
     sig_avg = np.mean(sig_frames, axis=0) if sig_frames else np.zeros(n_pts)
 
-    def avg_component(comp) -> np.ndarray:
-        intensity = comp.average_spectrum().frame(1)["Intensity"].to_numpy()
+    def avg_component(comp, role: str) -> np.ndarray:
+        intensity = comp.average_spectrum(
+            exclude_frames=exclude.get(role)
+        ).frame(1)["Intensity"].to_numpy()
         _, interp = _interpolate(wn_raw, intensity, n_pts)
         return interp
 
-    wn_uniform, _ = _interpolate(wn_raw, sig_df.frame(
-        sig_df.data["Frame"].iloc[0])["Intensity"].to_numpy(), n_pts)
+    wn_uniform, _ = _interpolate(wn_raw, sig_df.frame(included_fids[0])["Intensity"].to_numpy(), n_pts)
 
     return AveragedData(
         wavenumber   = wn_uniform,
         sig_frames   = sig_frames,
         sig_avg      = sig_avg,
-        bg_avg       = avg_component(despiked.background),
-        ref_avg      = avg_component(despiked.reference),
-        ref_bg_avg   = avg_component(despiked.ref_background),
+        bg_avg       = avg_component(despiked.background, "background"),
+        ref_avg      = avg_component(despiked.reference, "reference"),
+        ref_bg_avg   = avg_component(despiked.ref_background, "reference_background"),
         n_sig_frames = len(sig_frames),
     )
 

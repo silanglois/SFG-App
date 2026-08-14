@@ -36,6 +36,9 @@ class PipelineConfig:
     run_upconvert: bool = True
     upconversion_wavelength: Optional[float] = None  # required if run_upconvert=True
 
+    # frame exclusion — keys: "signal"/"background"/"reference"/"reference_background"
+    exclude_frames: dict = field(default_factory=dict)
+
 
 def process_matched(matched: MatchedSet, config: PipelineConfig) -> ProcessedSpectrum:
     """Run the full pipeline on one MatchedSet using the provided config.
@@ -64,6 +67,7 @@ def process_matched(matched: MatchedSet, config: PipelineConfig) -> ProcessedSpe
             "applied":            config.run_upconvert,
             "wavelength_nm":      config.upconversion_wavelength,
         },
+        "excluded_frames": dict(config.exclude_frames),
     }
 
     signal = matched.signal
@@ -82,13 +86,15 @@ def process_matched(matched: MatchedSet, config: PipelineConfig) -> ProcessedSpe
             ref_background = ref_background.remove_cosmic_rays(config.despike_window, config.despike_threshold)
 
     # ── Average frames ────────────────────────────────────────────────────────
-    signal = signal.average_spectrum()
+    signal = signal.average_spectrum(exclude_frames=config.exclude_frames.get("signal"))
     if background:
-        background = background.average_spectrum()
+        background = background.average_spectrum(exclude_frames=config.exclude_frames.get("background"))
     if reference:
-        reference = reference.average_spectrum()
+        reference = reference.average_spectrum(exclude_frames=config.exclude_frames.get("reference"))
     if ref_background:
-        ref_background = ref_background.average_spectrum()
+        ref_background = ref_background.average_spectrum(
+            exclude_frames=config.exclude_frames.get("reference_background")
+        )
 
     # ── Background subtraction ───────────────────────────────────────────────
     if config.run_background:

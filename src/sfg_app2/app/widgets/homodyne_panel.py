@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
 
 from sfg_app2.app.widgets.spectrum_plot_widget import SpectrumPlotWidget
 from sfg_app2.app.widgets.collapsible_group_box import make_collapsible
+from sfg_app2.app.widgets.frame_exclude_widget import FrameCheckStrip
 from sfg_app2.app.utils.loading_indicator import show_loading
 from sfg_app2.processing.baseline import subtract_background, apply_offset
 from sfg_app2.processing.normalization import normalize
@@ -90,6 +91,7 @@ class HomodynePanel(QWidget):
         self._selected_indices: list[int] = []
         self._cache: dict[int, dict] = {}
         self._despike_configs: dict[int, dict] = {}
+        self._exclude_frames: dict[int, dict[str, set]] = {}
 
         self._recompute_timer = QTimer(self)
         self._recompute_timer.setSingleShot(True)
@@ -113,6 +115,7 @@ class HomodynePanel(QWidget):
 
         self._param_sections: dict[str, QGroupBox] = {}
         self._param_sections["despike"] = self._build_despike_section()
+        self._param_sections["exclude_frames"] = self._build_exclude_frames_section()
         self._param_sections["bg_offset"] = self._build_bg_offset_section()
         for gb in self._param_sections.values():
             make_collapsible(gb)
@@ -234,6 +237,21 @@ class HomodynePanel(QWidget):
 
         return gb
 
+    def _build_exclude_frames_section(self) -> QGroupBox:
+        gb = QGroupBox("Exclude frames")
+        gb.setCheckable(True)
+        gb.setChecked(False)
+        grid = QGridLayout(gb)
+
+        self._exclude_strips: dict[str, FrameCheckStrip] = {}
+        for row_idx, key in enumerate(COMPONENTS):
+            grid.addWidget(QLabel(COMPONENT_LABELS[key] + ":"), row_idx, 0)
+            strip = FrameCheckStrip()
+            self._exclude_strips[key] = strip
+            grid.addWidget(strip, row_idx, 1)
+
+        return gb
+
     def _build_bg_offset_section(self) -> QGroupBox:
         gb = QGroupBox("Background Correction")
         gb.setCheckable(True)
@@ -279,6 +297,11 @@ class HomodynePanel(QWidget):
                 lambda _v, k=key: self._on_despike_changed(k)
             )
 
+        for key in COMPONENTS:
+            self._exclude_strips[key].changed.connect(
+                lambda k=key: self._on_exclude_frames_changed(k)
+            )
+
         self._sig_offset_combo.currentTextChanged.connect(
             lambda t: self._sig_offset_params.setEnabled(t != "None")
         )
@@ -320,6 +343,9 @@ class HomodynePanel(QWidget):
         section_key = STEP_SECTION.get(step)
         for key, gb in self._param_sections.items():
             gb.setVisible(key == section_key)
+        self._param_sections["exclude_frames"].setVisible(
+            step in ("raw", "despiked", "averaged")
+        )
         if section_key == "despike":
             # auto-expand despike on entry; bg_offset's checked state is left
             # alone since it doubles as "actually apply this correction"
@@ -343,6 +369,25 @@ class HomodynePanel(QWidget):
             c = self._cache.get(idx, {})
             for key in keys:
                 c.pop(key, None)
+
+    # ── Frame exclusion ──────────────────────────────────────────────────────
+
+    def _get_exclude_frames(self, idx: int, component: str) -> set:
+        return self._exclude_frames.get(idx, {}).get(component, set())
+
+    def _set_exclude_frames(self, idx: int, component: str, frames: set):
+        if idx not in self._exclude_frames:
+            self._exclude_frames[idx] = {}
+        self._exclude_frames[idx][component] = set(frames)
+
+    def _on_exclude_frames_changed(self, component: str):
+        if not self._selected_indices:
+            return
+        excluded = self._exclude_strips[component].excluded_frames()
+        for idx in self._selected_indices:
+            self._set_exclude_frames(idx, component, excluded)
+        self._invalidate_component_cache(self._selected_indices, component)
+        self._recompute_timer.start()
 
     def _on_despike_changed(self, component: str):
         if not self._selected_indices:
@@ -432,13 +477,17 @@ class HomodynePanel(QWidget):
         if step == "averaged":
             self._get_step(idx, "despiked")
             if "averaged_signal" not in c:
-                c["averaged_signal"] = c["despiked_signal"].average_spectrum()
+                c["averaged_signal"] = c["despiked_signal"].average_spectrum(
+                    exclude_frames=self._get_exclude_frames(idx, "signal"))
             if "despiked_bg" in c and "averaged_bg" not in c:
-                c["averaged_bg"] = c["despiked_bg"].average_spectrum()
+                c["averaged_bg"] = c["despiked_bg"].average_spectrum(
+                    exclude_frames=self._get_exclude_frames(idx, "background"))
             if "despiked_ref" in c and "averaged_ref" not in c:
-                c["averaged_ref"] = c["despiked_ref"].average_spectrum()
+                c["averaged_ref"] = c["despiked_ref"].average_spectrum(
+                    exclude_frames=self._get_exclude_frames(idx, "reference"))
             if "despiked_ref_bg" in c and "averaged_ref_bg" not in c:
-                c["averaged_ref_bg"] = c["despiked_ref_bg"].average_spectrum()
+                c["averaged_ref_bg"] = c["despiked_ref_bg"].average_spectrum(
+                    exclude_frames=self._get_exclude_frames(idx, "ref_background"))
             return c["averaged_signal"]
 
         if step == "bg_subtracted":
@@ -453,7 +502,8 @@ class HomodynePanel(QWidget):
                 if not m.background:
                     c["bg_subtracted"] = c.get("averaged_signal")
                 else:
-                    bg_avg = c.get("averaged_bg") or m.background.average_spectrum()
+                    bg_avg = c.get("averaged_bg") or m.background.average_spectrum(
+                        exclude_frames=self._get_exclude_frames(idx, "background"))
                     c["bg_subtracted"] = subtract_background(
                         c["averaged_signal"], bg_avg, offset=sig_offset,
                     )
@@ -463,7 +513,8 @@ class HomodynePanel(QWidget):
                 if not m.reference_background:
                     c["bg_subtracted_ref"] = c.get("averaged_ref")
                 else:
-                    ref_bg_avg = c.get("averaged_ref_bg") or m.reference_background.average_spectrum()
+                    ref_bg_avg = c.get("averaged_ref_bg") or m.reference_background.average_spectrum(
+                        exclude_frames=self._get_exclude_frames(idx, "ref_background"))
                     c["bg_subtracted_ref"] = subtract_background(
                         c["averaged_ref"], ref_bg_avg, offset=ref_offset,
                     )
@@ -476,10 +527,12 @@ class HomodynePanel(QWidget):
                 bg_sub = c.get("bg_subtracted") or c.get("averaged_signal")
                 if not bg_sub or not m.reference:
                     return bg_sub
-                ref = c.get("averaged_ref") or m.reference.average_spectrum()
+                ref = c.get("averaged_ref") or m.reference.average_spectrum(
+                    exclude_frames=self._get_exclude_frames(idx, "reference"))
                 _, ref_offset = self._current_offsets()
                 if m.reference_background:
-                    ref_bg = c.get("averaged_ref_bg") or m.reference_background.average_spectrum()
+                    ref_bg = c.get("averaged_ref_bg") or m.reference_background.average_spectrum(
+                        exclude_frames=self._get_exclude_frames(idx, "ref_background"))
                     ref = subtract_background(ref, ref_bg, offset=ref_offset)
                 c["normalized"] = normalize(bg_sub, ref).upconvert_to_wavenumber(wl)
                 c["normalized"].provenance = self._build_provenance(idx, wl)
@@ -513,6 +566,12 @@ class HomodynePanel(QWidget):
             "normalization":  {"applied": m.reference is not None},
             "upconversion":   {"applied": m.reference is not None,
                                 "wavelength_nm": wl if m.reference is not None else None},
+            "excluded_frames": {
+                "signal":               sorted(self._get_exclude_frames(idx, "signal")),
+                "background":           sorted(self._get_exclude_frames(idx, "background")),
+                "reference":            sorted(self._get_exclude_frames(idx, "reference")),
+                "reference_background": sorted(self._get_exclude_frames(idx, "ref_background")),
+            },
         }
 
     def _recompute_and_refresh(self):
@@ -657,12 +716,16 @@ class HomodynePanel(QWidget):
                     label=f"{label} — {comp_label}",
                 )
             else:
+                excluded = self._get_exclude_frames(idx, component)
                 for fid in data.data["Frame"].unique():
                     fd = data.frame(fid)
+                    is_excluded = fid in excluded
                     self.plot_widget.ax.plot(
                         fd["Wavelength"].to_numpy(), fd["Intensity"].to_numpy(),
-                        color=color, linestyle=linestyle, alpha=0.85,
-                        label=f"{label} — {comp_label} F{fid}",
+                        color=color,
+                        linestyle=":" if is_excluded else linestyle,
+                        alpha=0.25 if is_excluded else 0.85,
+                        label=f"{label} — {comp_label} F{fid}" + (" (excluded)" if is_excluded else ""),
                     )
 
     def _plot_bg_subtracted_result(self, idx: int, label: str, color):
@@ -796,6 +859,7 @@ class HomodynePanel(QWidget):
         self._matched_sets = matched_sets
         self._cache.clear()
         self._despike_configs.clear()
+        self._exclude_frames.clear()
         self._selected_indices = []
         self.plot_widget.full_clear()
         self.plot_widget.canvas.draw_idle()
@@ -815,12 +879,27 @@ class HomodynePanel(QWidget):
                 widgets["threshold"].setValue(cfg["threshold"])
                 widgets["window"].blockSignals(False)
                 widgets["threshold"].blockSignals(False)
+
+            m = self._matched_sets[first]
+            sources = {
+                "signal": m.signal, "background": m.background,
+                "reference": m.reference, "ref_background": m.reference_background,
+            }
+            for component in COMPONENTS:
+                strip = self._exclude_strips[component]
+                source = sources[component]
+                frame_ids = sorted(source.data["Frame"].unique()) if source else []
+                strip.blockSignals(True)
+                strip.set_frame_ids(frame_ids)
+                strip.set_excluded_frames(self._get_exclude_frames(first, component))
+                strip.blockSignals(False)
         self._recompute_and_refresh()
 
     def reset(self):
         self._matched_sets = []
         self._cache.clear()
         self._despike_configs.clear()
+        self._exclude_frames.clear()
         self._selected_indices = []
         self.plot_widget.full_clear()
         self.plot_widget.canvas.draw_idle()

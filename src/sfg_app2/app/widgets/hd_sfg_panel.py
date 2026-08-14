@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 
 from sfg_app2.app.widgets.spectrum_plot_widget import SpectrumPlotWidget
 from sfg_app2.app.widgets.collapsible_group_box import make_collapsible
+from sfg_app2.app.widgets.frame_exclude_widget import FrameCheckStrip
 from sfg_app2.app.utils.loading_indicator import show_loading
 
 logger = logging.getLogger(__name__)
@@ -64,6 +65,7 @@ class HDSFGPanel(QWidget):
         # per-step cache — keyed by matched_set_index
         # each entry: dict with keys matching HD_STEPS
         self._cache: dict[int, dict] = {}
+        self._exclude_frames: dict[int, dict[str, set]] = {}
         self._last_step: str | None = None
         self._norm_lines: dict = {}
         self._norm_ax2 = None
@@ -104,10 +106,11 @@ class HDSFGPanel(QWidget):
 
         # ── Row 4: param sections (collapsible, only one visible at a time) ───
         self._param_sections: dict[str, QGroupBox] = {}
-        self._param_sections["despike"]       = self._build_despike_section()
-        self._param_sections["bg_smooth"]     = self._build_bg_smooth_section()
-        self._param_sections["fft_window"]    = self._build_fft_window_section()
-        self._param_sections["normalization"] = self._build_normalization_section()
+        self._param_sections["despike"]        = self._build_despike_section()
+        self._param_sections["exclude_frames"] = self._build_exclude_frames_section()
+        self._param_sections["bg_smooth"]      = self._build_bg_smooth_section()
+        self._param_sections["fft_window"]     = self._build_fft_window_section()
+        self._param_sections["normalization"]  = self._build_normalization_section()
 
         plot_row.addWidget(self._param_sections["fft_window"])
         main_layout.addLayout(plot_row)
@@ -259,6 +262,47 @@ class HDSFGPanel(QWidget):
             window=p["window"].value(),
             threshold=p["threshold"].value(),
         )
+
+    def _build_exclude_frames_section(self) -> QGroupBox:
+        from PySide6.QtWidgets import QGridLayout
+        gb = QGroupBox("Exclude frames")
+        gb.setCheckable(True)
+        gb.setChecked(False)
+        grid = QGridLayout(gb)
+
+        self._exclude_strips: dict[str, FrameCheckStrip] = {}
+        for row_idx, (key, label) in enumerate([
+            ("signal",        "Sample"),
+            ("background",    "Sample BG"),
+            ("reference",     "Reference"),
+            ("ref_background","Ref BG"),
+        ]):
+            grid.addWidget(QLabel(label + ":"), row_idx, 0)
+            strip = FrameCheckStrip()
+            self._exclude_strips[key] = strip
+            grid.addWidget(strip, row_idx, 1)
+
+        return gb
+
+    def _get_exclude_frames(self, idx: int, component: str) -> set:
+        return self._exclude_frames.get(idx, {}).get(component, set())
+
+    def _set_exclude_frames(self, idx: int, component: str, frames: set):
+        if idx not in self._exclude_frames:
+            self._exclude_frames[idx] = {}
+        self._exclude_frames[idx][component] = set(frames)
+
+    def _on_exclude_frames_changed(self, component: str):
+        if self._matched_index < 0:
+            return
+        excluded = self._exclude_strips[component].excluded_frames()
+        self._set_exclude_frames(self._matched_index, component, excluded)
+
+        c = self._cache.get(self._matched_index, {})
+        for step in ("averaged", "bg_smooth", "fft_filter", "ifft", "normalization"):
+            c.pop(step, None)
+
+        self._auto_process_from("averaged")
 
     def _build_bg_smooth_section(self) -> QGroupBox:
         gb = QGroupBox("Background subtraction + edge window")
@@ -463,6 +507,12 @@ class HDSFGPanel(QWidget):
                 lambda: self._auto_process_from("despiked")
             )
 
+        # frame exclusion → auto-reprocess from averaged step
+        for key in self._exclude_strips:
+            self._exclude_strips[key].changed.connect(
+                lambda k=key: self._on_exclude_frames_changed(k)
+            )
+
         # bg subtraction params → auto-reprocess from bg_smooth step
         for sb in [self._bg_offset, self._edge_left, self._edge_right]:
             sb.valueChanged.connect(lambda: self._auto_process_from("bg_smooth"))
@@ -513,6 +563,9 @@ class HDSFGPanel(QWidget):
             gb.setVisible(key == section_key)
             if key == section_key:
                 gb.setChecked(True)
+        self._param_sections["exclude_frames"].setVisible(
+            step in ("raw", "despiked", "averaged")
+        )
 
         self._refresh_plot()
 
@@ -637,21 +690,31 @@ class HDSFGPanel(QWidget):
                                 self._matched_set.reference_background))
 
         for pair_label, sig_src, bg_src in pairs:
+            sig_role = "signal" if pair_label == "Sample" else "reference"
+            bg_role  = "background" if pair_label == "Sample" else "ref_background"
             if self._show_signal() and sig_src:
+                excluded = self._get_exclude_frames(self._matched_index, sig_role)
                 for fid in sig_src.data["Frame"].unique():
                     fd = sig_src.frame(fid)
                     wn = wl_to_wn(fd["Wavelength"].to_numpy())
+                    is_excluded = fid in excluded
                     self.plot_widget.ax.plot(
                         wn, fd["Intensity"].to_numpy(),
-                        alpha=0.8, label=f"{pair_label} sig F{fid}"
+                        alpha=0.2 if is_excluded else 0.8,
+                        linestyle=":" if is_excluded else "-",
+                        label=f"{pair_label} sig F{fid}" + (" (excluded)" if is_excluded else ""),
                     )
             if self._show_background() and bg_src:
+                excluded = self._get_exclude_frames(self._matched_index, bg_role)
                 for fid in bg_src.data["Frame"].unique():
                     fd = bg_src.frame(fid)
                     wn = wl_to_wn(fd["Wavelength"].to_numpy())
+                    is_excluded = fid in excluded
                     self.plot_widget.ax.plot(
                         wn, fd["Intensity"].to_numpy(),
-                        linestyle="--", alpha=0.6, label=f"{pair_label} BG F{fid}"
+                        linestyle=":" if is_excluded else "--",
+                        alpha=0.2 if is_excluded else 0.6,
+                        label=f"{pair_label} BG F{fid}" + (" (excluded)" if is_excluded else ""),
                     )
         self.plot_widget.set_labels(
             xlabel="Wavenumber (cm$^{-1}$)", ylabel="Intensity", title="Raw"
@@ -670,21 +733,31 @@ class HDSFGPanel(QWidget):
             pairs.append(("Ref", data.reference, data.ref_background))
 
         for pair_label, sig_src, bg_src in pairs:
+            sig_role = "signal" if pair_label == "Sample" else "reference"
+            bg_role  = "background" if pair_label == "Sample" else "ref_background"
             if self._show_signal() and sig_src:
+                excluded = self._get_exclude_frames(self._matched_index, sig_role)
                 for fid in sig_src.data["Frame"].unique():
                     fd = sig_src.frame(fid)
                     wn = wl_to_wn(fd["Wavelength"].to_numpy())
+                    is_excluded = fid in excluded
                     self.plot_widget.ax.plot(
                         wn, fd["Intensity"].to_numpy(),
-                        alpha=0.8, label=f"{pair_label} sig F{fid}"
+                        alpha=0.2 if is_excluded else 0.8,
+                        linestyle=":" if is_excluded else "-",
+                        label=f"{pair_label} sig F{fid}" + (" (excluded)" if is_excluded else ""),
                     )
             if self._show_background() and bg_src:
+                excluded = self._get_exclude_frames(self._matched_index, bg_role)
                 for fid in bg_src.data["Frame"].unique():
                     fd = bg_src.frame(fid)
                     wn = wl_to_wn(fd["Wavelength"].to_numpy())
+                    is_excluded = fid in excluded
                     self.plot_widget.ax.plot(
                         wn, fd["Intensity"].to_numpy(),
-                        linestyle="--", alpha=0.6, label=f"{pair_label} BG F{fid}"
+                        linestyle=":" if is_excluded else "--",
+                        alpha=0.2 if is_excluded else 0.6,
+                        label=f"{pair_label} BG F{fid}" + (" (excluded)" if is_excluded else ""),
                     )
         self.plot_widget.set_labels(
             xlabel="Wavenumber (cm$^{-1}$)", ylabel="Intensity", title="Despiked"
@@ -1074,6 +1147,12 @@ class HDSFGPanel(QWidget):
             },
             "upconversion": {"wavelength_nm": cfg.upconversion_wavelength},
             "n_frames": n_frames,
+            "excluded_frames": {
+                "signal":               sorted(self._get_exclude_frames(self._matched_index, "signal")),
+                "background":           sorted(self._get_exclude_frames(self._matched_index, "background")),
+                "reference":            sorted(self._get_exclude_frames(self._matched_index, "reference")),
+                "reference_background": sorted(self._get_exclude_frames(self._matched_index, "ref_background")),
+            },
         }
 
     # ── Config ────────────────────────────────────────────────────────────────
@@ -1101,6 +1180,7 @@ class HDSFGPanel(QWidget):
             sample_exposure         = self._sample_exp.value(),
             reference_exposure      = self._ref_exp.value(),
             phase_correction_deg    = self._phase_corr.value(),
+            exclude_frames          = self._exclude_frames.get(self._matched_index, {}),
         )
 
     def _current_step(self) -> str:
@@ -1119,6 +1199,7 @@ class HDSFGPanel(QWidget):
         computed from the previous file assignment.
         """
         self._cache.clear()
+        self._exclude_frames.clear()
         self._matched_set = None
         self._matched_index = -1
         self._last_step = None
@@ -1133,6 +1214,18 @@ class HDSFGPanel(QWidget):
         self._last_step     = None
         self._norm_lines.clear()
         self._norm_ax2 = None
+
+        sources = {
+            "signal": matched_set.signal, "background": matched_set.background,
+            "reference": matched_set.reference, "ref_background": matched_set.reference_background,
+        } if matched_set else {}
+        for component, strip in self._exclude_strips.items():
+            source = sources.get(component)
+            frame_ids = sorted(source.data["Frame"].unique()) if source else []
+            strip.blockSignals(True)
+            strip.set_frame_ids(frame_ids)
+            strip.set_excluded_frames(self._get_exclude_frames(index, component))
+            strip.blockSignals(False)
 
         cached = self._cache.get(index, {})
         for step, rb in self._step_radios.items():

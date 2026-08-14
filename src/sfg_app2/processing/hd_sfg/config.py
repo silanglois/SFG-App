@@ -59,6 +59,10 @@ class HDSFGConfig:
     despike_window: int = 50
     despike_threshold: float = 10
 
+    # ── Frame exclusion ────────────────────────────
+    # keys: "signal"/"background"/"reference"/"reference_background"
+    exclude_frames: dict = field(default_factory=dict)
+
     def __post_init__(self):
         self.edge_left  = int(self.edge_left)
         self.edge_right = int(self.edge_right)

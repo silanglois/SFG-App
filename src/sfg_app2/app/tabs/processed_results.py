@@ -892,6 +892,19 @@ class ProcessedResultsTab(QWidget):
         is_heterodyne = raw.get("type", "").strip().lower() == "heterodyne"
         provenance["kind"] = "heterodyne" if is_heterodyne else "homodyne"
 
+        def parse_excluded(key: str) -> list[int]:
+            v = raw.get(key, "").strip().lower()
+            if not v or v == "none":
+                return []
+            return [int(x) for x in v.split(",") if x.strip()]
+
+        provenance["excluded_frames"] = {
+            "signal":               parse_excluded("excluded frames signal"),
+            "background":           parse_excluded("excluded frames background"),
+            "reference":            parse_excluded("excluded frames reference"),
+            "reference_background": parse_excluded("excluded frames reference_background"),
+        }
+
         if is_heterodyne:
             provenance["despike"] = {
                 "signal":               {"window": raw.get("despike signal window"),
@@ -1096,6 +1109,18 @@ class ProcessedResultsTab(QWidget):
         lines += comp("reference", "reference")
         lines += comp("reference_background", "reference_background")
 
+        # excluded frames — per component
+        excl = provenance.get("excluded_frames", {})
+
+        def excl_line(key, label):
+            ids = excl.get(key) or []
+            return f"# Excluded frames {label}:      {','.join(map(str, ids)) if ids else 'none'}"
+
+        lines.append(excl_line("signal", "signal"))
+        lines.append(excl_line("background", "background"))
+        lines.append(excl_line("reference", "reference"))
+        lines.append(excl_line("reference_background", "reference_background"))
+
         # background subtraction
         bg = provenance.get("background_subtraction", {})
         if bg.get("applied"):
@@ -1140,11 +1165,21 @@ class ProcessedResultsTab(QWidget):
                 f"# Despike {label} threshold:   {c.get('threshold', 'N/A')}",
             ]
 
+        excl = provenance.get("excluded_frames", {})
+
+        def excl_line(key, label):
+            ids = excl.get(key) or []
+            return f"# Excluded frames {label}:      {','.join(map(str, ids)) if ids else 'none'}"
+
         lines = []
         lines += comp("signal", "signal")
         lines += comp("background", "background")
         lines += comp("reference", "reference")
         lines += comp("reference_background", "reference_background")
+        lines.append(excl_line("signal", "signal"))
+        lines.append(excl_line("background", "background"))
+        lines.append(excl_line("reference", "reference"))
+        lines.append(excl_line("reference_background", "reference_background"))
         lines += [
             f"# BG subtraction offset:              {bg.get('bg_offset', 'N/A')}",
             f"# BG subtraction edge_left_pts:       {bg.get('edge_left', 'N/A')}",

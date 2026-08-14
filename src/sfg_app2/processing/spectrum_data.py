@@ -30,10 +30,19 @@ class SpectrumDataMixin:
             raise ValueError(f"No frame '{frame_id}' found")
         return sub.sort_values("Wavelength").reset_index(drop=True)
 
-    def average_spectrum(self):
+    def average_spectrum(self, exclude_frames=None):
+        """Average all frames into one. exclude_frames, if given, is an
+        iterable of Frame ids to drop before averaging.
+        """
         from sfg_app2.processing.processed_spectrum import ProcessedSpectrum
 
-        grouped = self._raw_df.groupby("Wavelength")["Intensity"]
+        df = self._raw_df
+        if exclude_frames:
+            df = df[~df["Frame"].isin(exclude_frames)]
+            if df.empty:
+                raise ValueError("exclude_frames would exclude every frame")
+
+        grouped = df.groupby("Wavelength")["Intensity"]
         result = grouped.agg(["mean", "std", "count"]).reset_index()
         result = result.rename(columns={"mean": "Intensity", "std": "Intensity_std"})
         result = result.sort_values("Wavelength").reset_index(drop=True)
