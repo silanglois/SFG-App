@@ -15,6 +15,7 @@ from sfg_app2.app.widgets.spectrum_plot_widget import SpectrumPlotWidget
 from sfg_app2.app.widgets.collapsible_group_box import make_collapsible
 from sfg_app2.app.widgets.frame_exclude_widget import FrameCheckStrip
 from sfg_app2.app.utils.loading_indicator import show_loading
+from sfg_app2.app.utils.phase_wrap import wrap_phase_for_plot
 
 logger = logging.getLogger(__name__)
 
@@ -474,6 +475,13 @@ class HDSFGPanel(QWidget):
         for cb in [self._cb_imag, self._cb_real,
                    self._cb_homodyne, self._cb_phase, self._cb_errors]:
             row2.addWidget(cb)
+
+        row2.addWidget(QLabel("Phase range:"))
+        self._phase_range_combo = QComboBox()
+        self._phase_range_combo.addItem("[-180°, 180°]", userData="pm180")
+        self._phase_range_combo.addItem("[0°, 360°)", userData="0to360")
+        row2.addWidget(self._phase_range_combo)
+
         row2.addStretch()
         layout.addLayout(row2)
 
@@ -497,6 +505,7 @@ class HDSFGPanel(QWidget):
         for cb in [self._cb_imag, self._cb_real,
                 self._cb_homodyne, self._cb_phase, self._cb_errors]:
             cb.stateChanged.connect(self._redraw_timer.start)
+        self._phase_range_combo.currentIndexChanged.connect(self._redraw_timer.start)
 
         # despike params → auto-reprocess from despike step
         for key in self._despike_params:
@@ -903,8 +912,15 @@ class HDSFGPanel(QWidget):
             self._norm_ax2.axhline(
                 0, color="gray", linewidth=0.4, linestyle="--"   # 0° reference instead of 90°
             )
-            self._norm_ax2.set_ylim(-180, 180)
             self._norm_ax2.set_ylabel("Phase (°)", color="gray")
+
+        # phase axis range depends on the current toggle, and the user can
+        # change it after the first plot — so this is re-applied every call
+        if self._phase_range_combo.currentData() == "0to360":
+            self._norm_ax2.set_ylim(0, 360)
+            self._norm_ax2.set_yticks([0, 45, 90, 135, 180, 225, 270, 315, 360])
+        else:
+            self._norm_ax2.set_ylim(-180, 180)
             self._norm_ax2.set_yticks([-180, -135, -90, -45, 0, 45, 90, 135, 180])
 
         # ── Update data and visibility ────────────────────────────────────────────
@@ -934,6 +950,9 @@ class HDSFGPanel(QWidget):
 
         # phase
         y_phase = data.phase_avg if use_avg else data.phase
+        y_phase = wrap_phase_for_plot(
+            y_phase, self._phase_range_combo.currentData() == "0to360"
+        )
         self._norm_lines["phase"].set_ydata(y_phase)
         self._norm_lines["phase"].set_visible(self._cb_phase.isChecked())
         self._norm_ax2.set_visible(self._cb_phase.isChecked())

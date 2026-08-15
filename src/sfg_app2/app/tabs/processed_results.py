@@ -13,13 +13,14 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QListWidgetItem, QFileDialog,
     QMessageBox, QAbstractItemView, QInputDialog, QMenu, QCheckBox,
-    QMainWindow, QDockWidget,
+    QMainWindow, QDockWidget, QComboBox, QLabel,
 )
 
 from sfg_app2.app.ui.ui_processed_results_tab import Ui_Form
 from sfg_app2.app.widgets.spectrum_plot_widget import SpectrumPlotWidget
 from sfg_app2.processing.processed_spectrum import ProcessedSpectrum
 from sfg_app2.app.utils.loading_indicator import show_loading
+from sfg_app2.app.utils.phase_wrap import wrap_phase_for_plot
 
 logger = logging.getLogger(__name__)
 
@@ -233,6 +234,15 @@ class ProcessedResultsTab(QWidget):
             "line — has no effect on homodyne entries."
         )
 
+        phase_row = QHBoxLayout()
+        phase_row.addWidget(QLabel("Phase range:"))
+        self._phase_range_combo = QComboBox()
+        self._phase_range_combo.addItem("[-180°, 180°]", userData="pm180")
+        self._phase_range_combo.addItem("[0°, 360°)", userData="0to360")
+        phase_row.addWidget(self._phase_range_combo)
+        phase_row.addStretch()
+        self.ui.verticalLayout_6.addLayout(phase_row)
+
     def _checked_hd_components(self) -> list[str]:
         return [name for name, cb in self._hd_checkboxes.items() if cb.isChecked()]
 
@@ -259,6 +269,7 @@ class ProcessedResultsTab(QWidget):
         for cb in self._hd_checkboxes.values():
             cb.toggled.connect(self._refresh_plot)
         self.ui.hdCheckShowError.toggled.connect(self._refresh_plot)
+        self._phase_range_combo.currentIndexChanged.connect(self._refresh_plot)
         self.ui.legendFieldComboBox.currentIndexChanged.connect(self._refresh_plot)
         self.ui.xAxisLabelEdit.editingFinished.connect(self._refresh_plot)
         self.ui.yAxisLabelEdit.editingFinished.connect(self._refresh_plot)
@@ -562,6 +573,10 @@ class ProcessedResultsTab(QWidget):
 
                 x = data[x_col].to_numpy()
                 raw_y = data[y_col].to_numpy()
+                if component == "Phase":
+                    raw_y = wrap_phase_for_plot(
+                        raw_y, self._phase_range_combo.currentData() == "0to360"
+                    )
                 is_secondary = style.axis == "secondary"
                 # normalization is scoped to the primary axis — a secondary
                 # axis is meant to show a trace in its own native units
