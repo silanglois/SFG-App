@@ -667,6 +667,35 @@ class HDSFGPanel(QWidget):
         except Exception:
             return 1030.7
 
+    def on_upconversion_changed(self) -> int:
+        """Called by ProcessReviewTab when the shared upconversion
+        wavelength spinbox changes. HD-SFG bakes the wavelength into the
+        wavenumber axis during averaging itself, so every wavelength-
+        dependent cached step (averaged and everything downstream) is
+        invalidated for *every* matched set, not just the currently-viewed
+        one — otherwise switching to a previously-processed set could
+        silently show results computed with a stale wavelength. The
+        currently-viewed set is re-run immediately if it had already been
+        processed that far; other sets simply lose their downstream step
+        radios (handled automatically by set_matched_set()'s existing
+        cached-step check) until reprocessed. Returns how many *other*
+        (not currently-viewed) sets were invalidated, so the caller can
+        tell the user reprocessing is needed.
+        """
+        stale_others = 0
+        for idx, c in self._cache.items():
+            had_downstream = any(
+                step in c for step in
+                ("averaged", "bg_smooth", "fft_filter", "ifft", "normalization")
+            )
+            for step in ("averaged", "bg_smooth", "fft_filter", "ifft", "normalization"):
+                c.pop(step, None)
+            if had_downstream and idx != self._matched_index:
+                stale_others += 1
+        if "despiked" in self._cache.get(self._matched_index, {}):
+            self._auto_process_from("averaged")
+        return stale_others
+
     # ── Per-step plotters ─────────────────────────────────────────────────────
 
     def _show_sample(self) -> bool:

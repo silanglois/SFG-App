@@ -142,6 +142,12 @@ class ProcessReviewTab(QWidget):
 
     def _on_upconversion_changed(self):
         self._homodyne_panel.on_upconversion_changed()
+        stale = self._hd_sfg_panel.on_upconversion_changed()
+        wl = self.ui.upconversionSpinBox.value()
+        msg = f"Upconversion wavelength set to {wl:.1f} nm."
+        if stale:
+            msg += f" {stale} other HD-SFG set(s) will need reprocessing to reflect it."
+        self.window().statusBar().showMessage(msg)
 
     # ── Calibration ───────────────────────────────────────────────────────────
 
