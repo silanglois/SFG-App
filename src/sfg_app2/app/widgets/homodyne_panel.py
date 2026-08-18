@@ -622,7 +622,8 @@ class HomodynePanel(QWidget):
         self._apply_legend()
 
         xlabel = "Wavenumber (cm$^{-1}$)" if step == "normalized" else "Wavelength (nm)"
-        self.plot_widget.set_labels(xlabel=xlabel, ylabel="Intensity", title=STEP_LABELS[step])
+        ylabel = "Intensity (a.u.)" if step == "normalized" else "Intensity (counts)"
+        self.plot_widget.set_labels(xlabel=xlabel, ylabel=ylabel, title=STEP_LABELS[step])
         self.plot_widget.sync_x_range()
         self.plot_widget.canvas.draw_idle()
 

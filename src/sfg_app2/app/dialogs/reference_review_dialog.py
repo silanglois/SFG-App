@@ -133,6 +133,6 @@ class ReferenceReviewDialog(QDialog):
 
         self.plot_widget.set_labels(
             xlabel="Wavelength (nm)",
-            ylabel="Intensity",
+            ylabel="Intensity (counts)",
             title="Reference & Reference Background Review",
         )

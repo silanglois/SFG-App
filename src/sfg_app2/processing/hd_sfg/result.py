@@ -127,11 +127,11 @@ class HDSFGResult:
 
         ax.set_xlabel("Wavenumber (cm$^{-1}$)")
         ylabel = {
-            "real":      r"Re($\chi^{(2)}$)",
-            "imaginary": r"Im($\chi^{(2)}$)",
+            "real":      r"Re($\chi^{(2)}$) (a.u.)",
+            "imaginary": r"Im($\chi^{(2)}$) (a.u.)",
             "phase":     "Phase (°)",
-            "homodyne":  r"$|\chi^{(2)}|^2$",
-        }.get(comp, "Amplitude")
+            "homodyne":  r"$|\chi^{(2)}|^2$ (a.u.)",
+        }.get(comp, "Amplitude (a.u.)")
         ax.set_ylabel(ylabel)
 
         return ax

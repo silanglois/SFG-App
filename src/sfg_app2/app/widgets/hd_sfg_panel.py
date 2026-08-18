@@ -755,7 +755,7 @@ class HDSFGPanel(QWidget):
                         label=f"{pair_label} BG F{fid}" + (" (excluded)" if is_excluded else ""),
                     )
         self.plot_widget.set_labels(
-            xlabel="Wavenumber (cm$^{-1}$)", ylabel="Intensity", title="Raw"
+            xlabel="Wavenumber (cm$^{-1}$)", ylabel="Intensity (counts)", title="Raw"
         )
 
 
@@ -798,7 +798,7 @@ class HDSFGPanel(QWidget):
                         label=f"{pair_label} BG F{fid}" + (" (excluded)" if is_excluded else ""),
                     )
         self.plot_widget.set_labels(
-            xlabel="Wavenumber (cm$^{-1}$)", ylabel="Intensity", title="Despiked"
+            xlabel="Wavenumber (cm$^{-1}$)", ylabel="Intensity (counts)", title="Despiked"
         )
 
 
@@ -820,7 +820,7 @@ class HDSFGPanel(QWidget):
                 self.plot_widget.ax.plot(wn, bg_y, linestyle="--",
                                         alpha=0.7, label=f"{pair_label} BG")
         self.plot_widget.set_labels(
-            xlabel="Wavenumber (cm$^{-1}$)", ylabel="Intensity", title="Averaged"
+            xlabel="Wavenumber (cm$^{-1}$)", ylabel="Intensity (counts)", title="Averaged"
         )
 
     def _plot_bg_smooth(self, data):
@@ -864,7 +864,7 @@ class HDSFGPanel(QWidget):
 
         self.plot_widget.ax.axhline(0, color="gray", linewidth=0.5)
         self.plot_widget.set_labels(
-            xlabel="Wavenumber (cm$^{-1}$)", ylabel="Intensity", title=title
+            xlabel="Wavenumber (cm$^{-1}$)", ylabel="Intensity (counts)", title=title
         )
 
     def _plot_fft_filter(self, data):
@@ -890,7 +890,7 @@ class HDSFGPanel(QWidget):
         window_type = self._fft_window_type.currentData()
         type_name = self._FFT_WINDOW_TYPE_NAMES.get(window_type, "?")
         self.plot_widget.set_labels(
-            xlabel="Time (ps)", ylabel="FFT amplitude (imag)",
+            xlabel="Time (ps)", ylabel="FFT amplitude, imaginary (a.u.)",
             title=f"FFT + filter window — {window_type}: {type_name}"
         )
 
@@ -908,7 +908,7 @@ class HDSFGPanel(QWidget):
                                      alpha=0.7, label="Reference iFFT (imag)")
         self.plot_widget.ax.axhline(0, color="gray", linewidth=0.5)
         self.plot_widget.set_labels(
-            xlabel="Wavenumber (cm$^{-1}$)", ylabel="Amplitude",
+            xlabel="Wavenumber (cm$^{-1}$)", ylabel="Amplitude (a.u.)",
             title="iFFT result (frequency domain)"
         )
 
@@ -1027,7 +1027,7 @@ class HDSFGPanel(QWidget):
 
         self.plot_widget.set_labels(
             xlabel="Wavenumber (cm$^{-1}$)",
-            ylabel=r"$\chi^{(2)}$ (arb. units)",
+            ylabel=r"$\chi^{(2)}$ (a.u.)",
             title="Normalized HD-SFG result"
         )
 

@@ -130,6 +130,7 @@ class SpectrumDataMixin:
                     **kwargs
                 )
 
-        ax.set_xlabel(x)
-        ax.set_ylabel("Intensity")
+        xlabel = {"Wavelength": "Wavelength (nm)", "Wavenumber": "Wavenumber (cm$^{-1}$)"}.get(x, x)
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel("Intensity (counts)")
         return ax

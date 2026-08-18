@@ -199,7 +199,7 @@ class PolystyreneCalibrationDialog(QDialog):
             color="steelblue", label="Quartz / Polystyrene (SFG)",
         )
         ax1.set_xlabel("Wavenumber (cm$^{-1}$)")
-        ax1.set_ylabel("SFG Intensity ratio", color="steelblue")
+        ax1.set_ylabel("SFG Intensity ratio (a.u.)", color="steelblue")
         ax1.set_xlim(2750, 3150)
 
         if ps_ext is not None:

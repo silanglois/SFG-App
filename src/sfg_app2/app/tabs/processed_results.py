@@ -70,10 +70,10 @@ _HD_ERROR_COLUMN = {
 # so plotted labels use mathtext while the checkbox text itself stays plain
 # Unicode — Qt widgets don't interpret mathtext syntax)
 _HD_YLABEL = {
-    "Imaginary": r"Im($\chi^{(2)}$)",
-    "Real": r"Re($\chi^{(2)}$)",
+    "Imaginary": r"Im($\chi^{(2)}$) (a.u.)",
+    "Real": r"Re($\chi^{(2)}$) (a.u.)",
     "Phase": "Phase (°)",
-    "|χ⁽²⁾|² (Homodyne)": r"$|\chi^{(2)}|^2$",
+    "|χ⁽²⁾|² (Homodyne)": r"$|\chi^{(2)}|^2$ (a.u.)",
 }
 
 # display name -> mathtext-safe legend label suffix (same reasoning as
@@ -477,11 +477,11 @@ class ProcessedResultsTab(QWidget):
 
     def _ylabel_for(self, hd_components: list[str], has_amplitude_line: bool) -> str:
         if hd_components:
-            return (_HD_YLABEL.get(hd_components[0], "Amplitude")
-                    if len(set(hd_components)) == 1 else "Amplitude")
+            return (_HD_YLABEL.get(hd_components[0], "Amplitude (a.u.)")
+                    if len(set(hd_components)) == 1 else "Amplitude (a.u.)")
         if has_amplitude_line:
-            return ("Intensity" if self.ui.normalizationComboBox.currentIndex() == 0
-                     else "Normalized Intensity")
+            return ("Intensity (counts)" if self.ui.normalizationComboBox.currentIndex() == 0
+                     else "Normalized Intensity (a.u.)")
         return ""
 
     def _draw_annotations(self):

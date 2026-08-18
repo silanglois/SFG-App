@@ -100,7 +100,7 @@ class PlotDialog(QDialog):
 
         mode_label = {"average": "averaged", "all": "all frames"}.get(mode, f"frame {mode}")
         self.plot_widget.set_labels(
-            xlabel="Wavelength",
-            ylabel="Intensity",
+            xlabel="Wavelength (nm)",
+            ylabel="Intensity (counts)",
             title=f"{len(files)} file(s) overlaid — {mode_label}",
         )

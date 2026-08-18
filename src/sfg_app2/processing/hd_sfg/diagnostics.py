@@ -84,7 +84,7 @@ class HDSFGDiagnostics:
 
         ax.axhline(0, color="gray", linewidth=0.5)
         ax.set_xlabel("Wavenumber (cm$^{-1}$)")
-        ax.set_ylabel("Intensity")
+        ax.set_ylabel("Intensity (counts)")
         ax.set_title(
             f"Step 1 — {'Frame ' + str(frame_idx) if frame_idx is not None else 'Averaged'} "
             f"signal, background & delta"
@@ -106,7 +106,7 @@ class HDSFGDiagnostics:
         ax2.plot(wn, self.edge_window, color="gray", linewidth=0.8,
                  linestyle=":", label="Edge window")
         ax.set_xlabel("Wavenumber (cm$^{-1}$)")
-        ax.set_ylabel("Delta intensity")
+        ax.set_ylabel("Delta intensity (counts)")
         ax2.set_ylabel("Window weight", color="gray")
         ax.set_title("Step 2 — Edge window applied to delta")
         ax.axhline(0, color="gray", linewidth=0.5)
@@ -135,7 +135,7 @@ class HDSFGDiagnostics:
         ax2.plot(t, self.fft_mask, color="firebrick", linewidth=0.8,
                  linestyle=":", label="FFT mask")
         ax.set_xlabel("Time (s)")
-        ax.set_ylabel("FFT amplitude (imaginary)")
+        ax.set_ylabel("FFT amplitude, imaginary (a.u.)")
         ax2.set_ylabel("Mask weight", color="firebrick")
         ax.set_title("Step 3 — FFT and mask window")
         if tlim:
@@ -155,7 +155,7 @@ class HDSFGDiagnostics:
         ax.plot(t, self.ref_fft_masked.imag, label="Reference FFT masked (imag)",
                 linestyle="--", alpha=0.7)
         ax.set_xlabel("Time (s)")
-        ax.set_ylabel("FFT amplitude (imaginary)")
+        ax.set_ylabel("FFT amplitude, imaginary (a.u.)")
         ax.set_title("Step 4 — Masked FFT")
         if tlim:
             ax.set_xlim(*tlim)
@@ -173,7 +173,7 @@ class HDSFGDiagnostics:
         ax.plot(wn, self.ref_ifft.imag, label="Reference iFFT (imag)", alpha=0.6)
         ax.axhline(0, color="gray", linewidth=0.5)
         ax.set_xlabel("Wavenumber (cm$^{-1}$)")
-        ax.set_ylabel("Amplitude")
+        ax.set_ylabel("Amplitude (a.u.)")
         ax.set_title("Step 5 — iFFT result")
         if xlim:
             ax.set_xlim(*xlim)
@@ -190,7 +190,7 @@ class HDSFGDiagnostics:
         ax.plot(wn, self.chi_from_avg.real, label=r"Re($\chi^{(2)}$)", linestyle="--")
         ax.axhline(0, color="gray", linewidth=0.5)
         ax.set_xlabel("Wavenumber (cm$^{-1}$)")
-        ax.set_ylabel(r"$\chi^{(2)}$ (arb. units)")
+        ax.set_ylabel(r"$\chi^{(2)}$ (a.u.)")
         ax.set_title("Step 6 — Final normalized result")
         if xlim:
             ax.set_xlim(*xlim)
