@@ -8,7 +8,8 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QGroupBox, QPushButton, QRadioButton, QButtonGroup,
     QComboBox, QCheckBox, QSpinBox, QDoubleSpinBox,
-    QFrame, QSizePolicy
+    QFrame, QSizePolicy,
+    QTableWidget, QTableWidgetItem, QHeaderView,
 )
 
 from sfg_app2.app.widgets.spectrum_plot_widget import SpectrumPlotWidget
@@ -16,6 +17,7 @@ from sfg_app2.app.widgets.collapsible_group_box import make_collapsible
 from sfg_app2.app.widgets.frame_exclude_widget import FrameCheckStrip
 from sfg_app2.app.utils.loading_indicator import show_loading
 from sfg_app2.app.utils.phase_wrap import wrap_phase_for_plot
+from sfg_app2.processing.baseline import fit_offset_from_markers, _resolve_offset
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +73,11 @@ class HDSFGPanel(QWidget):
         self._norm_lines: dict = {}
         self._norm_ax2 = None
 
+        # background-offset markers — global (x, y) values, see
+        # _build_bg_smooth_section()'s docstring
+        self._bg_markers: list[tuple[float, float]] = []
+        self._marker_just_picked = False
+
         # debounce timer for rapid signal firing
         self._redraw_timer = QTimer()
         self._redraw_timer.setSingleShot(True)
@@ -102,6 +109,8 @@ class HDSFGPanel(QWidget):
         self.plot_widget.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
+        self.plot_widget.canvas.mpl_connect('button_press_event', self._on_plot_click)
+        self.plot_widget.canvas.mpl_connect('pick_event', self._on_marker_pick)
         plot_row = QHBoxLayout()
         plot_row.addWidget(self.plot_widget, 1)
 
@@ -305,30 +314,164 @@ class HDSFGPanel(QWidget):
 
         self._auto_process_from("averaged")
 
+    # ── Background offset markers ────────────────────────────────────────────
+
+    def _reload_bg_marker_table(self):
+        self._bg_marker_table.blockSignals(True)
+        self._bg_marker_table.setRowCount(len(self._bg_markers))
+        for row, (x, y) in enumerate(self._bg_markers):
+            self._bg_marker_table.setItem(row, 0, QTableWidgetItem(f"{x:.6g}"))
+            self._bg_marker_table.setItem(row, 1, QTableWidgetItem(f"{y:.6g}"))
+        self._bg_marker_table.blockSignals(False)
+
+    def _add_bg_marker(self, x: float, y: float):
+        self._bg_markers.append((float(x), float(y)))
+        self._reload_bg_marker_table()
+        self._auto_process_from("bg_smooth")
+
+    def _remove_bg_marker(self, index: int):
+        if 0 <= index < len(self._bg_markers):
+            del self._bg_markers[index]
+        self._reload_bg_marker_table()
+        self._auto_process_from("bg_smooth")
+
+    def _on_add_bg_marker_row(self):
+        self._add_bg_marker(0.0, 0.0)
+
+    def _on_remove_bg_marker_row(self):
+        row = self._bg_marker_table.currentRow()
+        if row >= 0:
+            self._remove_bg_marker(row)
+
+    def _on_clear_bg_markers(self):
+        self._bg_markers.clear()
+        self._reload_bg_marker_table()
+        self._auto_process_from("bg_smooth")
+
+    def _on_bg_marker_cell_changed(self, row: int, col: int):
+        if row >= len(self._bg_markers):
+            return
+        item = self._bg_marker_table.item(row, col)
+        try:
+            val = float(item.text()) if item is not None else None
+        except ValueError:
+            val = None
+        if val is None:
+            self._reload_bg_marker_table()   # revert invalid text
+            return
+        x, y = self._bg_markers[row]
+        self._bg_markers[row] = (val, y) if col == 0 else (x, val)
+        self._auto_process_from("bg_smooth")
+
+    def _on_marker_pick(self, event):
+        if not getattr(event.artist, "_is_bg_marker", False):
+            return
+        if not len(event.ind):
+            return
+        self._marker_just_picked = True
+        self._remove_bg_marker(event.ind[0])
+
+    def _on_plot_click(self, event):
+        if self._marker_just_picked:
+            self._marker_just_picked = False
+            return
+        if event.inaxes != self.plot_widget.ax:
+            return
+        if (self._current_step() != "bg_smooth"
+                or self._view_combo.currentText() != "Signal + Background"):
+            return
+        if event.xdata is None or event.ydata is None:
+            return
+        self._add_bg_marker(event.xdata, event.ydata)
+
+    def _plot_bg_markers(self):
+        if not self._bg_markers:
+            return
+        xs = [m[0] for m in self._bg_markers]
+        ys = [m[1] for m in self._bg_markers]
+        line, = self.plot_widget.ax.plot(
+            xs, ys, marker="o", linestyle="none",
+            markersize=8, markerfacecolor="black",
+            markeredgecolor="white", markeredgewidth=1,
+            picker=5, zorder=6, label="_nolegend_",
+        )
+        line._is_bg_marker = True
+
+    def _fit_bg_offset(self, averaged):
+        """averaged: hd_sfg.steps.AveragedData — its bg_avg/wavenumber are
+        used as the curve the markers' residuals are fit against."""
+        style = self._bg_offset_style.currentText()
+        if style == "None" or not self._bg_markers:
+            return None
+        degree = self._bg_offset_degree.value()
+        return fit_offset_from_markers(
+            self._bg_markers, style.lower(), degree,
+            averaged.wavenumber, averaged.bg_avg,
+        )
+
     def _build_bg_smooth_section(self) -> QGroupBox:
+        """The offset added to the averaged signal background before
+        subtraction. Fit (least-squares, degree set by style) through
+        markers placed by clicking the plot in the "Signal + Background"
+        view, or editing the table — same marker-driven approach as
+        HomodynePanel's background correction (see its
+        _build_bg_offset_section() docstring for the "markers are global
+        values" reasoning, which applies here too).
+        """
         gb = QGroupBox("Background subtraction + edge window")
         gb.setCheckable(True)
-        layout = QHBoxLayout(gb)
+        layout = QVBoxLayout(gb)
 
-        layout.addWidget(QLabel("BG offset:"))
-        self._bg_offset = QDoubleSpinBox()
-        self._bg_offset.setRange(-10000.0, 10000.0)
-        self._bg_offset.setValue(0.0)
-        layout.addWidget(self._bg_offset)
-
-        layout.addWidget(QLabel("Edge low wn (pts):"))
+        edge_row = QHBoxLayout()
+        edge_row.addWidget(QLabel("Edge low wn (pts):"))
         self._edge_right = QSpinBox()  # controls low-wn end
         self._edge_right.setRange(1, 1000)
         self._edge_right.setValue(15)
-        layout.addWidget(self._edge_right)
+        edge_row.addWidget(self._edge_right)
 
-        layout.addWidget(QLabel("Edge high wn (pts):"))
+        edge_row.addWidget(QLabel("Edge high wn (pts):"))
         self._edge_left = QSpinBox()   # controls high-wn end
         self._edge_left.setRange(1, 1000)
         self._edge_left.setValue(15)
-        layout.addWidget(self._edge_left)
+        edge_row.addWidget(self._edge_left)
+        edge_row.addStretch()
+        layout.addLayout(edge_row)
 
-        layout.addStretch()
+        style_row = QHBoxLayout()
+        style_row.addWidget(QLabel("BG offset style:"))
+        self._bg_offset_style = QComboBox()
+        self._bg_offset_style.addItems(["None", "Constant", "Linear", "Polynomial"])
+        style_row.addWidget(self._bg_offset_style)
+        self._bg_offset_degree = QSpinBox()
+        self._bg_offset_degree.setRange(1, 6)
+        self._bg_offset_degree.setValue(2)
+        self._bg_offset_degree.setPrefix("degree ")
+        self._bg_offset_degree.setVisible(False)
+        style_row.addWidget(self._bg_offset_degree)
+        style_row.addStretch()
+        layout.addLayout(style_row)
+
+        layout.addWidget(QLabel(
+            "Markers (click the plot in \"Signal + Background\" view to add, "
+            "click a marker to remove, or edit here):"
+        ))
+        self._bg_marker_table = QTableWidget(0, 2)
+        self._bg_marker_table.setHorizontalHeaderLabels(["X", "Y"])
+        self._bg_marker_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self._bg_marker_table.verticalHeader().setVisible(False)
+        self._bg_marker_table.setMaximumHeight(120)
+        layout.addWidget(self._bg_marker_table)
+
+        marker_btn_row = QHBoxLayout()
+        self._add_bg_marker_btn = QPushButton("Add row")
+        self._remove_bg_marker_btn = QPushButton("Remove selected")
+        self._clear_bg_marker_btn = QPushButton("Clear all")
+        marker_btn_row.addWidget(self._add_bg_marker_btn)
+        marker_btn_row.addWidget(self._remove_bg_marker_btn)
+        marker_btn_row.addWidget(self._clear_bg_marker_btn)
+        marker_btn_row.addStretch()
+        layout.addLayout(marker_btn_row)
+
         return gb
 
     # window type -> human-readable name, and which params each type reads
@@ -523,8 +666,21 @@ class HDSFGPanel(QWidget):
             )
 
         # bg subtraction params → auto-reprocess from bg_smooth step
-        for sb in [self._bg_offset, self._edge_left, self._edge_right]:
+        for sb in [self._edge_left, self._edge_right]:
             sb.valueChanged.connect(lambda: self._auto_process_from("bg_smooth"))
+        self._bg_offset_style.currentTextChanged.connect(
+            lambda: self._auto_process_from("bg_smooth")
+        )
+        self._bg_offset_style.currentTextChanged.connect(
+            lambda t: self._bg_offset_degree.setVisible(t == "Polynomial")
+        )
+        self._bg_offset_degree.valueChanged.connect(
+            lambda: self._auto_process_from("bg_smooth")
+        )
+        self._add_bg_marker_btn.clicked.connect(self._on_add_bg_marker_row)
+        self._remove_bg_marker_btn.clicked.connect(self._on_remove_bg_marker_row)
+        self._clear_bg_marker_btn.clicked.connect(self._on_clear_bg_markers)
+        self._bg_marker_table.cellChanged.connect(self._on_bg_marker_cell_changed)
 
         # FFT params → auto-reprocess from fft_filter step
         for sb in [self._fft_start, self._fft_end, self._hg_left, self._hg_right,
@@ -839,6 +995,7 @@ class HDSFGPanel(QWidget):
             self.plot_widget.ax.plot(wn, data.ref_bg_sm,
                                     linestyle="--", alpha=0.5,
                                     label="Ref BG (smoothed)")
+            self._plot_bg_markers()
             title = "BG Subtraction — Signal + Background"
         else:
             # subtracted result + edge window mask on twin axis
@@ -1109,6 +1266,7 @@ class HDSFGPanel(QWidget):
             if "averaged" not in c:
                 c["averaged"] = step_average(c["despiked"], cfg)
             if "bg_smooth" not in c:
+                cfg.bg_offset = self._fit_bg_offset(c["averaged"])
                 c["bg_smooth"] = step_bg_smooth(c["averaged"], cfg)
             if "fft_filter" not in c:
                 fft_data = step_fft_filter(c["bg_smooth"], cfg)
@@ -1172,7 +1330,10 @@ class HDSFGPanel(QWidget):
                 "reference_background": desp("ref_background"),
             },
             "background_subtraction": {
-                "bg_offset":            cfg.bg_offset,
+                "bg_offset_style":      self._bg_offset_style.currentText(),
+                "bg_offset_degree":     self._bg_offset_degree.value(),
+                "bg_offset_markers":    [list(pt) for pt in self._bg_markers],
+                "bg_offset":            str(cfg.bg_offset) if cfg.bg_offset is not None else "None",
                 "edge_left":            cfg.edge_left,
                 "edge_right":           cfg.edge_right,
                 "bg_smoothing_window":  cfg.bg_smoothing_window,
@@ -1216,7 +1377,8 @@ class HDSFGPanel(QWidget):
             bg_smoothing_order      = 0,
             sig_smoothing_window    = 0,   # disabled
             sig_smoothing_order     = 0,
-            bg_offset               = self._bg_offset.value(),
+            # bg_offset is resolved later, in _run_from_step(), once the
+            # averaged background curve markers are fit against exists
             edge_left               = self._edge_left.value(),
             edge_right              = self._edge_right.value(),
             window_type             = self._fft_window_type.currentData(),

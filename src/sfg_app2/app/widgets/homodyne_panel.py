@@ -6,15 +6,16 @@ from PySide6.QtCore import Signal, QTimer
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QGroupBox, QPushButton, QRadioButton, QButtonGroup,
-    QComboBox, QSpinBox, QDoubleSpinBox, QLineEdit,
+    QComboBox, QSpinBox, QDoubleSpinBox,
     QFrame, QSizePolicy, QGridLayout, QMessageBox,
+    QTableWidget, QTableWidgetItem, QHeaderView,
 )
 
 from sfg_app2.app.widgets.spectrum_plot_widget import SpectrumPlotWidget
 from sfg_app2.app.widgets.collapsible_group_box import make_collapsible
 from sfg_app2.app.widgets.frame_exclude_widget import FrameCheckStrip
 from sfg_app2.app.utils.loading_indicator import show_loading
-from sfg_app2.processing.baseline import subtract_background, apply_offset
+from sfg_app2.processing.baseline import subtract_background, apply_offset, fit_offset_from_markers
 from sfg_app2.processing.normalization import normalize
 
 logger = logging.getLogger(__name__)
@@ -51,19 +52,6 @@ STEP_SECTION = {
 }
 
 
-def _parse_offset(combo_text: str, params_text: str):
-    if combo_text == "None":
-        return None
-    try:
-        if combo_text == "Constant":
-            return float(params_text)
-        elif combo_text in ("Linear", "Polynomial"):
-            return [float(x.strip()) for x in params_text.split(",")]
-    except ValueError:
-        logger.warning("Could not parse offset params '%s' — using None.", params_text)
-        return None
-
-
 def _colors(n: int) -> list:
     prop_cycle = plt.rcParams["axes.prop_cycle"]
     colors = [p["color"] for p in prop_cycle]
@@ -93,6 +81,15 @@ class HomodynePanel(QWidget):
         self._despike_configs: dict[int, dict] = {}
         self._exclude_frames: dict[int, dict[str, set]] = {}
 
+        # background-offset markers — global (x, y) points shared across
+        # every matched set: each set's offset curve is a least-squares fit
+        # of the chosen style through (marker_y - that_set's_own_bg(marker_x)),
+        # so the same markers yield a different offset curve per set. See
+        # _fit_offset().
+        self._sig_markers: list[tuple[float, float]] = []
+        self._ref_markers: list[tuple[float, float]] = []
+        self._marker_just_picked = False
+
         self._recompute_timer = QTimer(self)
         self._recompute_timer.setSingleShot(True)
         self._recompute_timer.setInterval(300)
@@ -112,6 +109,8 @@ class HomodynePanel(QWidget):
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
         main_layout.addWidget(self.plot_widget)
+        self.plot_widget.canvas.mpl_connect('button_press_event', self._on_plot_click)
+        self.plot_widget.canvas.mpl_connect('pick_event', self._on_marker_pick)
 
         self._param_sections: dict[str, QGroupBox] = {}
         self._param_sections["despike"] = self._build_despike_section()
@@ -253,27 +252,67 @@ class HomodynePanel(QWidget):
         return gb
 
     def _build_bg_offset_section(self) -> QGroupBox:
+        """The offset added to the averaged background before subtraction.
+        Rather than typing coefficients blind, the offset curve is fit
+        (least-squares, degree set by the chosen style) through markers you
+        place — by clicking the plot in the "Signal + Background" view, or
+        editing the table below. Markers are global (x, y) values, not tied
+        to one matched set's curve: for each set, the fit is computed
+        against *that set's own* averaged background (see _fit_offset()),
+        so the same markers naturally produce a different curve per set.
+        """
         gb = QGroupBox("Background Correction")
         gb.setCheckable(True)
         gb.setChecked(False)
-        layout = QGridLayout(gb)
+        layout = QVBoxLayout(gb)
 
-        layout.addWidget(QLabel("Signal BG offset:"), 0, 0)
-        self._sig_offset_combo = QComboBox()
-        self._sig_offset_combo.addItems(["None", "Constant", "Linear", "Polynomial"])
-        layout.addWidget(self._sig_offset_combo, 0, 1)
-        self._sig_offset_params = QLineEdit("0")
-        layout.addWidget(self._sig_offset_params, 0, 2)
+        target_row = QHBoxLayout()
+        target_row.addWidget(QLabel("Editing markers for:"))
+        self._offset_target_combo = QComboBox()
+        self._offset_target_combo.addItems(["Signal", "Reference"])
+        target_row.addWidget(self._offset_target_combo)
+        target_row.addStretch()
+        layout.addLayout(target_row)
 
-        layout.addWidget(QLabel("Ref BG offset:"), 1, 0)
-        self._ref_offset_combo = QComboBox()
-        self._ref_offset_combo.addItems(["None", "Constant", "Linear", "Polynomial"])
-        layout.addWidget(self._ref_offset_combo, 1, 1)
-        self._ref_offset_params = QLineEdit("0")
-        layout.addWidget(self._ref_offset_params, 1, 2)
+        self._offset_style_combo: dict[str, QComboBox] = {}
+        self._offset_degree_spin: dict[str, QSpinBox] = {}
+        for target, label in (("signal", "Signal BG"), ("reference", "Ref BG")):
+            row = QHBoxLayout()
+            row.addWidget(QLabel(f"{label} style:"))
+            combo = QComboBox()
+            combo.addItems(["None", "Constant", "Linear", "Polynomial"])
+            row.addWidget(combo)
+            degree_spin = QSpinBox()
+            degree_spin.setRange(1, 6)
+            degree_spin.setValue(2)
+            degree_spin.setPrefix("degree ")
+            degree_spin.setVisible(False)
+            row.addWidget(degree_spin)
+            row.addStretch()
+            layout.addLayout(row)
+            self._offset_style_combo[target] = combo
+            self._offset_degree_spin[target] = degree_spin
 
-        self._sig_offset_params.setEnabled(False)
-        self._ref_offset_params.setEnabled(False)
+        layout.addWidget(QLabel(
+            "Markers (click the plot in \"Signal + Background\" view to add, "
+            "click a marker to remove, or edit here):"
+        ))
+        self._marker_table = QTableWidget(0, 2)
+        self._marker_table.setHorizontalHeaderLabels(["X", "Y"])
+        self._marker_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self._marker_table.verticalHeader().setVisible(False)
+        self._marker_table.setMaximumHeight(120)
+        layout.addWidget(self._marker_table)
+
+        marker_btn_row = QHBoxLayout()
+        self._add_marker_btn = QPushButton("Add row")
+        self._remove_marker_btn = QPushButton("Remove selected")
+        self._clear_marker_btn = QPushButton("Clear all")
+        marker_btn_row.addWidget(self._add_marker_btn)
+        marker_btn_row.addWidget(self._remove_marker_btn)
+        marker_btn_row.addWidget(self._clear_marker_btn)
+        marker_btn_row.addStretch()
+        layout.addLayout(marker_btn_row)
 
         self._bg_group = gb
         return gb
@@ -302,16 +341,18 @@ class HomodynePanel(QWidget):
                 lambda k=key: self._on_exclude_frames_changed(k)
             )
 
-        self._sig_offset_combo.currentTextChanged.connect(
-            lambda t: self._sig_offset_params.setEnabled(t != "None")
-        )
-        self._ref_offset_combo.currentTextChanged.connect(
-            lambda t: self._ref_offset_params.setEnabled(t != "None")
-        )
-        for w in (self._sig_offset_combo, self._ref_offset_combo):
-            w.currentTextChanged.connect(self._on_bg_offset_changed)
-        for w in (self._sig_offset_params, self._ref_offset_params):
-            w.textChanged.connect(self._on_bg_offset_changed)
+        for target, combo in self._offset_style_combo.items():
+            combo.currentTextChanged.connect(self._on_bg_offset_changed)
+            combo.currentTextChanged.connect(
+                lambda t, tgt=target: self._offset_degree_spin[tgt].setVisible(t == "Polynomial")
+            )
+        for spin in self._offset_degree_spin.values():
+            spin.valueChanged.connect(self._on_bg_offset_changed)
+        self._offset_target_combo.currentTextChanged.connect(lambda _t: self._reload_marker_table())
+        self._add_marker_btn.clicked.connect(self._on_add_marker_row)
+        self._remove_marker_btn.clicked.connect(self._on_remove_marker_row)
+        self._clear_marker_btn.clicked.connect(self._on_clear_markers)
+        self._marker_table.cellChanged.connect(self._on_marker_cell_changed)
         self._bg_group.toggled.connect(lambda _checked: self._on_bg_offset_changed())
 
         self._process_btn.clicked.connect(self._on_process)
@@ -401,18 +442,144 @@ class HomodynePanel(QWidget):
         self._invalidate_component_cache(self._selected_indices, component)
         self._recompute_timer.start()
 
+    # ── Background offset markers ────────────────────────────────────────────
+
+    def _markers_for(self, target: str) -> list[tuple[float, float]]:
+        return self._sig_markers if target == "signal" else self._ref_markers
+
+    def _current_target(self) -> str:
+        return self._offset_target_combo.currentText().lower()
+
+    def _reload_marker_table(self):
+        markers = self._markers_for(self._current_target())
+        self._marker_table.blockSignals(True)
+        self._marker_table.setRowCount(len(markers))
+        for row, (x, y) in enumerate(markers):
+            self._marker_table.setItem(row, 0, QTableWidgetItem(f"{x:.6g}"))
+            self._marker_table.setItem(row, 1, QTableWidgetItem(f"{y:.6g}"))
+        self._marker_table.blockSignals(False)
+
+    def _add_marker(self, target: str, x: float, y: float):
+        self._markers_for(target).append((float(x), float(y)))
+        if target == self._current_target():
+            self._reload_marker_table()
+        self._on_bg_offset_changed()
+
+    def _remove_marker(self, target: str, index: int):
+        markers = self._markers_for(target)
+        if 0 <= index < len(markers):
+            del markers[index]
+        if target == self._current_target():
+            self._reload_marker_table()
+        self._on_bg_offset_changed()
+
+    def _clear_markers(self, target: str):
+        self._markers_for(target).clear()
+        if target == self._current_target():
+            self._reload_marker_table()
+        self._on_bg_offset_changed()
+
+    def _on_add_marker_row(self):
+        self._add_marker(self._current_target(), 0.0, 0.0)
+
+    def _on_remove_marker_row(self):
+        row = self._marker_table.currentRow()
+        if row >= 0:
+            self._remove_marker(self._current_target(), row)
+
+    def _on_clear_markers(self):
+        self._clear_markers(self._current_target())
+
+    def _on_marker_cell_changed(self, row: int, col: int):
+        target = self._current_target()
+        markers = self._markers_for(target)
+        if row >= len(markers):
+            return
+        item = self._marker_table.item(row, col)
+        try:
+            val = float(item.text()) if item is not None else None
+        except ValueError:
+            val = None
+        if val is None:
+            self._reload_marker_table()   # revert invalid text
+            return
+        x, y = markers[row]
+        markers[row] = (val, y) if col == 0 else (x, val)
+        self._on_bg_offset_changed()
+
+    def _on_marker_pick(self, event):
+        target = getattr(event.artist, "_marker_target", None)
+        if target is None or not self._bg_group.isChecked():
+            return
+        if not len(event.ind):
+            return
+        self._marker_just_picked = True
+        self._remove_marker(target, event.ind[0])
+
+    def _on_plot_click(self, event):
+        if self._marker_just_picked:
+            self._marker_just_picked = False
+            return
+        if event.inaxes != self.plot_widget.ax or not self._bg_group.isChecked():
+            return
+        if (self._current_step() != "bg_subtracted"
+                or self._view_combo.currentText() != "Signal + Background"):
+            return
+        if event.xdata is None or event.ydata is None:
+            return
+        self._add_marker(self._current_target(), event.xdata, event.ydata)
+
+    def _plot_offset_markers(self):
+        ax = self.plot_widget.ax
+        style = {"signal": ("black", "o"), "reference": ("dimgray", "s")}
+        targets = []
+        if self._show_sample():
+            targets.append("signal")
+        if self._show_reference():
+            targets.append("reference")
+        for target in targets:
+            markers = self._markers_for(target)
+            if not markers:
+                continue
+            color, marker = style[target]
+            xs = [m[0] for m in markers]
+            ys = [m[1] for m in markers]
+            line, = ax.plot(
+                xs, ys, marker=marker, linestyle="none",
+                markersize=8, markerfacecolor=color,
+                markeredgecolor="white", markeredgewidth=1,
+                picker=5, zorder=6, label="_nolegend_",
+            )
+            line._marker_target = target
+
     # ── Background offset ────────────────────────────────────────────────────
 
-    def _current_offsets(self):
+    def _current_offsets(self, idx: int | None = None):
         if not self._bg_group.isChecked():
             return None, None
         return (
-            _parse_offset(
-                self._sig_offset_combo.currentText(), self._sig_offset_params.text()
-            ),
-            _parse_offset(
-                self._ref_offset_combo.currentText(), self._ref_offset_params.text()
-            ),
+            self._fit_offset(idx, "signal"),
+            self._fit_offset(idx, "reference"),
+        )
+
+    def _fit_offset(self, idx: int | None, target: str):
+        if idx is None:
+            return None
+        style = self._offset_style_combo[target].currentText()
+        if style == "None":
+            return None
+        markers = self._markers_for(target)
+        if not markers:
+            return None
+        c = self._cache.get(idx, {})
+        bg_data = c.get("averaged_bg" if target == "signal" else "averaged_ref_bg")
+        if bg_data is None:
+            return None
+        bg_frame = bg_data.frame(1)
+        degree = self._offset_degree_spin[target].value()
+        return fit_offset_from_markers(
+            markers, style.lower(), degree,
+            bg_frame["Wavelength"].to_numpy(), bg_frame["Intensity"].to_numpy(),
         )
 
     def _on_bg_offset_changed(self):
@@ -492,7 +659,7 @@ class HomodynePanel(QWidget):
 
         if step == "bg_subtracted":
             self._get_step(idx, "averaged")
-            sig_offset, ref_offset = self._current_offsets()
+            sig_offset, ref_offset = self._current_offsets(idx)
             if (c.get("_sig_offset") != sig_offset or
                     c.get("_ref_offset") != ref_offset):
                 c.pop("bg_subtracted", None)
@@ -529,7 +696,7 @@ class HomodynePanel(QWidget):
                     return bg_sub
                 ref = c.get("averaged_ref") or m.reference.average_spectrum(
                     exclude_frames=self._get_exclude_frames(idx, "reference"))
-                _, ref_offset = self._current_offsets()
+                _, ref_offset = self._current_offsets(idx)
                 if m.reference_background:
                     ref_bg = c.get("averaged_ref_bg") or m.reference_background.average_spectrum(
                         exclude_frames=self._get_exclude_frames(idx, "ref_background"))
@@ -546,7 +713,7 @@ class HomodynePanel(QWidget):
         'normalized' result for this set — attached to the final
         ProcessedSpectrum so it can be inspected/exported later."""
         m = self._matched_sets[idx]
-        sig_offset, ref_offset = self._current_offsets()
+        sig_offset, ref_offset = self._current_offsets(idx)
         return {
             "signal":               m.signal.path.name if m.signal else None,
             "background":           m.background.path.name if m.background else None,
@@ -559,9 +726,15 @@ class HomodynePanel(QWidget):
                 "reference_background": self._get_despike_cfg(idx, "ref_background"),
             },
             "background_subtraction": {
-                "applied":       self._bg_group.isChecked(),
-                "signal_offset": str(sig_offset) if sig_offset is not None else "None",
-                "ref_offset":    str(ref_offset) if ref_offset is not None else "None",
+                "applied":              self._bg_group.isChecked(),
+                "signal_offset_style":  self._offset_style_combo["signal"].currentText(),
+                "signal_offset_degree": self._offset_degree_spin["signal"].value(),
+                "signal_offset_markers": [list(pt) for pt in self._sig_markers],
+                "signal_offset":        str(sig_offset) if sig_offset is not None else "None",
+                "ref_offset_style":     self._offset_style_combo["reference"].currentText(),
+                "ref_offset_degree":    self._offset_degree_spin["reference"].value(),
+                "ref_offset_markers":   [list(pt) for pt in self._ref_markers],
+                "ref_offset":           str(ref_offset) if ref_offset is not None else "None",
             },
             "normalization":  {"applied": m.reference is not None},
             "upconversion":   {"applied": m.reference is not None,
@@ -618,6 +791,9 @@ class HomodynePanel(QWidget):
                     logger.warning(
                         "Could not plot set %d step '%s': %s", idx, step, e, exc_info=True,
                     )
+
+        if step == "bg_subtracted" and self._view_combo.currentText() == "Signal + Background":
+            self._plot_offset_markers()
 
         self._apply_legend()
 
@@ -764,7 +940,7 @@ class HomodynePanel(QWidget):
         subtracted result."""
         self._get_step(idx, "bg_subtracted")
         c = self._cache.get(idx, {})
-        sig_offset, ref_offset = self._current_offsets()
+        sig_offset, ref_offset = self._current_offsets(idx)
 
         pairs = []
         if self._show_sample():

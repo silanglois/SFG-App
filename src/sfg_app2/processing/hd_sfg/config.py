@@ -1,6 +1,8 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
 
+from sfg_app2.processing.utils import OffsetSpec
+
 
 @dataclass
 class HDSFGConfig:
@@ -23,7 +25,7 @@ class HDSFGConfig:
     sig_smoothing_order: int = 2     # orderSm2
 
     # ── Background offset ─────────────────────────────────────────────────────
-    bg_offset: float = 0.0           # OffSetBg — constant added to sample bg
+    bg_offset: OffsetSpec = None     # OffSetBg — added to sample bg (None/float/coeffs)
 
     # ── Edge window applied to delta before FFT ───────────────────────────────
     edge_left: int = 15              # Zero_L_smooth

@@ -942,6 +942,10 @@ class ProcessedResultsTab(QWidget):
                                           "threshold": raw.get("despike reference_background threshold")},
             }
             provenance["background_subtraction"] = {
+                "bg_offset_style":      raw.get("bg subtraction offset style"),
+                "bg_offset_degree":     raw.get("bg subtraction offset degree"),
+                "bg_offset_markers":    ProcessedResultsTab._parse_markers(
+                    raw.get("bg subtraction offset markers")),
                 "bg_offset":            raw.get("bg subtraction offset"),
                 "edge_left":            raw.get("bg subtraction edge_left_pts"),
                 "edge_right":           raw.get("bg subtraction edge_right_pts"),
@@ -980,9 +984,17 @@ class ProcessedResultsTab(QWidget):
                                           "threshold": raw.get("despike reference_background threshold")},
             }
             provenance["background_subtraction"] = {
-                "applied":       raw.get("background subtraction", "").lower() == "applied",
-                "signal_offset": raw.get("signal offset"),
-                "ref_offset":    raw.get("ref offset"),
+                "applied":              raw.get("background subtraction", "").lower() == "applied",
+                "signal_offset_style":  raw.get("signal offset style"),
+                "signal_offset_degree": raw.get("signal offset degree"),
+                "signal_offset_markers": ProcessedResultsTab._parse_markers(
+                    raw.get("signal offset markers")),
+                "signal_offset":        raw.get("signal offset"),
+                "ref_offset_style":     raw.get("ref offset style"),
+                "ref_offset_degree":    raw.get("ref offset degree"),
+                "ref_offset_markers":   ProcessedResultsTab._parse_markers(
+                    raw.get("ref offset markers")),
+                "ref_offset":           raw.get("ref offset"),
             }
             provenance["normalization"] = {
                 "applied": raw.get("normalization", "").lower() == "applied",
@@ -1116,6 +1128,29 @@ class ProcessedResultsTab(QWidget):
             spectrum.data.to_csv(f, index=False)
 
     @staticmethod
+    def _format_markers(markers) -> str:
+        if not markers:
+            return "none"
+        return ";".join(f"{x:.6g}:{y:.6g}" for x, y in markers)
+
+    @staticmethod
+    def _parse_markers(text: str | None) -> list[list[float]]:
+        text = (text or "").strip().lower()
+        if not text or text == "none":
+            return []
+        points = []
+        for chunk in text.split(";"):
+            chunk = chunk.strip()
+            if not chunk or ":" not in chunk:
+                continue
+            x_str, _, y_str = chunk.partition(":")
+            try:
+                points.append([float(x_str), float(y_str)])
+            except ValueError:
+                continue
+        return points
+
+    @staticmethod
     def _format_homodyne_provenance(provenance: dict) -> list[str]:
         lines = []
 
@@ -1151,8 +1186,14 @@ class ProcessedResultsTab(QWidget):
         if bg.get("applied"):
             lines += [
                 f"# Background subtraction: applied",
-                f"#   signal offset:      {bg.get('signal_offset', 'None')}",
-                f"#   ref offset:         {bg.get('ref_offset', 'None')}",
+                f"#   signal offset style:   {bg.get('signal_offset_style', 'None')}",
+                f"#   signal offset degree:  {bg.get('signal_offset_degree', 'N/A')}",
+                f"#   signal offset markers: {ProcessedResultsTab._format_markers(bg.get('signal_offset_markers'))}",
+                f"#   signal offset:         {bg.get('signal_offset', 'None')}",
+                f"#   ref offset style:      {bg.get('ref_offset_style', 'None')}",
+                f"#   ref offset degree:     {bg.get('ref_offset_degree', 'N/A')}",
+                f"#   ref offset markers:    {ProcessedResultsTab._format_markers(bg.get('ref_offset_markers'))}",
+                f"#   ref offset:            {bg.get('ref_offset', 'None')}",
             ]
         else:
             lines.append("# Background subtraction: not applied")
@@ -1206,6 +1247,9 @@ class ProcessedResultsTab(QWidget):
         lines.append(excl_line("reference", "reference"))
         lines.append(excl_line("reference_background", "reference_background"))
         lines += [
+            f"# BG subtraction offset style:        {bg.get('bg_offset_style', 'None')}",
+            f"# BG subtraction offset degree:       {bg.get('bg_offset_degree', 'N/A')}",
+            f"# BG subtraction offset markers:      {ProcessedResultsTab._format_markers(bg.get('bg_offset_markers'))}",
             f"# BG subtraction offset:              {bg.get('bg_offset', 'N/A')}",
             f"# BG subtraction edge_left_pts:       {bg.get('edge_left', 'N/A')}",
             f"# BG subtraction edge_right_pts:      {bg.get('edge_right', 'N/A')}",

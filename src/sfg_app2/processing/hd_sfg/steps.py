@@ -8,6 +8,7 @@ from scipy.signal import savgol_filter
 
 from .config import HDSFGConfig
 from .windows import edge_window, fft_mask_window
+from sfg_app2.processing.baseline import _resolve_offset
 
 logger = logging.getLogger(__name__)
 
@@ -219,7 +220,7 @@ def step_bg_smooth(
     ]
 
     # deltas — add bg_offset to sample background
-    bg_offset = config.bg_offset
+    bg_offset = _resolve_offset(averaged.wavenumber, config.bg_offset)
     sig_delta          = sig_sm - (bg_sm + bg_offset)
     sig_delta_windowed = sig_delta * e_win
     ref_delta          = ref_sm - ref_bg_sm
