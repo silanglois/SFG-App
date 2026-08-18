@@ -238,10 +238,16 @@ class AutoMatchingSettingsDialog(QDialog):
         rules_btn_row = QHBoxLayout()
         add_rule_btn = QPushButton("Add rule")
         remove_rule_btn = QPushButton("Remove selected rule")
+        move_rule_up_btn = QPushButton("↑ Move Up")
+        move_rule_down_btn = QPushButton("↓ Move Down")
         add_rule_btn.clicked.connect(self._on_add_type_rule)
         remove_rule_btn.clicked.connect(self._on_remove_type_rule)
+        move_rule_up_btn.clicked.connect(self._on_move_rule_up)
+        move_rule_down_btn.clicked.connect(self._on_move_rule_down)
         rules_btn_row.addWidget(add_rule_btn)
         rules_btn_row.addWidget(remove_rule_btn)
+        rules_btn_row.addWidget(move_rule_up_btn)
+        rules_btn_row.addWidget(move_rule_down_btn)
         rules_btn_row.addStretch()
         box_layout.addLayout(rules_btn_row)
         return self._rules_box
@@ -511,6 +517,36 @@ class AutoMatchingSettingsDialog(QDialog):
         if row >= 0:
             self._rules_table.removeRow(row)
 
+    def _swap_rule_rows(self, row_a: int, row_b: int):
+        field_a = self._rules_table.cellWidget(row_a, 0).currentText()
+        field_b = self._rules_table.cellWidget(row_b, 0).currentText()
+        key_a = self._rules_table.item(row_a, 1).text()
+        key_b = self._rules_table.item(row_b, 1).text()
+        type_a = self._rules_table.cellWidget(row_a, 2).currentText()
+        type_b = self._rules_table.cellWidget(row_b, 2).currentText()
+        scope_a = self._rules_table.cellWidget(row_a, 3).currentText()
+        scope_b = self._rules_table.cellWidget(row_b, 3).currentText()
+        self._rules_table.cellWidget(row_a, 0).setCurrentText(field_b)
+        self._rules_table.cellWidget(row_b, 0).setCurrentText(field_a)
+        self._rules_table.item(row_a, 1).setText(key_b)
+        self._rules_table.item(row_b, 1).setText(key_a)
+        self._rules_table.cellWidget(row_a, 2).setCurrentText(type_b)
+        self._rules_table.cellWidget(row_b, 2).setCurrentText(type_a)
+        self._rules_table.cellWidget(row_a, 3).setCurrentText(scope_b)
+        self._rules_table.cellWidget(row_b, 3).setCurrentText(scope_a)
+
+    def _on_move_rule_up(self):
+        row = self._rules_table.currentRow()
+        if row > 0:
+            self._swap_rule_rows(row, row - 1)
+            self._rules_table.setCurrentCell(row - 1, 0)
+
+    def _on_move_rule_down(self):
+        row = self._rules_table.currentRow()
+        if 0 <= row < self._rules_table.rowCount() - 1:
+            self._swap_rule_rows(row, row + 1)
+            self._rules_table.setCurrentCell(row + 1, 0)
+
     def _collect_type_rules(self) -> list[dict]:
         rules = []
         for row in range(self._rules_table.rowCount()):
@@ -554,16 +590,22 @@ class AutoMatchingSettingsDialog(QDialog):
 
     def _populate_fields_table(self, settings: MatchingSettings):
         # Row order encodes tie-break priority (top row = highest priority)
-        # for Closest/Highest — seed it from the actually-saved priority
-        # lists first (in their saved order) so reordering via Move Up/Down
-        # round-trips instead of resetting to KNOWN_FIELDS order every time
-        # the dialog is reopened.
+        # for Closest/Highest, and actual cascade priority for Optional
+        # (Matcher._find_closest applies optional_keys as a cascading,
+        # order-sensitive filter, not an order-independent preference) — so
+        # every per-role key list's saved order must round-trip, not just
+        # Closest/Highest, or reopening-then-OK can silently rewrite a
+        # profile's real matching priority to KNOWN_FIELDS order.
         # A list with only one entry carries no real order information, so
         # don't let it force its field ahead of a longer list's carefully
         # (re)ordered fields — process longer lists first (stable sort, so
-        # ties keep the bg-closest/ref-closest/bg-highest/ref-highest order).
-        key_lists = (settings.background_closest_keys, settings.reference_closest_keys,
-                     settings.background_highest_keys, settings.reference_highest_keys)
+        # ties keep the bg/ref required/optional/closest/highest order).
+        key_lists = (
+            settings.background_required_keys, settings.background_optional_keys,
+            settings.background_closest_keys, settings.background_highest_keys,
+            settings.reference_required_keys, settings.reference_optional_keys,
+            settings.reference_closest_keys, settings.reference_highest_keys,
+        )
         ordered: list[str] = []
         seen: set[str] = set()
         for key_list in sorted(key_lists, key=len, reverse=True):
@@ -572,14 +614,8 @@ class AutoMatchingSettingsDialog(QDialog):
                     ordered.append(f)
                     seen.add(f)
 
-        configured = (
-            settings.background_required_keys + settings.background_optional_keys +
-            settings.background_closest_keys + settings.background_highest_keys +
-            settings.reference_required_keys + settings.reference_optional_keys +
-            settings.reference_closest_keys + settings.reference_highest_keys
-        )
         fields = list(ordered)
-        for f in list(KNOWN_FIELDS) + configured:
+        for f in KNOWN_FIELDS:
             if f not in seen:
                 fields.append(f)
                 seen.add(f)
