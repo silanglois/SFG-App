@@ -1242,6 +1242,17 @@ class HDSFGPanel(QWidget):
 
     # ── Public API ────────────────────────────────────────────────────────────
 
+    def redraw_for_style_change(self):
+        """Called after the global plotting style changes. Forcing
+        _last_step to None makes _refresh_plot() take its own
+        full_clear() + _norm_lines/_norm_ax2 reset branch, so the Axes
+        and every line (including the normalization step's reused
+        Line2D objects) are recreated fresh under the new rcParams
+        instead of keeping their pre-restyle appearance.
+        """
+        self._last_step = None
+        self._refresh_plot()
+
     def reset(self):
         """Discard all cached processing results. Call whenever the
         underlying matched sets are replaced (e.g. re-run from Load/Match

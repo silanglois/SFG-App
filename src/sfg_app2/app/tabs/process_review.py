@@ -138,6 +138,12 @@ class ProcessReviewTab(QWidget):
             else QAbstractItemView.SelectionMode.ExtendedSelection
         )
 
+    # ── Plotting style ────────────────────────────────────────────────────────
+
+    def redraw_for_style_change(self):
+        self._hd_sfg_panel.redraw_for_style_change()
+        self._homodyne_panel.redraw_for_style_change()
+
     # ── Upconversion ──────────────────────────────────────────────────────────
 
     def _on_upconversion_changed(self):

@@ -188,9 +188,10 @@ class MainWindow(QMainWindow):
         from sfg_app2.app.dialogs.plotting_settings_dialog import PlottingSettingsDialog
         dialog = PlottingSettingsDialog(self.plotting_settings, parent=self)
         if dialog.exec():
+            self.process_review_tab.redraw_for_style_change()
+            self.processed_results_tab.redraw_for_style_change()
             self.statusBar().showMessage(
-                f"Plotting style set to '{self.plotting_settings.style}'. "
-                "Restart the app for already-open plots to fully update."
+                f"Plotting style set to '{self.plotting_settings.style}'."
             )
 
     def _on_set_color_coding(self):

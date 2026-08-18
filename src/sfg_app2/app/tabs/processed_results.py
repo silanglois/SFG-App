@@ -499,6 +499,16 @@ class ProcessedResultsTab(QWidget):
             except Exception as e:
                 logger.warning("Could not draw annotation %r: %s", ann, e)
 
+    def redraw_for_style_change(self):
+        """Called after the global plotting style changes. _refresh_plot()
+        only calls plot_widget.soft_clear(), which keeps the existing Axes
+        (and its pre-restyle spine/grid/tick chrome) — full_clear() first
+        recreates a fresh Axes under the new rcParams; the soft_clear()
+        _refresh_plot() then does on it is a no-op since it's already empty.
+        """
+        self.plot_widget.full_clear()
+        self._refresh_plot()
+
     def _refresh_plot(self):
         self.plot_widget.soft_clear()
         entries = self._selected_entries()

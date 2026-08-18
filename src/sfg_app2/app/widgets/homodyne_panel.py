@@ -856,6 +856,12 @@ class HomodynePanel(QWidget):
 
     # ── Public API ────────────────────────────────────────────────────────────
 
+    def redraw_for_style_change(self):
+        """Called after the global plotting style changes. _refresh_plot()
+        already calls plot_widget.full_clear() unconditionally, so simply
+        re-invoking it is enough to pick up the new rcParams."""
+        self._refresh_plot()
+
     def set_matched_sets(self, matched_sets: list):
         self._matched_sets = matched_sets
         self._cache.clear()
