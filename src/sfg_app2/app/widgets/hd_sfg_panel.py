@@ -6,14 +6,14 @@ import numpy as np
 from PySide6.QtCore import Signal, Qt, QTimer
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QGroupBox, QPushButton, QRadioButton, QButtonGroup,
+    QPushButton, QRadioButton, QButtonGroup,
     QComboBox, QCheckBox, QSpinBox, QDoubleSpinBox,
     QFrame, QSizePolicy,
     QTableWidget, QTableWidgetItem, QHeaderView,
 )
 
 from sfg_app2.app.widgets.spectrum_plot_widget import SpectrumPlotWidget
-from sfg_app2.app.widgets.collapsible_group_box import make_collapsible
+from sfg_app2.app.widgets.dockable_panels import DockablePlotPanel
 from sfg_app2.app.widgets.frame_exclude_widget import FrameCheckStrip
 from sfg_app2.app.utils.loading_indicator import show_loading
 from sfg_app2.app.utils.phase_wrap import wrap_phase_for_plot
@@ -54,7 +54,7 @@ COMPONENT_STEPS = {
 }
 
 
-class HDSFGPanel(QWidget):
+class HDSFGPanel(QWidget, DockablePlotPanel):
     """Right panel for heterodyne sets in the Process/Review tab."""
 
     processing_complete = Signal(dict)
@@ -102,44 +102,24 @@ class HDSFGPanel(QWidget):
         self._component_row = self._build_component_row()
         main_layout.addWidget(self._component_row)
 
-        # ── Row 3: plot area (FFT window params sit beside it, not below —
-        # that section can need up to 7 fields and got cramped/overflowed
-        # when stacked in the same wide row as the other sections below) ──
+        # ── Row 3: plot area, with parameter sections as docks around it —
+        # fft_window no longer needs the old "beside the plot" special case
+        # (it could run to 7 fields and got cramped stacked vertically with
+        # everything else) since a dock can be freely resized/floated.
         self.plot_widget = SpectrumPlotWidget()
         self.plot_widget.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
         self.plot_widget.canvas.mpl_connect('button_press_event', self._on_plot_click)
         self.plot_widget.canvas.mpl_connect('pick_event', self._on_marker_pick)
-        plot_row = QHBoxLayout()
-        plot_row.addWidget(self.plot_widget, 1)
 
-        # ── Row 4: param sections (collapsible, only one visible at a time) ───
-        self._param_sections: dict[str, QGroupBox] = {}
-        self._param_sections["despike"]        = self._build_despike_section()
-        self._param_sections["exclude_frames"] = self._build_exclude_frames_section()
-        self._param_sections["bg_smooth"]      = self._build_bg_smooth_section()
-        self._param_sections["fft_window"]     = self._build_fft_window_section()
-        self._param_sections["normalization"]  = self._build_normalization_section()
-
-        plot_row.addWidget(self._param_sections["fft_window"])
-        main_layout.addLayout(plot_row)
-
-        for key, gb in self._param_sections.items():
-            make_collapsible(gb)
-            gb.setChecked(False)
-            gb.setVisible(False)   # all hidden initially
-            if key != "fft_window":
-                main_layout.addWidget(gb)
-
-        # make_collapsible's expand step shows *all* direct-child widgets of
-        # the groupbox, which would undo our per-window-type field hiding
-        # every time this section is (re-)expanded (e.g. switching to the
-        # FFT step) — reapply the filter right after, once make_collapsible's
-        # own toggled handler (connected above) has run
-        self._param_sections["fft_window"].toggled.connect(
-            lambda checked: self._update_fft_window_visibility() if checked else None
-        )
+        self._init_dock_area(self.plot_widget)
+        self._add_dock("despike", "Despike parameters", self._build_despike_section())
+        self._add_dock("exclude_frames", "Exclude frames", self._build_exclude_frames_section())
+        self._add_dock("bg_smooth", "Background subtraction + edge window", self._build_bg_smooth_section())
+        self._add_dock("fft_window", "FFT filter window parameters", self._build_fft_window_section())
+        self._add_dock("normalization", "Normalization parameters", self._build_normalization_section())
+        main_layout.addWidget(self._dock_main_window)
 
         self._connect_signals()
         self._on_step_changed()
@@ -224,11 +204,10 @@ class HDSFGPanel(QWidget):
 
     # ── Param section builders ────────────────────────────────────────────────
 
-    def _build_despike_section(self) -> QGroupBox:
+    def _build_despike_section(self) -> QWidget:
         from PySide6.QtWidgets import QGridLayout
-        gb = QGroupBox("Despike parameters")
-        gb.setCheckable(True)
-        grid = QGridLayout(gb)
+        w = QWidget()
+        grid = QGridLayout(w)
 
         # headers
         grid.addWidget(QLabel(""), 0, 0)
@@ -262,7 +241,7 @@ class HDSFGPanel(QWidget):
                 "threshold": threshold_sb,
             }
 
-        return gb
+        return w
 
 
     def _get_despike_params(self, key: str):
@@ -273,12 +252,10 @@ class HDSFGPanel(QWidget):
             threshold=p["threshold"].value(),
         )
 
-    def _build_exclude_frames_section(self) -> QGroupBox:
+    def _build_exclude_frames_section(self) -> QWidget:
         from PySide6.QtWidgets import QGridLayout
-        gb = QGroupBox("Exclude frames")
-        gb.setCheckable(True)
-        gb.setChecked(False)
-        grid = QGridLayout(gb)
+        w = QWidget()
+        grid = QGridLayout(w)
 
         self._exclude_strips: dict[str, FrameCheckStrip] = {}
         for row_idx, (key, label) in enumerate([
@@ -292,7 +269,7 @@ class HDSFGPanel(QWidget):
             self._exclude_strips[key] = strip
             grid.addWidget(strip, row_idx, 1)
 
-        return gb
+        return w
 
     def _get_exclude_frames(self, idx: int, component: str) -> set:
         return self._exclude_frames.get(idx, {}).get(component, set())
@@ -408,18 +385,20 @@ class HDSFGPanel(QWidget):
             averaged.wavenumber, averaged.bg_avg,
         )
 
-    def _build_bg_smooth_section(self) -> QGroupBox:
+    def _build_bg_smooth_section(self) -> QWidget:
         """The offset added to the averaged signal background before
         subtraction. Fit (least-squares, degree set by style) through
         markers placed by clicking the plot in the "Signal + Background"
         view, or editing the table — same marker-driven approach as
         HomodynePanel's background correction (see its
         _build_bg_offset_section() docstring for the "markers are global
-        values" reasoning, which applies here too).
+        values" reasoning, which applies here too). Unlike Homodyne's
+        background correction, this one has no separate "apply" toggle —
+        confirmed nothing reads a checked-state for this section, it was
+        purely the old groupbox's collapse/expand cosmetic.
         """
-        gb = QGroupBox("Background subtraction + edge window")
-        gb.setCheckable(True)
-        layout = QVBoxLayout(gb)
+        w = QWidget()
+        layout = QVBoxLayout(w)
 
         edge_row = QHBoxLayout()
         edge_row.addWidget(QLabel("Edge low wn (pts):"))
@@ -467,7 +446,7 @@ class HDSFGPanel(QWidget):
         marker_btn_row.addStretch()
         layout.addLayout(marker_btn_row)
 
-        return gb
+        return w
 
     # window type -> human-readable name, and which params each type reads
     # (see src/sfg_app2/processing/hd_sfg/windows.py:fft_mask_window)
@@ -485,12 +464,11 @@ class HDSFGPanel(QWidget):
             "_mask_start", "_mask_end", "_mask_transition", "_mask_factor"},
     }
 
-    def _build_fft_window_section(self) -> QGroupBox:
+    def _build_fft_window_section(self) -> QWidget:
         from PySide6.QtWidgets import QGridLayout
 
-        gb = QGroupBox("FFT filter window parameters")
-        gb.setCheckable(True)
-        outer = QVBoxLayout(gb)
+        w = QWidget()
+        outer = QVBoxLayout(w)
 
         type_row = QHBoxLayout()
         type_row.addWidget(QLabel("Type:"))
@@ -564,7 +542,7 @@ class HDSFGPanel(QWidget):
         outer.addLayout(grid)
         outer.addStretch()
         self._update_fft_window_visibility()
-        return gb
+        return w
 
     def _update_fft_window_visibility(self):
         window_type = self._fft_window_type.currentData()
@@ -574,10 +552,9 @@ class HDSFGPanel(QWidget):
             lbl.setVisible(visible)
             widget.setVisible(visible)
 
-    def _build_normalization_section(self) -> QGroupBox:
-        gb = QGroupBox("Normalization parameters")
-        gb.setCheckable(True)
-        layout = QVBoxLayout(gb)
+    def _build_normalization_section(self) -> QWidget:
+        w = QWidget()
+        layout = QVBoxLayout(w)
 
         # exposure + phase row
         row1 = QHBoxLayout()
@@ -623,7 +600,7 @@ class HDSFGPanel(QWidget):
         row2.addStretch()
         layout.addLayout(row2)
 
-        return gb
+        return w
 
     # ── Signal wiring ─────────────────────────────────────────────────────────
 
@@ -713,13 +690,10 @@ class HDSFGPanel(QWidget):
         self._finish_btn.setVisible(step == "normalization")
 
         section_key = STEP_SECTION.get(step)
-        for key, gb in self._param_sections.items():
-            gb.setVisible(key == section_key)
-            if key == section_key:
-                gb.setChecked(True)
-        self._param_sections["exclude_frames"].setVisible(
-            step in ("raw", "despiked", "averaged")
-        )
+        visible = {section_key} if section_key else set()
+        if step in ("raw", "despiked", "averaged"):
+            visible.add("exclude_frames")
+        self._set_dock_visibility(visible, focus_key=section_key)
 
         self._refresh_plot()
 

@@ -9,6 +9,7 @@ from sfg_app2.app.utils.pattern_manager import PatternManager
 from sfg_app2.app.utils.plotting_settings import PlottingSettings
 from sfg_app2.app.utils.matching_settings import MatchingProfileManager
 from sfg_app2.app.utils.color_coding_settings import ColorCodingSettings
+from sfg_app2.app.utils.dock_layout_settings import DockLayoutSettings
 
 logger = logging.getLogger(__name__)
 
@@ -27,13 +28,21 @@ class MainWindow(QMainWindow):
         self.plotting_settings = PlottingSettings()
         self.plotting_settings.apply_current()
         self.color_coding_settings = ColorCodingSettings()
+        self.dock_layout_settings = DockLayoutSettings()
         self._ignored_paths: set[Path] = set()  # resolved absolute paths
 
         self._init_tabs()
+        self.process_review_tab.restore_dock_layouts(self.dock_layout_settings)
         self._connect_menu()
+        self._build_view_menu()
         self._lock_tabs_from(1)
         self.ui.mainTabWidget.setTabEnabled(2, True)   # Results always accessible
         self.ui.mainTabWidget.setTabEnabled(3, True)   # Post Processing always accessible
+
+    def closeEvent(self, event):
+        self.process_review_tab.save_dock_layouts(self.dock_layout_settings)
+        self.dock_layout_settings.save()
+        super().closeEvent(event)
 
     # ── Tab setup ─────────────────────────────────────────────────────────────
 
@@ -106,6 +115,27 @@ class MainWindow(QMainWindow):
         self.ui.actionDocs_tutorials.triggered.connect(self._on_docs)
         self.ui.actionUse_metadata_patterns.setChecked(True)
         self.ui.actionLoad_from_multiple_folders.setChecked(False)
+
+    def _build_view_menu(self):
+        """Lists every Process/Review dock's own toggleViewAction() (the
+        standard Qt idiom — each QDockWidget already knows how to show/
+        hide/check itself), grouped by panel. Both HomodynePanel and
+        HDSFGPanel exist for the app's lifetime (just hidden inside a
+        QStackedWidget), so their actions work regardless of which one is
+        currently active.
+
+        Menus/submenus are kept as instance attributes — without a
+        surviving Python reference, PySide6 can garbage-collect the
+        underlying C++ QMenu even though it's nominally parented to the
+        menu bar.
+        """
+        self._view_menu = self.menuBar().addMenu("View")
+        self._view_submenus = {}
+        for panel_name, actions in self.process_review_tab.view_menu_actions().items():
+            submenu = self._view_menu.addMenu(panel_name)
+            for action in actions:
+                submenu.addAction(action)
+            self._view_submenus[panel_name] = submenu
 
     # ── Menu handlers ─────────────────────────────────────────────────────────
 

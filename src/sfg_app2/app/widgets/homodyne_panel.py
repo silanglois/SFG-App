@@ -5,14 +5,14 @@ import matplotlib.pyplot as plt
 from PySide6.QtCore import Signal, QTimer
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QGroupBox, QPushButton, QRadioButton, QButtonGroup,
+    QPushButton, QRadioButton, QButtonGroup, QCheckBox,
     QComboBox, QSpinBox, QDoubleSpinBox,
     QFrame, QSizePolicy, QGridLayout, QMessageBox,
     QTableWidget, QTableWidgetItem, QHeaderView,
 )
 
 from sfg_app2.app.widgets.spectrum_plot_widget import SpectrumPlotWidget
-from sfg_app2.app.widgets.collapsible_group_box import make_collapsible
+from sfg_app2.app.widgets.dockable_panels import DockablePlotPanel
 from sfg_app2.app.widgets.frame_exclude_widget import FrameCheckStrip
 from sfg_app2.app.utils.loading_indicator import show_loading
 from sfg_app2.processing.baseline import subtract_background, apply_offset, fit_offset_from_markers
@@ -58,7 +58,7 @@ def _colors(n: int) -> list:
     return [colors[i % len(colors)] for i in range(max(n, 1))]
 
 
-class HomodynePanel(QWidget):
+class HomodynePanel(QWidget, DockablePlotPanel):
     """Right panel for homodyne sets in the Process/Review tab.
 
     Mirrors HDSFGPanel's UX (live per-component despike grid, sample/
@@ -108,18 +108,14 @@ class HomodynePanel(QWidget):
         self.plot_widget.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
-        main_layout.addWidget(self.plot_widget)
         self.plot_widget.canvas.mpl_connect('button_press_event', self._on_plot_click)
         self.plot_widget.canvas.mpl_connect('pick_event', self._on_marker_pick)
 
-        self._param_sections: dict[str, QGroupBox] = {}
-        self._param_sections["despike"] = self._build_despike_section()
-        self._param_sections["exclude_frames"] = self._build_exclude_frames_section()
-        self._param_sections["bg_offset"] = self._build_bg_offset_section()
-        for gb in self._param_sections.values():
-            make_collapsible(gb)
-            gb.setVisible(False)
-            main_layout.addWidget(gb)
+        self._init_dock_area(self.plot_widget)
+        self._add_dock("despike", "Despike parameters", self._build_despike_section())
+        self._add_dock("exclude_frames", "Exclude frames", self._build_exclude_frames_section())
+        self._add_dock("bg_offset", "Background Correction", self._build_bg_offset_section())
+        main_layout.addWidget(self._dock_main_window)
 
         self._connect_signals()
         self._on_step_changed()
@@ -199,10 +195,9 @@ class HomodynePanel(QWidget):
 
         return frame
 
-    def _build_despike_section(self) -> QGroupBox:
-        gb = QGroupBox("Despike parameters")
-        gb.setCheckable(True)
-        grid = QGridLayout(gb)
+    def _build_despike_section(self) -> QWidget:
+        w = QWidget()
+        grid = QGridLayout(w)
 
         grid.addWidget(QLabel(""), 0, 0)
         grid.addWidget(QLabel("Window"), 0, 1)
@@ -234,13 +229,11 @@ class HomodynePanel(QWidget):
 
             self._despike_widgets[key] = {"window": window_sb, "threshold": threshold_sb}
 
-        return gb
+        return w
 
-    def _build_exclude_frames_section(self) -> QGroupBox:
-        gb = QGroupBox("Exclude frames")
-        gb.setCheckable(True)
-        gb.setChecked(False)
-        grid = QGridLayout(gb)
+    def _build_exclude_frames_section(self) -> QWidget:
+        w = QWidget()
+        grid = QGridLayout(w)
 
         self._exclude_strips: dict[str, FrameCheckStrip] = {}
         for row_idx, key in enumerate(COMPONENTS):
@@ -249,9 +242,9 @@ class HomodynePanel(QWidget):
             self._exclude_strips[key] = strip
             grid.addWidget(strip, row_idx, 1)
 
-        return gb
+        return w
 
-    def _build_bg_offset_section(self) -> QGroupBox:
+    def _build_bg_offset_section(self) -> QWidget:
         """The offset added to the averaged background before subtraction.
         Rather than typing coefficients blind, the offset curve is fit
         (least-squares, degree set by the chosen style) through markers you
@@ -260,11 +253,17 @@ class HomodynePanel(QWidget):
         to one matched set's curve: for each set, the fit is computed
         against *that set's own* averaged background (see _fit_offset()),
         so the same markers naturally produce a different curve per set.
+
+        Whether the correction is actually applied is a separate concern
+        from whether this dock is open/closed — _bg_apply_checkbox carries
+        that, so closing the dock to reduce clutter can never silently
+        disable a correction you'd turned on.
         """
-        gb = QGroupBox("Background Correction")
-        gb.setCheckable(True)
-        gb.setChecked(False)
-        layout = QVBoxLayout(gb)
+        w = QWidget()
+        layout = QVBoxLayout(w)
+
+        self._bg_apply_checkbox = QCheckBox("Apply background correction")
+        layout.addWidget(self._bg_apply_checkbox)
 
         target_row = QHBoxLayout()
         target_row.addWidget(QLabel("Editing markers for:"))
@@ -308,8 +307,7 @@ class HomodynePanel(QWidget):
         marker_btn_row.addStretch()
         layout.addLayout(marker_btn_row)
 
-        self._bg_group = gb
-        return gb
+        return w
 
     # ── Signal wiring ─────────────────────────────────────────────────────────
 
@@ -342,7 +340,7 @@ class HomodynePanel(QWidget):
         self._remove_marker_btn.clicked.connect(self._on_remove_marker_row)
         self._clear_marker_btn.clicked.connect(self._on_clear_markers)
         self._marker_table.cellChanged.connect(self._on_marker_cell_changed)
-        self._bg_group.toggled.connect(lambda _checked: self._on_bg_offset_changed())
+        self._bg_apply_checkbox.toggled.connect(lambda _checked: self._on_bg_offset_changed())
 
         self._process_btn.clicked.connect(self._on_process)
         self._finish_btn.clicked.connect(self._on_finish)
@@ -371,15 +369,10 @@ class HomodynePanel(QWidget):
         self._finish_btn.setVisible(step == "normalized")
 
         section_key = STEP_SECTION.get(step)
-        for key, gb in self._param_sections.items():
-            gb.setVisible(key == section_key)
-        self._param_sections["exclude_frames"].setVisible(
-            step in ("raw", "despiked", "averaged")
-        )
-        if section_key == "despike":
-            # auto-expand despike on entry; bg_offset's checked state is left
-            # alone since it doubles as "actually apply this correction"
-            self._param_sections["despike"].setChecked(True)
+        visible = {section_key} if section_key else set()
+        if step in ("raw", "despiked", "averaged"):
+            visible.add("exclude_frames")
+        self._set_dock_visibility(visible, focus_key=section_key)
 
         self._recompute_and_refresh()
 
@@ -498,7 +491,7 @@ class HomodynePanel(QWidget):
 
     def _on_marker_pick(self, event):
         target = getattr(event.artist, "_marker_target", None)
-        if target is None or not self._bg_group.isChecked():
+        if target is None or not self._bg_apply_checkbox.isChecked():
             return
         if not len(event.ind):
             return
@@ -509,7 +502,7 @@ class HomodynePanel(QWidget):
         if self._marker_just_picked:
             self._marker_just_picked = False
             return
-        if event.inaxes != self.plot_widget.ax or not self._bg_group.isChecked():
+        if event.inaxes != self.plot_widget.ax or not self._bg_apply_checkbox.isChecked():
             return
         if (self._current_step() != "bg_subtracted"
                 or self._view_combo.currentText() != "Signal + Background"):
@@ -544,7 +537,7 @@ class HomodynePanel(QWidget):
     # ── Background offset ────────────────────────────────────────────────────
 
     def _current_offsets(self, idx: int | None = None):
-        if not self._bg_group.isChecked():
+        if not self._bg_apply_checkbox.isChecked():
             return None, None
         return (
             self._fit_offset(idx, "signal"),
@@ -712,7 +705,7 @@ class HomodynePanel(QWidget):
                 "reference_background": self._get_despike_cfg(idx, "ref_background"),
             },
             "background_subtraction": {
-                "applied":              self._bg_group.isChecked(),
+                "applied":              self._bg_apply_checkbox.isChecked(),
                 "signal_offset_degree": self._offset_degree_spin["signal"].value(),
                 "signal_offset_markers": [list(pt) for pt in self._sig_markers],
                 "signal_offset":        str(sig_offset) if sig_offset is not None else "None",

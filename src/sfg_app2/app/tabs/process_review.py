@@ -144,6 +144,22 @@ class ProcessReviewTab(QWidget):
         self._hd_sfg_panel.redraw_for_style_change()
         self._homodyne_panel.redraw_for_style_change()
 
+    # ── Dock layout persistence ──────────────────────────────────────────────
+
+    def save_dock_layouts(self, settings):
+        settings.set("homodyne", self._homodyne_panel.save_dock_state())
+        settings.set("hd_sfg", self._hd_sfg_panel.save_dock_state())
+
+    def restore_dock_layouts(self, settings):
+        self._homodyne_panel.restore_dock_state(settings.get("homodyne"))
+        self._hd_sfg_panel.restore_dock_state(settings.get("hd_sfg"))
+
+    def view_menu_actions(self) -> dict[str, list]:
+        return {
+            "Homodyne panels": self._homodyne_panel.view_menu_actions(),
+            "HD-SFG panels": self._hd_sfg_panel.view_menu_actions(),
+        }
+
     # ── Upconversion ──────────────────────────────────────────────────────────
 
     def _on_upconversion_changed(self):
