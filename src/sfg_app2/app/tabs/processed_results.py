@@ -13,11 +13,12 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QListWidgetItem, QFileDialog,
     QMessageBox, QAbstractItemView, QInputDialog, QMenu, QCheckBox,
-    QMainWindow, QDockWidget, QComboBox, QLabel,
+    QComboBox, QLabel,
 )
 
 from sfg_app2.app.ui.ui_processed_results_tab import Ui_Form
 from sfg_app2.app.widgets.spectrum_plot_widget import SpectrumPlotWidget
+from sfg_app2.app.widgets.dockable_panels import DockablePlotPanel
 from sfg_app2.processing.processed_spectrum import ProcessedSpectrum
 from sfg_app2.app.utils.loading_indicator import show_loading
 from sfg_app2.app.utils.phase_wrap import wrap_phase_for_plot
@@ -147,7 +148,7 @@ class SpectrumEntry:
         return f"SpectrumEntry({self.label})"
 
 
-class ProcessedResultsTab(QWidget):
+class ProcessedResultsTab(QWidget, DockablePlotPanel):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.ui = Ui_Form()
@@ -172,28 +173,31 @@ class ProcessedResultsTab(QWidget):
         self.plot_widget = SpectrumPlotWidget()
         layout.addWidget(self.plot_widget)
 
-        # Host the plot + visualization-params tabs inside a nested QMainWindow
-        # purely as a local dock area — QDockWidget requires a QMainWindow to
-        # dock into, and docking against the app's single real MainWindow
-        # would snap the panel to the whole app window's edges instead of
-        # staying scoped to this tab's plot.
+        # Each former "Visualization parameters" tab page becomes its own
+        # dock (DockablePlotPanel — same nested-QMainWindow mechanism used
+        # by the Process/Review panels, since QDockWidget needs a
+        # QMainWindow to dock into and docking against the app's single
+        # real MainWindow would snap panels to the whole app window
+        # instead of staying scoped to this tab's plot).
         outer_layout = self.ui.verticalLayout_4
         outer_layout.removeWidget(self.ui.visualizationParamsTabWidget)
         outer_layout.removeWidget(self.ui.plotWidget)
 
-        self._plot_main_window = QMainWindow()
-        self._plot_main_window.setCentralWidget(self.ui.plotWidget)
+        sections = [
+            ("data_display", "Data display", self.ui.dataDisplayTab),
+            ("hd_components", "HD-SFG components", self.ui.hdComponentsTab),
+            ("colors", "Colors", self.ui.colorsTab),
+            ("labels", "Labels, legend & annotations", self.ui.labelsTab),
+        ]
+        for _, _, widget in sections:
+            widget.setParent(None)
+        self.ui.visualizationParamsTabWidget.deleteLater()
 
-        self._vis_params_dock = QDockWidget("Visualization parameters", self._plot_main_window)
-        self._vis_params_dock.setWidget(self.ui.visualizationParamsTabWidget)
-        self._vis_params_dock.setFeatures(
-            QDockWidget.DockWidgetFeature.DockWidgetMovable
-            | QDockWidget.DockWidgetFeature.DockWidgetFloatable
-        )
-        self._vis_params_dock.setAllowedAreas(Qt.DockWidgetArea.AllDockWidgetAreas)
-        self._plot_main_window.addDockWidget(Qt.DockWidgetArea.TopDockWidgetArea, self._vis_params_dock)
+        self._init_dock_area(self.ui.plotWidget)
+        for key, title, widget in sections:
+            self._add_dock(key, title, widget, area=Qt.DockWidgetArea.TopDockWidgetArea)
 
-        outer_layout.addWidget(self._plot_main_window)
+        outer_layout.addWidget(self._dock_main_window)
 
     def _setup_list(self):
         lw = self.ui.spectraList

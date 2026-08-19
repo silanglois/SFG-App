@@ -33,6 +33,7 @@ class MainWindow(QMainWindow):
 
         self._init_tabs()
         self.process_review_tab.restore_dock_layouts(self.dock_layout_settings)
+        self.processed_results_tab.restore_dock_state(self.dock_layout_settings.get("results"))
         self._connect_menu()
         self._build_view_menu()
         self._lock_tabs_from(1)
@@ -41,6 +42,7 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         self.process_review_tab.save_dock_layouts(self.dock_layout_settings)
+        self.dock_layout_settings.set("results", self.processed_results_tab.save_dock_state())
         self.dock_layout_settings.save()
         super().closeEvent(event)
 
@@ -117,12 +119,12 @@ class MainWindow(QMainWindow):
         self.ui.actionLoad_from_multiple_folders.setChecked(False)
 
     def _build_view_menu(self):
-        """Lists every Process/Review dock's own toggleViewAction() (the
-        standard Qt idiom — each QDockWidget already knows how to show/
-        hide/check itself), grouped by panel. Both HomodynePanel and
-        HDSFGPanel exist for the app's lifetime (just hidden inside a
-        QStackedWidget), so their actions work regardless of which one is
-        currently active.
+        """Lists every dock's own toggleViewAction() (the standard Qt
+        idiom — each QDockWidget already knows how to show/hide/check
+        itself) across both Process/Review panels and the Results tab.
+        Both HomodynePanel and HDSFGPanel exist for the app's lifetime
+        (just hidden inside a QStackedWidget), so their actions work
+        regardless of which one is currently active.
 
         Menus/submenus are kept as instance attributes — without a
         surviving Python reference, PySide6 can garbage-collect the
@@ -137,6 +139,11 @@ class MainWindow(QMainWindow):
             for action in actions:
                 submenu.addAction(action)
             self._view_submenus[panel_name] = submenu
+
+        results_submenu = self._view_menu.addMenu("Results panels")
+        for action in self.processed_results_tab.view_menu_actions():
+            results_submenu.addAction(action)
+        self._view_submenus["Results panels"] = results_submenu
 
     # ── Menu handlers ─────────────────────────────────────────────────────────
 

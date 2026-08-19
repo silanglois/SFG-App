@@ -28,7 +28,8 @@ class DockablePlotPanel:
         return self._dock_main_window
 
     def _add_dock(self, key: str, title: str, content: QWidget,
-                   expand_horizontally: bool = False) -> QDockWidget:
+                   expand_horizontally: bool = False,
+                   area: Qt.DockWidgetArea = Qt.DockWidgetArea.RightDockWidgetArea) -> QDockWidget:
         # wrap content in its own sizeHint-only box, top-left in a wrapper
         # with a trailing stretch — relying on content.layout().setAlignment()
         # alone left rows visibly stretched apart (QGridLayout distributing
@@ -38,6 +39,8 @@ class DockablePlotPanel:
         # expand_horizontally opts out of the AlignLeft half of that clamp
         # for sections whose content should still use the full dock width
         # (e.g. exclude_frames' per-component checkbox strips).
+        content.setVisible(True)   # a widget detached from a QTabWidget's
+                                    # non-current page stays hidden otherwise
         wrapper = QWidget()
         outer = QVBoxLayout(wrapper)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -61,7 +64,7 @@ class DockablePlotPanel:
         if self._docks:
             self._dock_main_window.tabifyDockWidget(next(iter(self._docks.values())), dock)
         else:
-            self._dock_main_window.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock)
+            self._dock_main_window.addDockWidget(area, dock)
         self._docks[key] = dock
         return dock
 
