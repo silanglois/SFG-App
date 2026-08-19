@@ -113,7 +113,8 @@ class HomodynePanel(QWidget, DockablePlotPanel):
 
         self._init_dock_area(self.plot_widget)
         self._add_dock("despike", "Despike parameters", self._build_despike_section())
-        self._add_dock("exclude_frames", "Exclude frames", self._build_exclude_frames_section())
+        self._add_dock("exclude_frames", "Exclude frames", self._build_exclude_frames_section(),
+                        expand_horizontally=True)
         self._add_dock("bg_offset", "Background Correction", self._build_bg_offset_section())
         main_layout.addWidget(self._dock_main_window)
 

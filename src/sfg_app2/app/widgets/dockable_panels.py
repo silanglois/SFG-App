@@ -1,6 +1,6 @@
 from __future__ import annotations
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QMainWindow, QDockWidget, QWidget
+from PySide6.QtWidgets import QMainWindow, QDockWidget, QWidget, QVBoxLayout
 
 
 class DockablePlotPanel:
@@ -27,10 +27,31 @@ class DockablePlotPanel:
         self._docks: dict[str, QDockWidget] = {}
         return self._dock_main_window
 
-    def _add_dock(self, key: str, title: str, content: QWidget) -> QDockWidget:
+    def _add_dock(self, key: str, title: str, content: QWidget,
+                   expand_horizontally: bool = False) -> QDockWidget:
+        # wrap content in its own sizeHint-only box, top-left in a wrapper
+        # with a trailing stretch — relying on content.layout().setAlignment()
+        # alone left rows visibly stretched apart (QGridLayout distributing
+        # the dock's leftover space into row/column gaps rather than
+        # collapsing to its sizeHint), so the leftover space is instead
+        # soaked up here, once, outside of content's own layout entirely.
+        # expand_horizontally opts out of the AlignLeft half of that clamp
+        # for sections whose content should still use the full dock width
+        # (e.g. exclude_frames' per-component checkbox strips).
+        wrapper = QWidget()
+        outer = QVBoxLayout(wrapper)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+        outer.addWidget(content)
+        align = Qt.AlignmentFlag.AlignTop
+        if not expand_horizontally:
+            align |= Qt.AlignmentFlag.AlignLeft
+        outer.setAlignment(content, align)
+        outer.addStretch()
+
         dock = QDockWidget(title, self._dock_main_window)
         dock.setObjectName(f"dock_{key}")   # required for save/restoreState
-        dock.setWidget(content)
+        dock.setWidget(wrapper)
         dock.setFeatures(
             QDockWidget.DockWidgetFeature.DockWidgetMovable
             | QDockWidget.DockWidgetFeature.DockWidgetFloatable

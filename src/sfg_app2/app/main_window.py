@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from PySide6.QtWidgets import QMainWindow, QVBoxLayout, QFileDialog, QMessageBox
+from PySide6.QtWidgets import QMainWindow, QVBoxLayout, QFileDialog, QMessageBox, QMenu
 from sfg_app2.app.ui.ui_main_window import Ui_MainWindow
 from sfg_app2.app.utils.pattern_manager import PatternManager
 from sfg_app2.app.utils.plotting_settings import PlottingSettings
@@ -129,7 +129,8 @@ class MainWindow(QMainWindow):
         underlying C++ QMenu even though it's nominally parented to the
         menu bar.
         """
-        self._view_menu = self.menuBar().addMenu("View")
+        self._view_menu = QMenu("View", self.menuBar())
+        self.menuBar().insertMenu(self.ui.menuHelp.menuAction(), self._view_menu)
         self._view_submenus = {}
         for panel_name, actions in self.process_review_tab.view_menu_actions().items():
             submenu = self._view_menu.addMenu(panel_name)
