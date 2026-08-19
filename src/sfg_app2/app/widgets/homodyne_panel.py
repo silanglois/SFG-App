@@ -274,23 +274,17 @@ class HomodynePanel(QWidget):
         target_row.addStretch()
         layout.addLayout(target_row)
 
-        self._offset_style_combo: dict[str, QComboBox] = {}
         self._offset_degree_spin: dict[str, QSpinBox] = {}
         for target, label in (("signal", "Signal BG"), ("reference", "Ref BG")):
             row = QHBoxLayout()
-            row.addWidget(QLabel(f"{label} style:"))
-            combo = QComboBox()
-            combo.addItems(["None", "Constant", "Linear", "Polynomial"])
-            row.addWidget(combo)
+            row.addWidget(QLabel(f"{label} degree:"))
             degree_spin = QSpinBox()
-            degree_spin.setRange(1, 6)
-            degree_spin.setValue(2)
-            degree_spin.setPrefix("degree ")
-            degree_spin.setVisible(False)
+            degree_spin.setRange(0, 6)
+            degree_spin.setValue(0)
+            degree_spin.setToolTip("0 = constant, 1 = linear, 2+ = polynomial")
             row.addWidget(degree_spin)
             row.addStretch()
             layout.addLayout(row)
-            self._offset_style_combo[target] = combo
             self._offset_degree_spin[target] = degree_spin
 
         layout.addWidget(QLabel(
@@ -341,11 +335,6 @@ class HomodynePanel(QWidget):
                 lambda k=key: self._on_exclude_frames_changed(k)
             )
 
-        for target, combo in self._offset_style_combo.items():
-            combo.currentTextChanged.connect(self._on_bg_offset_changed)
-            combo.currentTextChanged.connect(
-                lambda t, tgt=target: self._offset_degree_spin[tgt].setVisible(t == "Polynomial")
-            )
         for spin in self._offset_degree_spin.values():
             spin.valueChanged.connect(self._on_bg_offset_changed)
         self._offset_target_combo.currentTextChanged.connect(lambda _t: self._reload_marker_table())
@@ -565,9 +554,6 @@ class HomodynePanel(QWidget):
     def _fit_offset(self, idx: int | None, target: str):
         if idx is None:
             return None
-        style = self._offset_style_combo[target].currentText()
-        if style == "None":
-            return None
         markers = self._markers_for(target)
         if not markers:
             return None
@@ -578,7 +564,7 @@ class HomodynePanel(QWidget):
         bg_frame = bg_data.frame(1)
         degree = self._offset_degree_spin[target].value()
         return fit_offset_from_markers(
-            markers, style.lower(), degree,
+            markers, degree,
             bg_frame["Wavelength"].to_numpy(), bg_frame["Intensity"].to_numpy(),
         )
 
@@ -727,11 +713,9 @@ class HomodynePanel(QWidget):
             },
             "background_subtraction": {
                 "applied":              self._bg_group.isChecked(),
-                "signal_offset_style":  self._offset_style_combo["signal"].currentText(),
                 "signal_offset_degree": self._offset_degree_spin["signal"].value(),
                 "signal_offset_markers": [list(pt) for pt in self._sig_markers],
                 "signal_offset":        str(sig_offset) if sig_offset is not None else "None",
-                "ref_offset_style":     self._offset_style_combo["reference"].currentText(),
                 "ref_offset_degree":    self._offset_degree_spin["reference"].value(),
                 "ref_offset_markers":   [list(pt) for pt in self._ref_markers],
                 "ref_offset":           str(ref_offset) if ref_offset is not None else "None",

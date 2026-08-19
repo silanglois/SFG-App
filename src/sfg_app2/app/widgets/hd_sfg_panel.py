@@ -400,12 +400,11 @@ class HDSFGPanel(QWidget):
     def _fit_bg_offset(self, averaged):
         """averaged: hd_sfg.steps.AveragedData — its bg_avg/wavenumber are
         used as the curve the markers' residuals are fit against."""
-        style = self._bg_offset_style.currentText()
-        if style == "None" or not self._bg_markers:
+        if not self._bg_markers:
             return None
         degree = self._bg_offset_degree.value()
         return fit_offset_from_markers(
-            self._bg_markers, style.lower(), degree,
+            self._bg_markers, degree,
             averaged.wavenumber, averaged.bg_avg,
         )
 
@@ -438,15 +437,11 @@ class HDSFGPanel(QWidget):
         layout.addLayout(edge_row)
 
         style_row = QHBoxLayout()
-        style_row.addWidget(QLabel("BG offset style:"))
-        self._bg_offset_style = QComboBox()
-        self._bg_offset_style.addItems(["None", "Constant", "Linear", "Polynomial"])
-        style_row.addWidget(self._bg_offset_style)
+        style_row.addWidget(QLabel("BG offset degree:"))
         self._bg_offset_degree = QSpinBox()
-        self._bg_offset_degree.setRange(1, 6)
-        self._bg_offset_degree.setValue(2)
-        self._bg_offset_degree.setPrefix("degree ")
-        self._bg_offset_degree.setVisible(False)
+        self._bg_offset_degree.setRange(0, 6)
+        self._bg_offset_degree.setValue(0)
+        self._bg_offset_degree.setToolTip("0 = constant, 1 = linear, 2+ = polynomial")
         style_row.addWidget(self._bg_offset_degree)
         style_row.addStretch()
         layout.addLayout(style_row)
@@ -668,12 +663,6 @@ class HDSFGPanel(QWidget):
         # bg subtraction params → auto-reprocess from bg_smooth step
         for sb in [self._edge_left, self._edge_right]:
             sb.valueChanged.connect(lambda: self._auto_process_from("bg_smooth"))
-        self._bg_offset_style.currentTextChanged.connect(
-            lambda: self._auto_process_from("bg_smooth")
-        )
-        self._bg_offset_style.currentTextChanged.connect(
-            lambda t: self._bg_offset_degree.setVisible(t == "Polynomial")
-        )
         self._bg_offset_degree.valueChanged.connect(
             lambda: self._auto_process_from("bg_smooth")
         )
@@ -1330,7 +1319,6 @@ class HDSFGPanel(QWidget):
                 "reference_background": desp("ref_background"),
             },
             "background_subtraction": {
-                "bg_offset_style":      self._bg_offset_style.currentText(),
                 "bg_offset_degree":     self._bg_offset_degree.value(),
                 "bg_offset_markers":    [list(pt) for pt in self._bg_markers],
                 "bg_offset":            str(cfg.bg_offset) if cfg.bg_offset is not None else "None",

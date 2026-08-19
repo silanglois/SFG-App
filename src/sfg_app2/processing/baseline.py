@@ -29,15 +29,13 @@ def _resolve_offset(wavelength: np.ndarray, offset: OffsetSpec) -> np.ndarray:
 
 
 def fit_offset_from_markers(
-    markers: list[tuple[float, float]], style: str, degree: int,
+    markers: list[tuple[float, float]], degree: int,
     bg_wavelength: np.ndarray, bg_intensity: np.ndarray,
 ) -> OffsetSpec:
-    """Least-squares fits an offset curve of the given style through
+    """Least-squares fits a degree-`degree` offset curve through
     user-placed (x, y) markers, so that bg_intensity + fitted(x) passes as
-    close as possible through every marker.
-
-    style : 'constant' | 'linear' | 'polynomial'
-    degree : polynomial degree (only used when style == 'polynomial')
+    close as possible through every marker. degree 0 = constant offset,
+    1 = linear, 2+ = polynomial.
 
     The fit is computed on the *residual* (marker_y - bg_at(marker_x),
     bg interpolated at each marker's x) rather than the marker y-values
@@ -45,7 +43,7 @@ def fit_offset_from_markers(
     is what makes the same markers produce a different offset curve for
     each matched set's own (differently shaped) background.
 
-    Returns None if there are no markers, a float for a constant fit, or a
+    Returns None if there are no markers, a float for a degree-0 fit, or a
     list of polynomial coefficients (highest degree first) otherwise —
     exactly the OffsetSpec shapes _resolve_offset() already understands.
     """
@@ -59,8 +57,7 @@ def fit_offset_from_markers(
     bg_at_marker = np.interp(xs, bg_wavelength[order], bg_intensity[order])
     residual = ys - bg_at_marker
 
-    deg = {"constant": 0, "linear": 1, "polynomial": degree}[style]
-    deg = max(0, min(deg, len(markers) - 1))
+    deg = max(0, min(degree, len(markers) - 1))
     coeffs = np.polyfit(xs, residual, deg)
     return float(coeffs[0]) if deg == 0 else list(coeffs)
 
