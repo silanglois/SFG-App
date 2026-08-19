@@ -28,6 +28,7 @@ class LoadMatchTab(QWidget):
         self._loaded_folders: list[Path] = []
         self._folder_contents: dict[Path, set[str]] = {}   # folder -> resolved file paths loaded from it
         self._individual_file_paths: list[Path] = []
+        self._plot_windows: list = []       # open PlotWindow instances
 
         self._replace_list_and_table()
         self._connect_signals()
@@ -521,9 +522,25 @@ class LoadMatchTab(QWidget):
         dialog.exec()
 
     def _on_plot_files(self, paths: list[str]):
-        from sfg_app2.app.dialogs.plot_dialog import PlotDialog
+        from sfg_app2.app.widgets.plot_window import PlotWindow
         files = [self._file_registry[p] for p in paths if p in self._file_registry]
         if not files:
             return
-        dialog = PlotDialog(files, parent=self)
-        dialog.exec()
+        window = PlotWindow(files, parent=self)
+        window.destroyed.connect(lambda *_: self._on_plot_window_destroyed(window))
+        self._plot_windows.append(window)
+        window.show()
+        window.raise_()
+        window.activateWindow()
+
+    def _on_plot_window_destroyed(self, window):
+        if window in self._plot_windows:
+            self._plot_windows.remove(window)
+
+    @property
+    def plot_windows(self) -> list:
+        return list(self._plot_windows)
+
+    def close_plot_windows(self):
+        for window in list(self._plot_windows):
+            window.close()

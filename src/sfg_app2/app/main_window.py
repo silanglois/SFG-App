@@ -36,6 +36,7 @@ class MainWindow(QMainWindow):
         self.processed_results_tab.restore_dock_state(self.dock_layout_settings.get("results"))
         self._connect_menu()
         self._build_view_menu()
+        self._build_window_menu()
         self._lock_tabs_from(1)
         self.ui.mainTabWidget.setTabEnabled(2, True)   # Results always accessible
         self.ui.mainTabWidget.setTabEnabled(3, True)   # Post Processing always accessible
@@ -44,6 +45,7 @@ class MainWindow(QMainWindow):
         self.process_review_tab.save_dock_layouts(self.dock_layout_settings)
         self.dock_layout_settings.set("results", self.processed_results_tab.save_dock_state())
         self.dock_layout_settings.save()
+        self.load_match_tab.close_plot_windows()
         super().closeEvent(event)
 
     # ── Tab setup ─────────────────────────────────────────────────────────────
@@ -144,6 +146,37 @@ class MainWindow(QMainWindow):
         for action in self.processed_results_tab.view_menu_actions():
             results_submenu.addAction(action)
         self._view_submenus["Results panels"] = results_submenu
+
+    def _build_window_menu(self):
+        """Lists currently-open Load/Match plot-preview windows (each its
+        own independent, minimizable QWidget — see PlotWindow), rebuilt
+        from scratch every time the menu is opened rather than kept in
+        sync incrementally, since windows come and go at runtime."""
+        self._window_menu = QMenu("Window", self.menuBar())
+        self.menuBar().insertMenu(self.ui.menuHelp.menuAction(), self._window_menu)
+        self._window_menu.aboutToShow.connect(self._rebuild_window_menu)
+
+    def _rebuild_window_menu(self):
+        self._window_menu.clear()
+        windows = self.load_match_tab.plot_windows
+        if not windows:
+            action = self._window_menu.addAction("No plot windows open")
+            action.setEnabled(False)
+            return
+        for window in windows:
+            action = self._window_menu.addAction(window.windowTitle())
+            action.triggered.connect(
+                lambda checked=False, w=window: self._raise_window(w)
+            )
+        self._window_menu.addSeparator()
+        close_all = self._window_menu.addAction("Close all plot windows")
+        close_all.triggered.connect(self.load_match_tab.close_plot_windows)
+
+    @staticmethod
+    def _raise_window(window):
+        window.showNormal()
+        window.raise_()
+        window.activateWindow()
 
     # ── Menu handlers ─────────────────────────────────────────────────────────
 

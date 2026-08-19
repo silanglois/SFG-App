@@ -1,9 +1,10 @@
-# src/sfg_app2/app/dialogs/plot_dialog.py
+# src/sfg_app2/app/widgets/plot_window.py
 from __future__ import annotations
 import logging
 import matplotlib.pyplot as plt
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QDialogButtonBox,
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QPushButton,
 )
 
 from sfg_app2.app.widgets.spectrum_plot_widget import SpectrumPlotWidget
@@ -18,12 +19,24 @@ def _colors(n: int) -> list:
     return [colors[i % len(colors)] for i in range(max(n, 1))]
 
 
-class PlotDialog(QDialog):
+class PlotWindow(QWidget):
     """Overlay plot of multiple DataFile spectra — average across all
-    frames, all frames individually, or a single selected frame."""
+    frames, all frames individually, or a single selected frame.
+
+    A genuine independent top-level window (not a modal dialog) so several
+    can stay open — and be minimized — at once; the caller is responsible
+    for keeping a reference to it (e.g. LoadMatchTab.plot_windows) since
+    nothing else does once it's shown.
+    """
 
     def __init__(self, files: list, parent=None):
         super().__init__(parent)
+        self.setWindowFlags(Qt.WindowType.Window)
+        # a plain QWidget's close() only hides it by default — without
+        # this, the window would never actually be destroyed, so the
+        # caller's destroyed-signal-based cleanup (LoadMatchTab removing
+        # it from plot_windows) would never fire
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         self.setWindowTitle("Spectra Preview")
         self.resize(800, 500)
 
@@ -51,9 +64,12 @@ class PlotDialog(QDialog):
         self.plot_widget = SpectrumPlotWidget()
         layout.addWidget(self.plot_widget)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(self.close)
+        close_row = QHBoxLayout()
+        close_row.addStretch()
+        close_row.addWidget(close_btn)
+        layout.addLayout(close_row)
 
         loading = show_loading(self, "Loading spectra...")
         try:
@@ -102,5 +118,7 @@ class PlotDialog(QDialog):
         self.plot_widget.set_labels(
             xlabel="Wavelength (nm)",
             ylabel="Intensity (counts)",
-            title=f"{len(files)} file(s) overlaid — {mode_label}",
         )
+        # descriptive window title instead of an on-plot title, so several
+        # of these can be told apart while minimized/in the taskbar
+        self.setWindowTitle(f"Spectra Preview — {len(files)} file(s), {mode_label}")
