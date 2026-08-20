@@ -102,39 +102,30 @@ class SpectrumPlotWidget(QWidget):
         return widget
 
     def _on_save_plot(self):
-        dlg = SavePlotDialog(self.figure, self.ax, self)
+        dlg = SavePlotDialog(self, self)
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
-        opts = dlg.result_options()
 
+        fmt = dlg.selected_format()
         filters = {
             "png": "PNG Image (*.png)",
             "tiff": "TIFF Image (*.tif *.tiff)",
             "svg": "SVG Image (*.svg)",
         }
-        path, _ = QFileDialog.getSaveFileName(self, "Save plot", "", filters[opts["format"]])
+        path, _ = QFileDialog.getSaveFileName(self, "Save plot", "", filters[fmt])
         if not path:
             return
-        valid_exts = (".tif", ".tiff") if opts["format"] == "tiff" else (f".{opts['format']}",)
+        valid_exts = (".tif", ".tiff") if fmt == "tiff" else (f".{fmt}",)
         if not path.lower().endswith(valid_exts):
-            path += f".{opts['format']}"
+            path += f".{fmt}"
 
-        orig_size = self.figure.get_size_inches()
-        orig_title = self.ax.get_title()
         loading = show_loading(self, "Saving plot...")
         try:
-            w = opts["width"] if opts["width"] is not None else orig_size[0]
-            h = opts["height"] if opts["height"] is not None else orig_size[1]
-            self.figure.set_size_inches(w, h)
-            self.ax.set_title(opts["title"])
-            self.figure.savefig(path, format=opts["format"], dpi=opts["dpi"])
+            dlg.export(path)
         except Exception as e:
             QMessageBox.warning(self, "Save failed", f"Could not save plot: {e}")
         finally:
             loading.close()
-            self.figure.set_size_inches(*orig_size)
-            self.ax.set_title(orig_title)
-            self.canvas.draw_idle()
 
     # ── Public API ────────────────────────────────────────────────────────────
 
