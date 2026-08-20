@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QMainWindow, QVBoxLayout, QFileDialog, QMessageBox, QMenu
 from sfg_app2.app.ui.ui_main_window import Ui_MainWindow
 from sfg_app2.app.utils.pattern_manager import PatternManager
@@ -10,6 +11,8 @@ from sfg_app2.app.utils.plotting_settings import PlottingSettings
 from sfg_app2.app.utils.matching_settings import MatchingProfileManager
 from sfg_app2.app.utils.color_coding_settings import ColorCodingSettings
 from sfg_app2.app.utils.dock_layout_settings import DockLayoutSettings
+from sfg_app2.app.widgets.image_window import ImageWindow
+from sfg_app2.processing.image_file import load_image_csv, UnrecognizedImageFormatError
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +33,7 @@ class MainWindow(QMainWindow):
         self.color_coding_settings = ColorCodingSettings()
         self.dock_layout_settings = DockLayoutSettings()
         self._ignored_paths: set[Path] = set()  # resolved absolute paths
+        self._image_windows: list = []
 
         self._init_tabs()
         self.process_review_tab.restore_dock_layouts(self.dock_layout_settings)
@@ -46,6 +50,7 @@ class MainWindow(QMainWindow):
         self.dock_layout_settings.set("results", self.processed_results_tab.save_dock_state())
         self.dock_layout_settings.save()
         self.load_match_tab.close_plot_windows()
+        self.close_image_windows()
         super().closeEvent(event)
 
     # ── Tab setup ─────────────────────────────────────────────────────────────
@@ -106,6 +111,7 @@ class MainWindow(QMainWindow):
     def _connect_menu(self):
         self.ui.actionLoad_file_s.triggered.connect(self._on_load_files)
         self.ui.actionLoad_files_from_folder.triggered.connect(self._on_load_folder)
+        self._build_load_image_action()
         self.ui.actionIgnore_selected_files.triggered.connect(self._on_ignore_files)
         self.ui.actionUse_metadata_patterns.toggled.connect(self._on_toggle_metadata_patterns)
         self.ui.actionSet_metadata_patterns.triggered.connect(self._on_set_metadata_patterns)
@@ -158,9 +164,9 @@ class MainWindow(QMainWindow):
 
     def _rebuild_window_menu(self):
         self._window_menu.clear()
-        windows = self.load_match_tab.plot_windows
+        windows = self.load_match_tab.plot_windows + self._image_windows
         if not windows:
-            action = self._window_menu.addAction("No plot windows open")
+            action = self._window_menu.addAction("No windows open")
             action.setEnabled(False)
             return
         for window in windows:
@@ -169,14 +175,23 @@ class MainWindow(QMainWindow):
                 lambda checked=False, w=window: self._raise_window(w)
             )
         self._window_menu.addSeparator()
-        close_all = self._window_menu.addAction("Close all plot windows")
-        close_all.triggered.connect(self.load_match_tab.close_plot_windows)
+        close_all = self._window_menu.addAction("Close all windows")
+        close_all.triggered.connect(self._close_all_windows)
+
+    def _close_all_windows(self):
+        self.load_match_tab.close_plot_windows()
+        self.close_image_windows()
 
     @staticmethod
     def _raise_window(window):
         window.showNormal()
         window.raise_()
         window.activateWindow()
+
+    def _build_load_image_action(self):
+        action = QAction("Load image...", self)
+        action.triggered.connect(self._on_load_image)
+        self.ui.menuFile.insertAction(self.ui.actionLoad_from_multiple_folders, action)
 
     # ── Menu handlers ─────────────────────────────────────────────────────────
 
@@ -198,6 +213,36 @@ class MainWindow(QMainWindow):
         if folder:
             self.load_match_tab.load_from_folder(folder)
             self.statusBar().showMessage(f"Loaded from {folder}")
+
+    def _on_load_image(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Load CCD image", "", "CSV files (*.csv);;All files (*.*)",
+        )
+        if not path:
+            return
+        try:
+            image = load_image_csv(Path(path))
+        except UnrecognizedImageFormatError as e:
+            QMessageBox.warning(self, "Could not load image", str(e))
+            return
+        window = ImageWindow(image, parent=self)
+        window.destroyed.connect(lambda *_: self._on_image_window_destroyed(window))
+        self._image_windows.append(window)
+        window.show()
+        window.raise_()
+        window.activateWindow()
+
+    def _on_image_window_destroyed(self, window):
+        if window in self._image_windows:
+            self._image_windows.remove(window)
+
+    @property
+    def image_windows(self) -> list:
+        return list(self._image_windows)
+
+    def close_image_windows(self):
+        for window in list(self._image_windows):
+            window.close()
 
     def _on_ignore_files(self):
         paths, _ = QFileDialog.getOpenFileNames(
