@@ -3,6 +3,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from scipy.ndimage import median_filter
 
 
 class UnrecognizedImageFormatError(ValueError):
@@ -64,6 +65,20 @@ def _parse_indexed_grid(path: Path) -> CCDImage:
 # image CSV formats as additional functions here — nothing else needs
 # to change.
 _FORMAT_PARSERS = [_parse_indexed_grid]
+
+
+def find_brightest_region(data: np.ndarray, median_size: int = 3) -> tuple[int, int]:
+    """Locate the brightest spot in `data`, robust to single-pixel
+    cosmic-ray hits: a small median filter replaces a lone spike pixel
+    (whose neighbors are normal) with something close to the local
+    background before the arg-max search, while a genuinely bright
+    region's neighbors are bright too and survive the filter — same
+    median-based robustness idea as the app's 1D despiking
+    (remove_outliers_movmedian), just the 2D spatial analog.
+    """
+    denoised = median_filter(data, size=median_size)
+    row, col = np.unravel_index(np.argmax(denoised), denoised.shape)
+    return int(row), int(col)
 
 
 def load_image_csv(path: str | Path) -> CCDImage:

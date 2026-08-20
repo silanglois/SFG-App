@@ -3,6 +3,7 @@ import numpy as np
 from matplotlib.backends.backend_qtagg import NavigationToolbar2QT
 from matplotlib.figure import Figure
 from matplotlib.gridspec import GridSpec
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QCheckBox,
     QDoubleSpinBox, QPushButton, QDialog, QFileDialog, QMessageBox,
@@ -11,6 +12,10 @@ from PySide6.QtWidgets import (
 from sfg_app2.app.widgets.spectrum_plot_widget import _ThemedFigureCanvas
 from sfg_app2.app.dialogs.save_plot_dialog import SavePlotDialog
 from sfg_app2.app.utils.loading_indicator import show_loading
+from sfg_app2.processing.image_file import find_brightest_region
+
+_ARROW_STEP = 1
+_ARROW_STEP_FAST = 10
 
 _COLORMAPS = [
     "gray", "viridis", "plasma", "inferno", "magma", "cividis",
@@ -55,8 +60,16 @@ class ImagePlotWidget(QWidget):
         layout.addWidget(self.toolbar)
         layout.addWidget(self.canvas)
         layout.addWidget(self._controls_widget)
+        layout.addWidget(self._readout_widget)
 
+        # StrongFocus so a click grants keyboard focus (for arrow-key
+        # marker movement) as well as tab-focus; matplotlib/Qt canvases
+        # don't reliably pick this up from a synthetic click alone, so
+        # _on_click also calls self.canvas.setFocus() explicitly.
+        self.canvas.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.canvas.mpl_connect("button_press_event", self._on_click)
+        self.canvas.mpl_connect("key_press_event", self._on_key_press)
+        self.canvas.mpl_connect("motion_notify_event", self._on_hover)
 
     def _build_controls(self):
         widget = QWidget()
@@ -98,12 +111,25 @@ class ImagePlotWidget(QWidget):
         self._vmin_spin.valueChanged.connect(self._on_contrast_changed)
         self._vmax_spin.valueChanged.connect(self._on_contrast_changed)
 
+        self._find_brightest_button = QPushButton("Find brightest spot")
+        self._find_brightest_button.setToolTip(
+            "Move the marker to the brightest spot, ignoring single-pixel cosmic-ray hits"
+        )
+        self._find_brightest_button.clicked.connect(self._on_find_brightest)
+        row.addWidget(self._find_brightest_button)
+
         row.addStretch()
-
-        self._marker_label = QLabel("Click the image to place a marker")
-        row.addWidget(self._marker_label)
-
         self._controls_widget = widget
+
+        readout = QWidget()
+        readout_row = QHBoxLayout(readout)
+        readout_row.setContentsMargins(4, 0, 4, 2)
+        self._marker_label = QLabel("Click the image (or press an arrow key) to place a marker")
+        readout_row.addWidget(self._marker_label)
+        readout_row.addStretch()
+        self._hover_label = QLabel("")
+        readout_row.addWidget(self._hover_label)
+        self._readout_widget = readout
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -180,15 +206,75 @@ class ImagePlotWidget(QWidget):
 
     # ── Marker + profiles ────────────────────────────────────────────────────
 
+    def _nearest_index(self, xdata: float, ydata: float) -> tuple[int, int]:
+        col_idx = int(np.argmin(np.abs(self._cols - xdata)))
+        row_idx = int(np.argmin(np.abs(self._rows - ydata)))
+        return row_idx, col_idx
+
+    def _set_marker(self, row_idx: int, col_idx: int):
+        self._marker = (row_idx, col_idx)
+        self._redraw_marker_and_profiles()
+        self.canvas.setFocus()
+
     def _on_click(self, event):
         if event.inaxes != self.ax or event.xdata is None or event.ydata is None:
             return
         if self._data is None:
             return
-        col_idx = int(np.argmin(np.abs(self._cols - event.xdata)))
-        row_idx = int(np.argmin(np.abs(self._rows - event.ydata)))
-        self._marker = (row_idx, col_idx)
-        self._redraw_marker_and_profiles()
+        row_idx, col_idx = self._nearest_index(event.xdata, event.ydata)
+        self._set_marker(row_idx, col_idx)
+
+    def _on_hover(self, event):
+        if self._data is None:
+            return
+        if event.inaxes != self.ax or event.xdata is None or event.ydata is None:
+            self._hover_label.setText("")
+            return
+        row_idx, col_idx = self._nearest_index(event.xdata, event.ydata)
+        row_val, col_val = self._rows[row_idx], self._cols[col_idx]
+        intensity = self._data[row_idx, col_idx]
+        self._hover_label.setText(
+            f"hover: row {row_val:.0f}, col {col_val:.0f} — intensity {intensity:.1f}"
+        )
+
+    def _on_key_press(self, event):
+        if self._data is None:
+            return
+        key = event.key or ""
+        parts = key.split("+")
+        base = parts[-1]
+        mods = set(parts[:-1])
+        if base not in ("up", "down", "left", "right"):
+            return
+
+        n_rows, n_cols = self._data.shape
+        if self._marker is None:
+            row, col = n_rows // 2, n_cols // 2
+        else:
+            row, col = self._marker
+
+        jump_to_edge = "ctrl" in mods or "control" in mods
+        step = _ARROW_STEP_FAST if "shift" in mods else _ARROW_STEP
+
+        # "up"/"down" move the marker up/down on screen — since imshow
+        # is drawn with origin="upper", row index 0 renders at the top,
+        # so moving "up" must *decrease* the row index.
+        if base == "up":
+            row = 0 if jump_to_edge else max(0, row - step)
+        elif base == "down":
+            row = n_rows - 1 if jump_to_edge else min(n_rows - 1, row + step)
+        elif base == "left":
+            col = 0 if jump_to_edge else max(0, col - step)
+        elif base == "right":
+            col = n_cols - 1 if jump_to_edge else min(n_cols - 1, col + step)
+
+        self._set_marker(row, col)
+
+    def _on_find_brightest(self):
+        if self._data is None:
+            return
+        row_idx, col_idx = find_brightest_region(self._data)
+        self._set_marker(row_idx, col_idx)
 
     def _redraw_marker_and_profiles(self):
         # marker crosshairs are the only Line2D artists on the image axes —
@@ -204,10 +290,10 @@ class ImagePlotWidget(QWidget):
 
         if self._marker is None:
             self.ax_top.text(
-                0.5, 0.5, "Click the image to place a marker",
+                0.5, 0.5, "Click the image (or press an arrow key) to place a marker",
                 ha="center", va="center", transform=self.ax_top.transAxes, fontsize=8,
             )
-            self._marker_label.setText("Click the image to place a marker")
+            self._marker_label.setText("Click the image (or press an arrow key) to place a marker")
             self.canvas.draw_idle()
             return
 
