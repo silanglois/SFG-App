@@ -4,7 +4,7 @@ import logging
 from pathlib import Path
 
 from PySide6.QtGui import QAction
-from PySide6.QtWidgets import QMainWindow, QVBoxLayout, QFileDialog, QMessageBox, QMenu
+from PySide6.QtWidgets import QMainWindow, QFileDialog, QMessageBox, QMenu
 from sfg_app2.app.ui.ui_main_window import Ui_MainWindow
 from sfg_app2.app.utils.pattern_manager import PatternManager
 from sfg_app2.app.utils.plotting_settings import PlottingSettings
@@ -38,16 +38,18 @@ class MainWindow(QMainWindow):
         self._init_tabs()
         self.process_review_tab.restore_dock_layouts(self.dock_layout_settings)
         self.processed_results_tab.restore_dock_state(self.dock_layout_settings.get("results"))
+        self.fitting_tab.restore_dock_state(self.dock_layout_settings.get("fitting"))
         self._connect_menu()
         self._build_view_menu()
         self._build_window_menu()
         self._lock_tabs_from(1)
         self.ui.mainTabWidget.setTabEnabled(2, True)   # Results always accessible
-        self.ui.mainTabWidget.setTabEnabled(3, True)   # Post Processing always accessible
+        self.ui.mainTabWidget.setTabEnabled(3, True)   # Fitting always accessible
 
     def closeEvent(self, event):
         self.process_review_tab.save_dock_layouts(self.dock_layout_settings)
         self.dock_layout_settings.set("results", self.processed_results_tab.save_dock_state())
+        self.dock_layout_settings.set("fitting", self.fitting_tab.save_dock_state())
         self.dock_layout_settings.save()
         self.load_match_tab.close_plot_windows()
         self.close_image_windows()
@@ -71,11 +73,10 @@ class MainWindow(QMainWindow):
         self.processed_results_tab = ProcessedResultsTab()
         self._replace_tab(2, self.processed_results_tab, "Results")
 
-        # tab 3 (Post Processing) — placeholder for now
-        from PySide6.QtWidgets import QWidget, QLabel
-        placeholder = QWidget()
-        QVBoxLayout(placeholder).addWidget(QLabel("Post Processing — coming soon"))
-        self._replace_tab(3, placeholder, "Post Processing")
+        from sfg_app2.app.tabs.fitting_tab import FittingTab
+        self.fitting_tab = FittingTab()
+        self.fitting_tab.set_results_provider(self.processed_results_tab)
+        self._replace_tab(3, self.fitting_tab, "Fitting")
 
     def _replace_tab(self, index: int, widget, label: str):
         self.ui.mainTabWidget.removeTab(index)
@@ -152,6 +153,11 @@ class MainWindow(QMainWindow):
         for action in self.processed_results_tab.view_menu_actions():
             results_submenu.addAction(action)
         self._view_submenus["Results panels"] = results_submenu
+
+        fitting_submenu = self._view_menu.addMenu("Fitting panels")
+        for action in self.fitting_tab.view_menu_actions():
+            fitting_submenu.addAction(action)
+        self._view_submenus["Fitting panels"] = fitting_submenu
 
     def _build_window_menu(self):
         """Lists currently-open Load/Match plot-preview windows (each its
