@@ -28,7 +28,7 @@ class DockablePlotPanel:
         return self._dock_main_window
 
     def _add_dock(self, key: str, title: str, content: QWidget,
-                   expand_horizontally: bool = False,
+                   expand_horizontally: bool = False, fill: bool = False,
                    area: Qt.DockWidgetArea = Qt.DockWidgetArea.RightDockWidgetArea) -> QDockWidget:
         # wrap content in its own sizeHint-only box, top-left in a wrapper
         # with a trailing stretch — relying on content.layout().setAlignment()
@@ -38,7 +38,10 @@ class DockablePlotPanel:
         # soaked up here, once, outside of content's own layout entirely.
         # expand_horizontally opts out of the AlignLeft half of that clamp
         # for sections whose content should still use the full dock width
-        # (e.g. exclude_frames' per-component checkbox strips).
+        # (e.g. exclude_frames' per-component checkbox strips). fill opts
+        # out of the whole clamp+stretch: for content that should fill the
+        # dock in both directions (a table, a plot widget), sizeHint-only
+        # top-left clamping is actively wrong.
         content.setVisible(True)   # a widget detached from a QTabWidget's
                                     # non-current page stays hidden otherwise
         wrapper = QWidget()
@@ -46,11 +49,12 @@ class DockablePlotPanel:
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
         outer.addWidget(content)
-        align = Qt.AlignmentFlag.AlignTop
-        if not expand_horizontally:
-            align |= Qt.AlignmentFlag.AlignLeft
-        outer.setAlignment(content, align)
-        outer.addStretch()
+        if not fill:
+            align = Qt.AlignmentFlag.AlignTop
+            if not expand_horizontally:
+                align |= Qt.AlignmentFlag.AlignLeft
+            outer.setAlignment(content, align)
+            outer.addStretch()
 
         dock = QDockWidget(title, self._dock_main_window)
         dock.setObjectName(f"dock_{key}")   # required for save/restoreState

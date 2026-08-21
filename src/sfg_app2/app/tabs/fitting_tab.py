@@ -22,14 +22,34 @@ from sfg_app2.processing import provenance
 from sfg_app2.processing.processed_spectrum import ProcessedSpectrum
 from sfg_app2.processing.fitting import (
     FitParam, PeakInstance, FitModelSpec, default_peak,
-    evaluate_homodyne, evaluate_peak_component, fit_homodyne, compute_weights,
+    evaluate_homodyne, evaluate_chi, evaluate_peak_component, fit_homodyne, compute_weights,
     available_lineshapes, get_lineshape, fit_model_spec_from_provenance_payload,
 )
 
 logger = logging.getLogger(__name__)
 
 _COL_LABEL, _COL_PARAM, _COL_VALUE, _COL_ERROR, _COL_FIXED, _COL_MIN, _COL_MAX, _COL_EXPR = range(8)
-_PEAK_COL_INDEX, _PEAK_COL_LINESHAPE, _PEAK_COL_VISIBLE, _PEAK_COL_REMOVE = range(4)
+_PEAK_COL_INDEX, _PEAK_COL_LINESHAPE, _PEAK_COL_REMOVE = range(3)
+_DISPLAY_COL_LABEL, _DISPLAY_COL_PLOT1, _DISPLAY_COL_PLOT2 = range(3)
+
+# Fixed series always available for plotting, in display order; peak_{i}
+# series are appended dynamically, one per current peak.
+_FIXED_SERIES = [
+    ("data", "Data"),
+    ("fit_total", "Fit (total)"),
+    ("fit_real", "Fit (real)"),
+    ("fit_imag", "Fit (imaginary)"),
+    ("residual", "Residual"),
+]
+_DEFAULT_PLOT1_SERIES = {"data", "fit_total"}   # + every peak_i, by default
+_DEFAULT_PLOT2_SERIES = {"residual"}
+_SERIES_STYLE = {
+    "data": {"color": "black", "marker": ".", "linestyle": "none", "markersize": 3},
+    "fit_total": {"color": "red", "linewidth": 1.5},
+    "fit_real": {"color": "blue", "linewidth": 1.0, "linestyle": "--"},
+    "fit_imag": {"color": "green", "linewidth": 1.0, "linestyle": "--"},
+    "residual": {"color": "gray", "linewidth": 0.8},
+}
 
 
 def _readonly_item(text: str) -> QTableWidgetItem:
@@ -96,10 +116,10 @@ class FittingTab(QWidget, DockablePlotPanel):
         self._results_entries: list = []
         self._data: _FittableSpectrum | None = None
         self._model_spec: FitModelSpec = FitModelSpec.empty()
-        self._peak_visible: list[bool] = []
+        self._series_assignment: dict[str, set[str]] = {}
         self._last_result = None
         self._param_row_keys: list[tuple] = []
-        self._extra_lines: list = []
+        self._display_row_keys: list[str] = []
         self._placement_armed = False
         self._template_manager = FitTemplateManager()
 
@@ -112,6 +132,9 @@ class FittingTab(QWidget, DockablePlotPanel):
         self.plot_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.plot_widget.canvas.mpl_connect("button_press_event", self._on_plot_click)
 
+        self.plot_widget2 = SpectrumPlotWidget()
+        self.plot_widget2.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(4, 4, 4, 4)
         main_layout.setSpacing(4)
@@ -119,13 +142,16 @@ class FittingTab(QWidget, DockablePlotPanel):
         self._init_dock_area(self.plot_widget)
         self._add_dock("data_source", "Data source", self._build_data_source_section())
         self._add_dock("model", "Model", self._build_model_section())
-        self._add_dock("parameters", "Parameters", self._build_parameters_section())
+        self._add_dock("parameters", "Parameters", self._build_parameters_section(), fill=True)
+        self._add_dock("display", "Display", self._build_display_section())
         self._add_dock("fit", "Fit", self._build_fit_section())
+        self._add_dock("plot2", "Secondary plot", self.plot_widget2, fill=True)
         main_layout.addWidget(self._dock_main_window)
 
         self._plot_data()
         self._rebuild_peak_table()
         self._rebuild_parameter_table()
+        self._rebuild_display_table()
         self._update_quality_readout()
 
     # ── Data source dock ─────────────────────────────────────────────────────
@@ -241,12 +267,24 @@ class FittingTab(QWidget, DockablePlotPanel):
             if prefill is not None:
                 self.statusBar_message(f"Restored a previous fit from {self._data.label}'s provenance.")
         self._model_spec = prefill or FitModelSpec.empty()
-        self._peak_visible = [True] * len(self._model_spec.peaks)
+        self._series_assignment = {}
         self._last_result = None
         self._data_label.setText(f"Loaded: {self._data.label} ({len(self._data.omega)} points)")
+
         self._plot_data()
+        lo, hi = float(self._data.omega.min()), float(self._data.omega.max())
+        self.plot_widget.set_x_range(lo, hi)
+        self.plot_widget2.set_x_range(lo, hi)
+        for spin in (self._fit_min_spin, self._fit_max_spin):
+            spin.blockSignals(True)
+        self._fit_min_spin.setValue(lo)
+        self._fit_max_spin.setValue(hi)
+        for spin in (self._fit_min_spin, self._fit_max_spin):
+            spin.blockSignals(False)
+
         self._rebuild_peak_table()
         self._rebuild_parameter_table()
+        self._rebuild_display_table()
         self._update_quality_readout()
         self._schedule_preview()
 
@@ -283,16 +321,26 @@ class FittingTab(QWidget, DockablePlotPanel):
         self._nonresonant_check.toggled.connect(self._on_nonresonant_toggled)
         layout.addWidget(self._nonresonant_check)
 
-        self._peak_table = QTableWidget(0, 4)
-        self._peak_table.setHorizontalHeaderLabels(["Peak", "Lineshape", "Visible", "Remove"])
+        self._peak_table = QTableWidget(0, 3)
+        self._peak_table.setHorizontalHeaderLabels(["Peak", "Lineshape", "Remove"])
         self._peak_table.verticalHeader().setVisible(False)
         self._peak_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         layout.addWidget(self._peak_table)
+        layout.addWidget(QLabel(
+            "Which curves show is controlled by the Display dock, not this table."
+        ))
         return widget
 
     def _on_add_peak_toggled(self, checked: bool):
         self._placement_armed = checked
-        self._add_peak_btn.setText("Click on the plot..." if checked else "Add peak")
+        if checked:
+            self._add_peak_btn.setText("Click on the plot...")
+            self.plot_widget.canvas.setCursor(Qt.CursorShape.CrossCursor)
+            self.statusBar_message("Armed: click the plot to place a peak (right-click to cancel).")
+        else:
+            self._add_peak_btn.setText("Add peak")
+            self.plot_widget.canvas.setCursor(Qt.CursorShape.ArrowCursor)
+            self.statusBar_message("")
 
     def _on_plot_click(self, event):
         if not self._placement_armed:
@@ -320,9 +368,9 @@ class FittingTab(QWidget, DockablePlotPanel):
 
         peak = default_peak(lineshape_key, center=float(center), amplitude=amplitude, width=width)
         self._model_spec.peaks.append(peak)
-        self._peak_visible.append(True)
         self._rebuild_peak_table()
         self._rebuild_parameter_table()
+        self._rebuild_display_table()
         self._schedule_preview()
 
     def _on_nonresonant_toggled(self, checked: bool):
@@ -347,26 +395,16 @@ class FittingTab(QWidget, DockablePlotPanel):
             table.setItem(i, _PEAK_COL_INDEX, _readonly_item(f"Peak {i + 1}"))
             table.setItem(i, _PEAK_COL_LINESHAPE, _readonly_item(ls.display_name))
 
-            visible_check = QCheckBox()
-            visible_check.setChecked(self._peak_visible[i] if i < len(self._peak_visible) else True)
-            visible_check.toggled.connect(lambda checked, row=i: self._on_peak_visibility_toggled(row, checked))
-            table.setCellWidget(i, _PEAK_COL_VISIBLE, _center_widget(visible_check))
-
             remove_btn = QPushButton("Remove")
             remove_btn.clicked.connect(lambda _checked=False, row=i: self._on_remove_peak(row))
             table.setCellWidget(i, _PEAK_COL_REMOVE, remove_btn)
 
-    def _on_peak_visibility_toggled(self, row: int, checked: bool):
-        if 0 <= row < len(self._peak_visible):
-            self._peak_visible[row] = checked
-        self._schedule_preview()
-
     def _on_remove_peak(self, row: int):
         if 0 <= row < len(self._model_spec.peaks):
             del self._model_spec.peaks[row]
-            del self._peak_visible[row]
         self._rebuild_peak_table()
         self._rebuild_parameter_table()
+        self._rebuild_display_table()
         self._schedule_preview()
 
     # ── Parameters dock ──────────────────────────────────────────────────────
@@ -482,11 +520,108 @@ class FittingTab(QWidget, DockablePlotPanel):
                 if err_item is not None:
                     err_item.setText("" if pr.stderr is None else f"{pr.stderr:.4g}")
 
+    # ── Display dock ─────────────────────────────────────────────────────────
+    # Which of the available curves (data/fit/fit-real/fit-imag/residual/
+    # each peak) show on which plot area -- decoupled from the peak table
+    # (which only manages peak identity/lineshape/removal).
+
+    def _series_order(self) -> list[str]:
+        order = [key for key, _ in _FIXED_SERIES]
+        order += [f"peak_{i}" for i in range(len(self._model_spec.peaks))]
+        return order
+
+    def _series_label(self, key: str) -> str:
+        fixed = dict(_FIXED_SERIES)
+        if key in fixed:
+            return fixed[key]
+        if key.startswith("peak_"):
+            return f"Peak {int(key.split('_')[1]) + 1}"
+        return key
+
+    def _sync_series_assignment(self):
+        """Rebuild self._series_assignment for the current series set,
+        keeping existing choices for series that still exist and
+        defaulting newly-appeared ones. Note: since peaks are identified
+        by their current index, removing an earlier peak reindexes later
+        ones -- a later peak can inherit an earlier one's display
+        assignment across such a removal (same known limitation as expr
+        constraints referencing peaks by index)."""
+        order = self._series_order()
+        new_assignment = {}
+        for key in order:
+            if key in self._series_assignment:
+                new_assignment[key] = self._series_assignment[key]
+            elif key in _DEFAULT_PLOT2_SERIES:
+                new_assignment[key] = {"plot2"}
+            elif key in _DEFAULT_PLOT1_SERIES or key.startswith("peak_"):
+                new_assignment[key] = {"plot1"}
+            else:
+                new_assignment[key] = set()
+        self._series_assignment = new_assignment
+
+    def _build_display_section(self) -> QWidget:
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.addWidget(QLabel("Pick which curves show on which plot area:"))
+        self._display_table = QTableWidget(0, 3)
+        self._display_table.setHorizontalHeaderLabels(["Series", "Plot 1", "Plot 2"])
+        self._display_table.verticalHeader().setVisible(False)
+        self._display_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        layout.addWidget(self._display_table)
+        return widget
+
+    def _rebuild_display_table(self):
+        self._sync_series_assignment()
+        order = self._series_order()
+        self._display_row_keys = order
+
+        table = self._display_table
+        table.setRowCount(len(order))
+        for row, key in enumerate(order):
+            table.setItem(row, _DISPLAY_COL_LABEL, _readonly_item(self._series_label(key)))
+
+            plot1_check = QCheckBox()
+            plot1_check.setChecked("plot1" in self._series_assignment[key])
+            plot1_check.toggled.connect(lambda checked, k=key: self._on_series_toggle(k, "plot1", checked))
+            table.setCellWidget(row, _DISPLAY_COL_PLOT1, _center_widget(plot1_check))
+
+            plot2_check = QCheckBox()
+            plot2_check.setChecked("plot2" in self._series_assignment[key])
+            plot2_check.toggled.connect(lambda checked, k=key: self._on_series_toggle(k, "plot2", checked))
+            table.setCellWidget(row, _DISPLAY_COL_PLOT2, _center_widget(plot2_check))
+
+    def _on_series_toggle(self, key: str, plot_id: str, checked: bool):
+        assignment = self._series_assignment.setdefault(key, set())
+        if checked:
+            assignment.add(plot_id)
+        else:
+            assignment.discard(plot_id)
+        self._schedule_preview()
+
     # ── Fit dock ─────────────────────────────────────────────────────────────
 
     def _build_fit_section(self) -> QWidget:
         widget = QWidget()
         layout = QVBoxLayout(widget)
+
+        range_row = QHBoxLayout()
+        range_row.addWidget(QLabel("Fit range:"))
+        self._fit_min_spin = QDoubleSpinBox()
+        self._fit_min_spin.setRange(-1e6, 1e6)
+        self._fit_min_spin.setDecimals(2)
+        self._fit_min_spin.valueChanged.connect(self._on_fit_range_changed)
+        range_row.addWidget(self._fit_min_spin)
+        range_row.addWidget(QLabel("to"))
+        self._fit_max_spin = QDoubleSpinBox()
+        self._fit_max_spin.setRange(-1e6, 1e6)
+        self._fit_max_spin.setDecimals(2)
+        self._fit_max_spin.valueChanged.connect(self._on_fit_range_changed)
+        range_row.addWidget(self._fit_max_spin)
+        layout.addLayout(range_row)
+        layout.addWidget(QLabel(
+            "Independent of the plots' own view zoom — shown as a shaded region on Plot 1."
+        ))
+
         form = QFormLayout()
         layout.addLayout(form)
 
@@ -529,11 +664,11 @@ class FittingTab(QWidget, DockablePlotPanel):
         return widget
 
     def _fit_mask(self) -> np.ndarray:
-        x_range = self.plot_widget.get_x_range()
-        if x_range is None:
-            return np.ones_like(self._data.omega, dtype=bool)
-        lo, hi = x_range
+        lo, hi = self._fit_min_spin.value(), self._fit_max_spin.value()
         return (self._data.omega >= lo) & (self._data.omega <= hi)
+
+    def _on_fit_range_changed(self, *_args):
+        self._schedule_preview()
 
     def _on_run_fit(self):
         if self._data is None:
@@ -612,10 +747,10 @@ class FittingTab(QWidget, DockablePlotPanel):
         if spec is None:
             return
         self._model_spec = spec
-        self._peak_visible = [True] * len(self._model_spec.peaks)
         self._last_result = None
         self._rebuild_peak_table()
         self._rebuild_parameter_table()
+        self._rebuild_display_table()
         self._update_quality_readout()
         self._schedule_preview()
 
@@ -652,51 +787,78 @@ class FittingTab(QWidget, DockablePlotPanel):
 
     def _plot_data(self):
         self.plot_widget.full_clear()
-        self._extra_lines = []
+        self.plot_widget2.full_clear()
         if self._data is None:
             self.plot_widget.canvas.draw_idle()
+            self.plot_widget2.canvas.draw_idle()
             return
-        self.plot_widget.plot(
-            self._data.omega, self._data.intensity, label="Data",
-            color="black", marker=".", linestyle="none", markersize=3,
-        )
-        self.plot_widget.set_labels(
-            xlabel="Wavenumber (cm$^{-1}$)", ylabel="Intensity (counts)", title=self._data.label,
-        )
+        self.plot_widget.set_labels(xlabel="Wavenumber (cm$^{-1}$)", title=self._data.label)
+        self.plot_widget2.set_labels(xlabel="Wavenumber (cm$^{-1}$)")
 
     def _schedule_preview(self):
         self._preview_timer.start()
 
-    def _clear_extra_lines(self):
-        for line in self._extra_lines:
-            try:
-                line.remove()
-            except (ValueError, NotImplementedError):
-                pass
-        self._extra_lines = []
+    def _compute_series_values(self) -> dict[str, np.ndarray]:
+        omega = self._data.omega
+        total = evaluate_homodyne(omega, self._model_spec)
+        chi = evaluate_chi(omega, self._model_spec)
+        values = {
+            "data": self._data.intensity,
+            "fit_total": total,
+            "fit_real": chi.real,
+            "fit_imag": chi.imag,
+            "residual": self._data.intensity - total,
+        }
+        for i, peak in enumerate(self._model_spec.peaks):
+            values[f"peak_{i}"] = evaluate_peak_component(omega, peak)
+        return values
+
+    @staticmethod
+    def _style_for(key: str) -> dict:
+        if key in _SERIES_STYLE:
+            return dict(_SERIES_STYLE[key])
+        return {"linestyle": ":", "linewidth": 1.0}   # peak components
+
+    def _ylabel_for(self, plot_id: str) -> str:
+        keys = {k for k, plots in self._series_assignment.items() if plot_id in plots}
+        if keys == {"residual"}:
+            return "Residual (counts)"
+        if keys and keys <= {"fit_real", "fit_imag"}:
+            return "χ_eff (a.u.)"
+        return "Intensity (counts)"
 
     def _update_preview(self):
         if self._data is None:
             return
-        self._clear_extra_lines()
+        values = self._compute_series_values()
+        self._redraw_plot(self.plot_widget, "plot1", values)
+        self._redraw_plot(self.plot_widget2, "plot2", values)
+
+    def _redraw_plot(self, plot_widget: SpectrumPlotWidget, plot_id: str, values: dict):
+        ax = plot_widget.ax
+        for line in list(ax.lines):
+            line.remove()
+        for patch in list(ax.patches):
+            patch.remove()
+        ax.set_prop_cycle(None)
+
         omega = self._data.omega
-
-        total = evaluate_homodyne(omega, self._model_spec)
-        line, = self.plot_widget.ax.plot(omega, total, color="red", linewidth=1.5, label="Fit")
-        self._extra_lines.append(line)
-
-        for i, peak in enumerate(self._model_spec.peaks):
-            if i < len(self._peak_visible) and not self._peak_visible[i]:
+        any_line = False
+        for key in self._series_order():
+            if plot_id not in self._series_assignment.get(key, set()):
                 continue
-            comp = evaluate_peak_component(omega, peak)
-            cline, = self.plot_widget.ax.plot(omega, comp, linestyle="--", linewidth=1.0, label=f"Peak {i + 1}")
-            self._extra_lines.append(cline)
+            y = values.get(key)
+            if y is None:
+                continue
+            ax.plot(omega, y, label=self._series_label(key), **self._style_for(key))
+            any_line = True
 
-        residual = self._data.intensity - total
-        ax2 = self.plot_widget.secondary_axis()
-        rline, = ax2.plot(omega, residual, color="gray", linewidth=0.7, alpha=0.7, label="_nolegend_")
-        ax2.set_ylabel("Residual")
-        self._extra_lines.append(rline)
+        if plot_id == "plot1":
+            lo, hi = self._fit_min_spin.value(), self._fit_max_spin.value()
+            if hi > lo:
+                ax.axvspan(lo, hi, color="tab:blue", alpha=0.08, zorder=0)
 
-        self.plot_widget.ax.legend(fontsize=8)
-        self.plot_widget.canvas.draw_idle()
+        if any_line:
+            ax.legend(fontsize=8)
+        ax.set_ylabel(self._ylabel_for(plot_id))
+        plot_widget.canvas.draw_idle()

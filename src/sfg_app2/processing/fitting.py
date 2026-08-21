@@ -176,8 +176,15 @@ def build_homodyne_params(spec: FitModelSpec) -> lmfit.Parameters:
 
 
 def _chi_eff(omega: np.ndarray, params: lmfit.Parameters, spec: FitModelSpec) -> np.ndarray:
+    omega = np.asarray(omega, dtype=float)
     p = params.valuesdict()
-    chi = p["nr_amplitude"] * np.exp(1j * p["nr_phase"])
+    # np.full (not a bare scalar multiply) so chi always has omega's shape,
+    # even with zero peaks -- otherwise the non-resonant term alone never
+    # gets broadcast against omega, and callers that plot/subtract against
+    # the full-length data array fail (matplotlib in particular: it does
+    # not auto-broadcast a 0-d y against an N-point x).
+    nr = p["nr_amplitude"] * np.exp(1j * p["nr_phase"])
+    chi = np.full(omega.shape, nr, dtype=complex)
     for i, peak in enumerate(spec.peaks):
         ls = get_lineshape(peak.lineshape_key)
         kwargs = {name: p[f"p{i}_{name}"] for name in peak.params}
@@ -190,6 +197,14 @@ def evaluate_homodyne(omega: np.ndarray, spec: FitModelSpec) -> np.ndarray:
     fitting — used for the live parameter-table preview."""
     params = build_homodyne_params(spec)
     return np.abs(_chi_eff(omega, params, spec)) ** 2
+
+
+def evaluate_chi(omega: np.ndarray, spec: FitModelSpec) -> np.ndarray:
+    """The complex chi_eff itself (before squaring) -- lets the UI show
+    Re(chi)/Im(chi) as a fit-quality diagnostic even in homodyne mode,
+    where only |chi|^2 is actually measured/fit against."""
+    params = build_homodyne_params(spec)
+    return _chi_eff(omega, params, spec)
 
 
 def evaluate_peak_component(omega: np.ndarray, peak: PeakInstance) -> np.ndarray:
