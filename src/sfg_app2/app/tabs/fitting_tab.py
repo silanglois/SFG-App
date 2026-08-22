@@ -28,7 +28,7 @@ from sfg_app2.processing.fitting import (
 
 logger = logging.getLogger(__name__)
 
-_COL_LABEL, _COL_PARAM, _COL_VALUE, _COL_ERROR, _COL_FIXED, _COL_MIN, _COL_MAX, _COL_EXPR = range(8)
+_COL_LABEL, _COL_PARAM, _COL_FIXED, _COL_VALUE, _COL_ERROR, _COL_MIN, _COL_MAX, _COL_EXPR = range(8)
 _PEAK_COL_INDEX, _PEAK_COL_LINESHAPE, _PEAK_COL_REMOVE = range(3)
 _DISPLAY_COL_LABEL, _DISPLAY_COL_PLOT1, _DISPLAY_COL_PLOT2 = range(3)
 
@@ -143,7 +143,7 @@ class FittingTab(QWidget, DockablePlotPanel):
         self._add_dock("data_source", "Data source", self._build_data_source_section())
         self._add_dock("model", "Model", self._build_model_section())
         self._add_dock("parameters", "Parameters", self._build_parameters_section(), fill=True)
-        self._add_dock("display", "Display", self._build_display_section())
+        self._add_dock("display", "Display", self._build_display_section(), fill=True)
         self._add_dock("fit", "Fit", self._build_fit_section())
         self._add_dock("plot2", "Secondary plot", self.plot_widget2, fill=True)
         main_layout.addWidget(self._dock_main_window)
@@ -414,10 +414,16 @@ class FittingTab(QWidget, DockablePlotPanel):
         layout = QVBoxLayout(widget)
         self._param_table = QTableWidget(0, 8)
         self._param_table.setHorizontalHeaderLabels(
-            ["Peak", "Parameter", "Value", "Error", "Fixed", "Min", "Max", "Expr"]
+            ["Peak", "Parameter", "Fixed", "Value", "Error", "Min", "Max", "Expr"]
         )
         self._param_table.verticalHeader().setVisible(False)
-        self._param_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        # Interactive (not Stretch) so the user can drag-resize columns --
+        # Stretch locks every column's width to fill the viewport.
+        self._param_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        # Error/Expr are rarely needed day-to-day; hidden (not removed) so
+        # a future "show hidden columns" toggle stays cheap to add.
+        self._param_table.setColumnHidden(_COL_ERROR, True)
+        self._param_table.setColumnHidden(_COL_EXPR, True)
         layout.addWidget(self._param_table)
         return widget
 
