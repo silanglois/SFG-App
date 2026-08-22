@@ -1,4 +1,5 @@
 from __future__ import annotations
+from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Callable
 
@@ -408,3 +409,82 @@ def fit_kind_from_provenance_payload(payload: dict | None) -> str | None:
     if not payload:
         return None
     return payload.get("kind")
+
+
+# ── Sequential batch fitting ────────────────────────────────────────────────
+# Phase 1 of "batch fitting": each dataset in a series is fit
+# independently (no parameter linking across datasets -- that's a
+# separate, not-yet-built "global fitting" mode), but seeded from the
+# previous dataset's converged values, which works well for a smoothly
+# varying concentration/time series. Deliberately Qt-free/UI-free so
+# it's unit-testable without a QApplication; the caller (FittingTab)
+# supplies a `progress_cb` that owns any UI (progress dialog, cancel
+# button) and converts its own selected spectra into BatchDataset.
+
+@dataclass
+class BatchDataset:
+    label: str
+    kind: str                      # "homodyne" | "heterodyne"
+    omega: np.ndarray
+    intensity: np.ndarray | None = None
+    intensity_std: np.ndarray | None = None
+    count: np.ndarray | None = None
+    real: np.ndarray | None = None
+    imag: np.ndarray | None = None
+    real_err: np.ndarray | None = None
+    imag_err: np.ndarray | None = None
+
+
+def fit_sequential_batch(datasets: list[BatchDataset], template: FitModelSpec,
+                          weighting: str = "none", fit_range: tuple[float, float] | None = None,
+                          progress_cb: Callable[[int, int, str], bool] | None = None,
+                          ) -> list[FitResult | None]:
+    """Fit each dataset independently, in list order, each one seeded
+    from the previous dataset's converged parameter values (peak
+    topology/bounds/vary-state come from `template` and never change
+    across the batch -- only values carry forward). A dataset that
+    raises during fitting contributes None and does not advance the
+    seed (the next dataset still seeds from the last dataset that
+    produced a FitResult, success or not -- see module docs). If
+    `progress_cb` returns False, the loop stops immediately without
+    fitting the remaining datasets and returns only what was already
+    fit (a list shorter than `datasets`, not None-padded).
+    """
+    kinds = {d.kind for d in datasets}
+    if len(kinds) > 1:
+        raise ValueError(f"All datasets in a batch must share one kind, got: {sorted(kinds)}")
+
+    results: list[FitResult | None] = []
+    current_spec = deepcopy(template)
+    for i, ds in enumerate(datasets):
+        if progress_cb is not None and not progress_cb(i, len(datasets), ds.label):
+            break
+
+        mask = np.ones_like(ds.omega, dtype=bool)
+        if fit_range is not None:
+            lo, hi = fit_range
+            mask = (ds.omega >= lo) & (ds.omega <= hi)
+        omega = ds.omega[mask]
+
+        try:
+            if ds.kind == "heterodyne":
+                real, imag = ds.real[mask], ds.imag[mask]
+                real_err = ds.real_err[mask] if ds.real_err is not None else None
+                imag_err = ds.imag_err[mask] if ds.imag_err is not None else None
+                w_real, w_imag = compute_heterodyne_weights(weighting, real, imag, real_err, imag_err)
+                result = fit_heterodyne(omega, real, imag, current_spec,
+                                        weights_real=w_real, weights_imag=w_imag)
+            else:
+                intensity = ds.intensity[mask]
+                intensity_std = ds.intensity_std[mask] if ds.intensity_std is not None else None
+                count = ds.count[mask] if ds.count is not None else None
+                weights = compute_weights(weighting, intensity, intensity_std, count)
+                result = fit_homodyne(omega, intensity, current_spec, weights=weights)
+        except Exception:
+            results.append(None)
+            continue
+
+        results.append(result)
+        current_spec = deepcopy(result.spec)
+
+    return results

@@ -1,6 +1,9 @@
 from __future__ import annotations
+import json
 import logging
+from copy import deepcopy
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 import numpy as np
@@ -12,7 +15,8 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel, QComboBox,
     QPushButton, QCheckBox, QDoubleSpinBox, QLineEdit, QTableWidget,
     QTableWidgetItem, QHeaderView, QSizePolicy, QFileDialog, QMessageBox,
-    QInputDialog, QColorDialog,
+    QInputDialog, QColorDialog, QListWidget, QListWidgetItem, QAbstractItemView,
+    QProgressDialog, QApplication,
 )
 
 from sfg_app2.app.widgets.spectrum_plot_widget import SpectrumPlotWidget
@@ -26,6 +30,7 @@ from sfg_app2.processing.fitting import (
     evaluate_homodyne, evaluate_chi, evaluate_peak_component,
     fit_homodyne, fit_heterodyne, compute_weights, compute_heterodyne_weights,
     available_lineshapes, get_lineshape, fit_model_spec_from_provenance_payload,
+    BatchDataset, fit_sequential_batch,
 )
 
 logger = logging.getLogger(__name__)
@@ -214,6 +219,17 @@ class FittingTab(QWidget, DockablePlotPanel):
         self._placement_armed = False
         self._template_manager = FitTemplateManager()
 
+        # batch fit state -- see _on_run_batch_fit(); _batch_rows pairs each
+        # selected entry with its FitResult (or None if it raised), in the
+        # order the batch was actually run in. _batch_template/_fit_range/
+        # _weighting are captured at run time so a later edit to the live
+        # model/fit controls doesn't retroactively change what "Export
+        # batch summary"/drill-down reproduce.
+        self._batch_rows: list[tuple] = []
+        self._batch_template: FitModelSpec | None = None
+        self._batch_fit_range: tuple[float, float] | None = None
+        self._batch_weighting: str | None = None
+
         self._preview_timer = QTimer()
         self._preview_timer.setSingleShot(True)
         self._preview_timer.setInterval(50)
@@ -236,6 +252,7 @@ class FittingTab(QWidget, DockablePlotPanel):
         self._add_dock("parameters", "Parameters", self._build_parameters_section(), fill=True)
         self._add_dock("display", "Display", self._build_display_section(), fill=True)
         self._add_dock("fit", "Fit", self._build_fit_section())
+        self._add_dock("batch", "Batch fit", self._build_batch_section(), fill=True)
         self._add_dock("plot2", "Secondary plot", self.plot_widget2, fill=True)
         main_layout.addWidget(self._dock_main_window)
 
@@ -280,11 +297,22 @@ class FittingTab(QWidget, DockablePlotPanel):
 
         self._data_label = QLabel("No spectrum loaded.")
         layout.addWidget(self._data_label)
+
+        layout.addWidget(QLabel(
+            "Select 2+ spectra below to batch-fit them using the model "
+            "currently configured in the Model/Parameters docks:"
+        ))
+        self._batch_list = QListWidget()
+        self._batch_list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self._batch_list.itemSelectionChanged.connect(self._on_batch_selection_changed)
+        layout.addWidget(self._batch_list)
+
         layout.addStretch()
         return widget
 
     def _on_refresh_results(self):
         self._results_combo.clear()
+        self._batch_list.clear()
         self._results_entries = []
         if self._results_provider is None:
             return
@@ -292,7 +320,9 @@ class FittingTab(QWidget, DockablePlotPanel):
         self._results_entries = entries
         for e in entries:
             prefix = "[heterodyne] " if e.kind == "heterodyne" else ""
-            self._results_combo.addItem(f"{prefix}{e.label}")
+            text = f"{prefix}{e.label}"
+            self._results_combo.addItem(text)
+            self._batch_list.addItem(QListWidgetItem(text))
 
     def _on_load_selected_result(self):
         idx = self._results_combo.currentIndex()
@@ -302,7 +332,8 @@ class FittingTab(QWidget, DockablePlotPanel):
         entry = self._results_entries[idx]
         self._load_from_processed_spectrum(entry.spectrum, entry.label, kind=entry.kind)
 
-    def _load_from_processed_spectrum(self, spectrum, label: str, kind: str = "homodyne"):
+    def _load_from_processed_spectrum(self, spectrum, label: str, kind: str = "homodyne",
+                                       preset: dict | None = None):
         channels = _extract_channels(spectrum.data, preferred_kind=kind)
         if channels is None:
             QMessageBox.warning(
@@ -314,7 +345,7 @@ class FittingTab(QWidget, DockablePlotPanel):
         self._data = _FittableSpectrum(
             label=label, source_spectrum=spectrum, fit_json_payload=None, **channels,
         )
-        self._on_data_loaded()
+        self._on_data_loaded(preset=preset)
 
     def _on_load_from_file(self):
         path_str, _ = QFileDialog.getOpenFileName(
@@ -342,29 +373,41 @@ class FittingTab(QWidget, DockablePlotPanel):
         )
         self._on_data_loaded()
 
-    def _on_data_loaded(self):
-        prefill = None
-        if self._data.fit_json_payload:
-            prefill = fit_model_spec_from_provenance_payload(self._data.fit_json_payload)
-            if prefill is not None:
-                self.statusBar_message(f"Restored a previous fit from {self._data.label}'s provenance.")
-        if prefill is not None:
-            self._model_spec = prefill
+    def _on_data_loaded(self, preset: dict | None = None):
+        """`preset` (model_spec, last_result, fit_range, weighting) is
+        given when drilling into a batch-fit result row -- it bypasses
+        the normal empty/provenance-restored model and instead
+        faithfully rehydrates the exact fit that produced that row
+        (including the fit range/weighting the batch used), rather than
+        resetting to the spectrum's full range like a fresh load does."""
+        if preset is not None:
+            self._model_spec = deepcopy(preset["model_spec"])
         else:
-            self._model_spec = FitModelSpec.empty()
-            if self._data.kind == "heterodyne":
-                # phase is degenerate with the peaks' own phase/amplitude
-                # in homodyne mode (only |chi|^2 is measured), so it's
-                # fixed there by default -- but fitting Re/Im directly
-                # constrains it well, so let it vary here.
-                self._model_spec.nonresonant["phase"].vary = True
+            prefill = None
+            if self._data.fit_json_payload:
+                prefill = fit_model_spec_from_provenance_payload(self._data.fit_json_payload)
+                if prefill is not None:
+                    self.statusBar_message(f"Restored a previous fit from {self._data.label}'s provenance.")
+            if prefill is not None:
+                self._model_spec = prefill
+            else:
+                self._model_spec = FitModelSpec.empty()
+                if self._data.kind == "heterodyne":
+                    # phase is degenerate with the peaks' own phase/amplitude
+                    # in homodyne mode (only |chi|^2 is measured), so it's
+                    # fixed there by default -- but fitting Re/Im directly
+                    # constrains it well, so let it vary here.
+                    self._model_spec.nonresonant["phase"].vary = True
         self._rebuild_weighting_combo()
         self._series_assignment = {}
-        self._last_result = None
+        self._last_result = preset["last_result"] if preset is not None else None
         self._data_label.setText(f"Loaded: {self._data.label} ({len(self._data.omega)} points)")
 
         self._plot_data()
-        lo, hi = float(self._data.omega.min()), float(self._data.omega.max())
+        if preset is not None and preset.get("fit_range") is not None:
+            lo, hi = preset["fit_range"]
+        else:
+            lo, hi = float(self._data.omega.min()), float(self._data.omega.max())
         self.plot_widget.set_x_range(lo, hi)
         self.plot_widget2.set_x_range(lo, hi)
         for spin in (self._fit_min_spin, self._fit_max_spin):
@@ -374,9 +417,15 @@ class FittingTab(QWidget, DockablePlotPanel):
         for spin in (self._fit_min_spin, self._fit_max_spin):
             spin.blockSignals(False)
 
+        if preset is not None and preset.get("weighting") is not None:
+            idx = self._weighting_combo.findData(preset["weighting"])
+            if idx >= 0:
+                self._weighting_combo.setCurrentIndex(idx)
+
         self._rebuild_peak_table()
         self._rebuild_parameter_table()
         self._rebuild_display_table()
+        self._apply_fit_result_to_table()
         self._update_quality_readout()
         self._schedule_preview()
 
@@ -1011,6 +1060,218 @@ class FittingTab(QWidget, DockablePlotPanel):
             QMessageBox.warning(self, "Export failed", str(e))
             return
         QMessageBox.information(self, "Export complete", f"Fit exported to {path_str}")
+
+    # ── Batch fit dock ───────────────────────────────────────────────────────
+    # Phase 1 of "batch fitting": each selected spectrum is fit
+    # independently (no shared/linked parameters across spectra -- that's
+    # a separate, not-yet-built "global fitting" mode), seeded from the
+    # previous spectrum's converged values via processing.fitting's
+    # fit_sequential_batch(). The starting model is whatever
+    # self._model_spec currently is -- configure/verify it against one
+    # spectrum using the normal single-spectrum workflow first, then
+    # select others here.
+
+    def _build_batch_section(self) -> QWidget:
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.addWidget(QLabel(
+            "Uses the Fit dock's current fit range and weighting for "
+            "every spectrum in the batch."
+        ))
+
+        self._run_batch_btn = QPushButton("Run batch fit")
+        self._run_batch_btn.setEnabled(False)
+        self._run_batch_btn.clicked.connect(self._on_run_batch_fit)
+        layout.addWidget(self._run_batch_btn)
+
+        self._batch_table = QTableWidget(0, 4)
+        self._batch_table.setHorizontalHeaderLabels(["Label", "Status", "redchi", "R²"])
+        self._batch_table.verticalHeader().setVisible(False)
+        self._batch_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self._batch_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self._batch_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self._batch_table.cellDoubleClicked.connect(lambda row, _col: self._on_batch_row_activated(row))
+        layout.addWidget(self._batch_table)
+        layout.addWidget(QLabel("Double-click a row to inspect that spectrum's fit in the workspace above."))
+
+        export_btn = QPushButton("Export batch summary (CSV)")
+        export_btn.clicked.connect(self._on_export_batch_summary)
+        layout.addWidget(export_btn)
+        return widget
+
+    def _selected_batch_entries(self) -> list:
+        # QListWidget.selectedItems() is NOT in visual/list order (click
+        # order) -- collect selected row indices into a set and filter the
+        # list's own order by membership instead, same idiom
+        # processed_results.py's _selected_entries() uses. Getting this
+        # wrong would silently fit the batch in scrambled order.
+        selected_rows = {self._batch_list.row(item) for item in self._batch_list.selectedItems()}
+        return [e for i, e in enumerate(self._results_entries) if i in selected_rows]
+
+    def _on_batch_selection_changed(self):
+        self._run_batch_btn.setEnabled(len(self._selected_batch_entries()) >= 2)
+
+    def _on_run_batch_fit(self):
+        entries = self._selected_batch_entries()
+        if len(entries) < 2:
+            return
+        kinds = {e.kind for e in entries}
+        if len(kinds) > 1:
+            QMessageBox.warning(
+                self, "Mixed spectrum kinds",
+                "Batch fitting requires all selected spectra to be the same "
+                f"kind (homodyne or heterodyne) -- selected: {sorted(kinds)}.",
+            )
+            return
+
+        datasets = []
+        for e in entries:
+            channels = _extract_channels(e.spectrum.data, preferred_kind=e.kind)
+            if channels is None:
+                QMessageBox.warning(
+                    self, "Cannot fit this spectrum",
+                    f"{e.label}: no Wavenumber/Intensity or Wavenumber/Real/Imaginary columns found.",
+                )
+                return
+            datasets.append(BatchDataset(label=e.label, **channels))
+
+        fit_range = (self._fit_min_spin.value(), self._fit_max_spin.value())
+        weighting = self._weighting_combo.currentData()
+        self._batch_template = deepcopy(self._model_spec)
+        self._batch_fit_range = fit_range
+        self._batch_weighting = weighting
+
+        dialog = QProgressDialog("Preparing batch fit...", "Cancel", 0, len(datasets), self)
+        dialog.setWindowTitle("Batch fit")
+        dialog.setWindowModality(Qt.WindowModality.WindowModal)
+        dialog.setMinimumDuration(0)
+
+        def progress_cb(i: int, n: int, label: str) -> bool:
+            dialog.setLabelText(f"Fitting {i + 1} of {n}: {label}")
+            dialog.setValue(i)
+            # A synchronous for-loop blocks the Qt event loop, so the
+            # Cancel button click is only ever queued, never processed,
+            # without this -- see plan notes.
+            QApplication.processEvents()
+            return not dialog.wasCanceled()
+
+        try:
+            results = fit_sequential_batch(
+                datasets, self._model_spec, weighting=weighting, fit_range=fit_range,
+                progress_cb=progress_cb,
+            )
+        except Exception as e:
+            dialog.close()
+            QMessageBox.warning(self, "Batch fit failed", str(e))
+            return
+        dialog.close()
+
+        self._batch_rows = list(zip(entries[:len(results)], results))
+        self._populate_batch_table()
+
+    def _populate_batch_table(self):
+        table = self._batch_table
+        table.setRowCount(len(self._batch_rows))
+        for row, (entry, result) in enumerate(self._batch_rows):
+            table.setItem(row, 0, _readonly_item(entry.label))
+            if result is None:
+                status_item = _readonly_item("✗ failed")
+                status_item.setToolTip("An exception was raised while fitting this spectrum.")
+                table.setItem(row, 1, status_item)
+                table.setItem(row, 2, _readonly_item(""))
+                table.setItem(row, 3, _readonly_item(""))
+                continue
+            if result.success:
+                status_text = "✓ converged"
+            else:
+                status_text = "⚠ did not converge"
+            status_item = _readonly_item(status_text)
+            status_item.setToolTip(result.message or "")
+            table.setItem(row, 1, status_item)
+            table.setItem(row, 2, _readonly_item(f"{result.redchi:.4g}"))
+            table.setItem(row, 3, _readonly_item(f"{result.r_squared:.4f}"))
+
+    def _on_batch_row_activated(self, row: int):
+        if row < 0 or row >= len(self._batch_rows):
+            return
+        entry, result = self._batch_rows[row]
+        if result is None:
+            QMessageBox.information(
+                self, "No result", "This spectrum's fit did not complete — nothing to inspect.",
+            )
+            return
+        preset = {
+            "model_spec": result.spec, "last_result": result,
+            "fit_range": self._batch_fit_range, "weighting": self._batch_weighting,
+        }
+        self._load_from_processed_spectrum(entry.spectrum, entry.label, kind=entry.kind, preset=preset)
+
+    def _batch_param_columns(self, template: FitModelSpec) -> list[tuple[tuple, str]]:
+        columns = []
+        for name in template.nonresonant:
+            columns.append((("nr", name), f"Non-resonant {name.capitalize()}"))
+        for i, peak in enumerate(template.peaks):
+            ls = get_lineshape(peak.lineshape_key)
+            for p in ls.params:
+                columns.append((("peak", i, p.name), f"Peak {i + 1} {p.display_name}"))
+        return columns
+
+    def _on_export_batch_summary(self):
+        if not self._batch_rows:
+            QMessageBox.information(self, "Nothing to export", "Run a batch fit first.")
+            return
+        path_str, _ = QFileDialog.getSaveFileName(
+            self, "Export batch summary", "batch_fit_summary.csv", "CSV files (*.csv)",
+        )
+        if not path_str:
+            return
+
+        param_columns = self._batch_param_columns(self._batch_template)
+        rows = []
+        for entry, result in self._batch_rows:
+            if result is None:
+                status = "failed"
+            elif result.success:
+                status = "converged"
+            else:
+                status = "did not converge"
+            row = {
+                "Label": entry.label, "Kind": entry.kind, "Status": status,
+                "redchi": None if result is None else result.redchi,
+                "r_squared": None if result is None else result.r_squared,
+                "aic": None if result is None else result.aic,
+                "bic": None if result is None else result.bic,
+            }
+            for key, label in param_columns:
+                pr = None if result is None else result.param_results.get(_lmfit_key(key))
+                row[label] = None if pr is None else pr.value
+                row[f"{label} stderr"] = None if pr is None else pr.stderr
+            rows.append(row)
+        df = pd.DataFrame(rows)
+
+        batch_payload = {
+            "template": self._batch_template.to_dict(),
+            "fit_range": self._batch_fit_range,
+            "weighting": self._batch_weighting,
+            "kind": self._batch_rows[0][0].kind,
+            "labels": [entry.label for entry, _ in self._batch_rows],
+        }
+        header_lines = [
+            "# SFG-App batch fit summary",
+            f"# Exported:    {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            "#",
+            f"# Batch json: {json.dumps(batch_payload)}",
+            "#",
+        ]
+        try:
+            with open(path_str, "w", newline="", encoding="utf-8") as f:
+                for line in header_lines:
+                    f.write(line + "\n")
+                df.to_csv(f, index=False)
+        except Exception as e:
+            QMessageBox.warning(self, "Export failed", str(e))
+            return
+        QMessageBox.information(self, "Export complete", f"Batch summary exported to {path_str}")
 
     # ── Plot ─────────────────────────────────────────────────────────────────
 
