@@ -435,56 +435,95 @@ class BatchDataset:
     imag_err: np.ndarray | None = None
 
 
+def _check_one_kind(datasets: list[BatchDataset]) -> None:
+    kinds = {d.kind for d in datasets}
+    if len(kinds) > 1:
+        raise ValueError(f"All datasets in a batch must share one kind, got: {sorted(kinds)}")
+
+
+def fit_one_dataset(dataset: BatchDataset, spec: FitModelSpec,
+                     weighting: str = "none", fit_range: tuple[float, float] | None = None,
+                     ) -> FitResult | None:
+    """Fit a single dataset against `spec` -- the one per-dataset fit
+    primitive every batch/sequential/interactive caller shares. Returns
+    None (rather than raising) if fitting fails for any reason (e.g. an
+    empty fit window, an invalid model), so a caller looping over many
+    datasets can treat a bad one as "no result" and keep going."""
+    mask = np.ones_like(dataset.omega, dtype=bool)
+    if fit_range is not None:
+        lo, hi = fit_range
+        mask = (dataset.omega >= lo) & (dataset.omega <= hi)
+    omega = dataset.omega[mask]
+
+    try:
+        if dataset.kind == "heterodyne":
+            real, imag = dataset.real[mask], dataset.imag[mask]
+            real_err = dataset.real_err[mask] if dataset.real_err is not None else None
+            imag_err = dataset.imag_err[mask] if dataset.imag_err is not None else None
+            w_real, w_imag = compute_heterodyne_weights(weighting, real, imag, real_err, imag_err)
+            return fit_heterodyne(omega, real, imag, spec, weights_real=w_real, weights_imag=w_imag)
+        else:
+            intensity = dataset.intensity[mask]
+            intensity_std = dataset.intensity_std[mask] if dataset.intensity_std is not None else None
+            count = dataset.count[mask] if dataset.count is not None else None
+            weights = compute_weights(weighting, intensity, intensity_std, count)
+            return fit_homodyne(omega, intensity, spec, weights=weights)
+    except Exception:
+        return None
+
+
+def advance_seed(current_spec: FitModelSpec, result: FitResult | None) -> FitModelSpec:
+    """The sequential-fit reseed rule, single-sourced since both
+    fit_sequential_batch's own loop and an interactive stepped runner
+    (e.g. FittingTab's checkpoint-pausing sequential mode) need it:
+    carry forward a dataset's converged values (success or not -- a
+    non-converged result's values aren't necessarily garbage) unless
+    fitting raised outright (result is None), in which case keep
+    whatever seed was already in flight."""
+    return deepcopy(result.spec) if result is not None else current_spec
+
+
 def fit_sequential_batch(datasets: list[BatchDataset], template: FitModelSpec,
                           weighting: str = "none", fit_range: tuple[float, float] | None = None,
                           progress_cb: Callable[[int, int, str], bool] | None = None,
                           ) -> list[FitResult | None]:
-    """Fit each dataset independently, in list order, each one seeded
-    from the previous dataset's converged parameter values (peak
-    topology/bounds/vary-state come from `template` and never change
-    across the batch -- only values carry forward). A dataset that
-    raises during fitting contributes None and does not advance the
-    seed (the next dataset still seeds from the last dataset that
-    produced a FitResult, success or not -- see module docs). If
+    """Fit each dataset in list order, each one seeded from the
+    previous dataset's converged parameter values via advance_seed()
+    (peak topology/bounds/vary-state come from `template` and never
+    change across the run -- only values carry forward). If
     `progress_cb` returns False, the loop stops immediately without
     fitting the remaining datasets and returns only what was already
     fit (a list shorter than `datasets`, not None-padded).
     """
-    kinds = {d.kind for d in datasets}
-    if len(kinds) > 1:
-        raise ValueError(f"All datasets in a batch must share one kind, got: {sorted(kinds)}")
+    _check_one_kind(datasets)
 
     results: list[FitResult | None] = []
     current_spec = deepcopy(template)
     for i, ds in enumerate(datasets):
         if progress_cb is not None and not progress_cb(i, len(datasets), ds.label):
             break
-
-        mask = np.ones_like(ds.omega, dtype=bool)
-        if fit_range is not None:
-            lo, hi = fit_range
-            mask = (ds.omega >= lo) & (ds.omega <= hi)
-        omega = ds.omega[mask]
-
-        try:
-            if ds.kind == "heterodyne":
-                real, imag = ds.real[mask], ds.imag[mask]
-                real_err = ds.real_err[mask] if ds.real_err is not None else None
-                imag_err = ds.imag_err[mask] if ds.imag_err is not None else None
-                w_real, w_imag = compute_heterodyne_weights(weighting, real, imag, real_err, imag_err)
-                result = fit_heterodyne(omega, real, imag, current_spec,
-                                        weights_real=w_real, weights_imag=w_imag)
-            else:
-                intensity = ds.intensity[mask]
-                intensity_std = ds.intensity_std[mask] if ds.intensity_std is not None else None
-                count = ds.count[mask] if ds.count is not None else None
-                weights = compute_weights(weighting, intensity, intensity_std, count)
-                result = fit_homodyne(omega, intensity, current_spec, weights=weights)
-        except Exception:
-            results.append(None)
-            continue
-
+        result = fit_one_dataset(ds, current_spec, weighting, fit_range)
         results.append(result)
-        current_spec = deepcopy(result.spec)
+        current_spec = advance_seed(current_spec, result)
+
+    return results
+
+
+def fit_independent_batch(datasets: list[BatchDataset], template: FitModelSpec,
+                           weighting: str = "none", fit_range: tuple[float, float] | None = None,
+                           progress_cb: Callable[[int, int, str], bool] | None = None,
+                           ) -> list[FitResult | None]:
+    """Fit each dataset independently against the same starting
+    `template` -- no seeding, order doesn't affect the result of any
+    individual dataset. Same cancellation contract as
+    fit_sequential_batch(): progress_cb returning False stops the loop
+    immediately and returns a short, non-padded list."""
+    _check_one_kind(datasets)
+
+    results: list[FitResult | None] = []
+    for i, ds in enumerate(datasets):
+        if progress_cb is not None and not progress_cb(i, len(datasets), ds.label):
+            break
+        results.append(fit_one_dataset(ds, template, weighting, fit_range))
 
     return results
