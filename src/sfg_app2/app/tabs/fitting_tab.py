@@ -397,7 +397,10 @@ class FittingTab(QWidget, DockablePlotPanel):
             nr["amplitude"].vary = True
             if nr["amplitude"].value == 0.0:
                 nr["amplitude"].value = 0.1
-            nr["phase"].vary = True
+            # phase's fixed/varying state is left as-is (it's fixed by
+            # default -- see FitModelSpec.empty() -- and otherwise
+            # reflects whatever the user set via the parameter table's
+            # own Fixed checkbox, not this one)
         else:
             nr["amplitude"].vary = False
             nr["amplitude"].value = 0.0

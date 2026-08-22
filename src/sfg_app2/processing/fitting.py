@@ -125,8 +125,8 @@ class FitModelSpec:
     def empty() -> "FitModelSpec":
         return FitModelSpec(
             nonresonant={
-                "amplitude": FitParam(value=0.0, min=0.0),
-                "phase": FitParam(value=0.0, min=-np.pi, max=np.pi),
+                "amplitude": FitParam(value=0.0),   # min/max default to -inf/inf
+                "phase": FitParam(value=0.0, vary=False, min=-np.pi, max=np.pi),
             },
             peaks=[],
         )
