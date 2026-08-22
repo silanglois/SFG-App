@@ -14,22 +14,30 @@ class DockablePlotPanel:
     reasoning already used by ProcessedResultsTab's "Visualization
     parameters" dock (see app/tabs/processed_results.py:_setup_plot).
 
-    Subclasses call _init_dock_area() once with their plot widget, then
-    _add_dock() for each parameter section. All of a panel's docks are
-    tabified together by default — closest to the old "one section shown
-    at a time" feel, while every tab stays fully draggable/floatable/
-    closable. _set_dock_visibility() drives step-based auto-focus.
+    Subclasses call _init_dock_area() once, optionally with a fixed
+    central widget, then _add_dock() for each parameter section. By
+    default all of a panel's docks are tabified together — closest to
+    the old "one section shown at a time" feel, while every tab stays
+    fully draggable/floatable/closable. Passing tabify=False to
+    _add_dock() opts a dock out of that shared tab group entirely (its
+    own area, untouched by whatever the tabified group is doing) — for
+    a panel whose plot should stay visible by default alongside its
+    (tabbed) control docks, rather than being just another tab in the
+    same group. _set_dock_visibility() drives step-based auto-focus.
     """
 
-    def _init_dock_area(self, plot_widget: QWidget) -> QMainWindow:
+    def _init_dock_area(self, central_widget: QWidget | None = None) -> QMainWindow:
         self._dock_main_window = QMainWindow()
-        self._dock_main_window.setCentralWidget(plot_widget)
+        if central_widget is not None:
+            self._dock_main_window.setCentralWidget(central_widget)
         self._docks: dict[str, QDockWidget] = {}
+        self._dock_tab_anchor: QDockWidget | None = None
         return self._dock_main_window
 
     def _add_dock(self, key: str, title: str, content: QWidget,
                    expand_horizontally: bool = False, fill: bool = False,
-                   area: Qt.DockWidgetArea = Qt.DockWidgetArea.RightDockWidgetArea) -> QDockWidget:
+                   area: Qt.DockWidgetArea = Qt.DockWidgetArea.RightDockWidgetArea,
+                   tabify: bool = True) -> QDockWidget:
         # wrap content in its own sizeHint-only box, top-left in a wrapper
         # with a trailing stretch — relying on content.layout().setAlignment()
         # alone left rows visibly stretched apart (QGridLayout distributing
@@ -65,10 +73,12 @@ class DockablePlotPanel:
             | QDockWidget.DockWidgetFeature.DockWidgetClosable
         )
         dock.setAllowedAreas(Qt.DockWidgetArea.AllDockWidgetAreas)
-        if self._docks:
-            self._dock_main_window.tabifyDockWidget(next(iter(self._docks.values())), dock)
+        if tabify and self._dock_tab_anchor is not None:
+            self._dock_main_window.tabifyDockWidget(self._dock_tab_anchor, dock)
         else:
             self._dock_main_window.addDockWidget(area, dock)
+            if tabify:
+                self._dock_tab_anchor = dock
         self._docks[key] = dock
         return dock
 

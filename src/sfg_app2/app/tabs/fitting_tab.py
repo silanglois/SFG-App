@@ -306,12 +306,19 @@ class FittingTab(QWidget, DockablePlotPanel):
         main_layout.setContentsMargins(4, 4, 4, 4)
         main_layout.setSpacing(4)
 
-        self._init_dock_area(self.plot_widget)
-        self._add_dock("data_source", "Data source", self._build_data_source_section())
-        self._add_dock("model", "Model", self._build_model_section())
+        self._init_dock_area()
+        # Untabified and in its own area so it stays visible by default
+        # alongside whichever control dock is active, the same
+        # arrangement as when it was the nested QMainWindow's fixed
+        # central widget -- but now a real dock (movable/floatable/
+        # closable) like plot_widget2/plot_widget3 already are.
+        self._add_dock("plot1", "Primary plot", self.plot_widget, fill=True,
+                        tabify=False, area=Qt.DockWidgetArea.LeftDockWidgetArea)
+        self._add_dock("data_source", "Data source", self._build_data_source_section(), fill=True)
+        self._add_dock("model", "Model", self._build_model_section(), fill=True)
         self._add_dock("parameters", "Parameters", self._build_parameters_section(), fill=True)
         self._add_dock("display", "Display", self._build_display_section(), fill=True)
-        self._add_dock("fit", "Fit", self._build_fit_section())
+        self._add_dock("fit", "Fit", self._build_fit_section(), fill=True)
         self._add_dock("batch", "Batch fit", self._build_batch_section(), fill=True)
         self._add_dock("sequential", "Sequential fit", self._build_sequential_section(), fill=True)
         self._add_dock("multifit_results", "Multi-fit results", self._build_multifit_results_section(), fill=True)
@@ -564,8 +571,16 @@ class FittingTab(QWidget, DockablePlotPanel):
             lo, hi = preset["fit_range"]
         else:
             lo, hi = float(self._data.omega.min()), float(self._data.omega.max())
-        self.plot_widget.set_x_range(lo, hi)
-        self.plot_widget2.set_x_range(lo, hi)
+        # The plots' own visible x-range/y-scale are NOT forced to
+        # (lo, hi) here -- that's the fit window, a separate concept
+        # from the plot's view. _redraw_plot() calls
+        # plot_widget.sync_x_range() after actually plotting the data,
+        # which reapplies the user's own zoom (or a remembered
+        # per-domain zoom, or a fresh full-range fit if neither) --
+        # forcing it here, before any data exists to plot, was both
+        # overriding the user's view with the fit window and leaving
+        # y-autoscale to matplotlib's own default (unmasked-by-x-range)
+        # behavior once the preview timer later actually drew the data.
         for spin in (self._fit_min_spin, self._fit_max_spin):
             spin.blockSignals(True)
         self._fit_min_spin.setValue(lo)
@@ -1916,4 +1931,12 @@ class FittingTab(QWidget, DockablePlotPanel):
         if any_line:
             ax.legend(fontsize=8)
         ax.set_ylabel(self._ylabel_for(plot_id))
+        # Re-sync now that data actually exists to fit against: reapplies
+        # the user's own zoom (or a remembered per-domain zoom) if they've
+        # set one, else a fresh full-range fit -- also what correctly
+        # restricts y-autoscale to the visible x-window, which calling
+        # this any earlier (before lines exist) cannot do. A no-op when
+        # nothing's changed (e.g. a live parameter-value preview redraw
+        # of the same spectrum).
+        plot_widget.sync_x_range()
         plot_widget.canvas.draw_idle()
