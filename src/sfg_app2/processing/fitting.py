@@ -241,6 +241,34 @@ def compute_weights(mode: str, intensity: np.ndarray,
     raise ValueError(f"Unknown weighting mode: {mode!r}")
 
 
+def _sigma_from_ci95(err: np.ndarray) -> np.ndarray:
+    """err is a 95% CI half-width (1.96*SEM, per processing.hd_sfg.steps),
+    not a raw SEM -- convert back to SEM before inverting, so the returned
+    weight stays on the same 1/sigma footing as compute_weights()'s
+    "measurement_error" mode."""
+    sem = err / 1.96
+    positive = sem[sem > 0]
+    fallback = float(np.nanmedian(positive)) if positive.size else 1.0
+    return np.where(sem > 0, sem, fallback)
+
+
+def compute_heterodyne_weights(mode: str, real: np.ndarray, imag: np.ndarray,
+                                real_err: np.ndarray | None = None,
+                                imag_err: np.ndarray | None = None,
+                                ) -> tuple[np.ndarray | None, np.ndarray | None]:
+    """Per-channel weights for fit_heterodyne(). Unlike compute_weights(),
+    there is no "statistical" mode here -- the shot-noise justification for
+    1/sqrt(intensity) doesn't carry over to signed Real/Imaginary values,
+    so only "none" and "measurement_error" are supported."""
+    if mode == "none":
+        return None, None
+    if mode == "measurement_error":
+        if real_err is None or imag_err is None:
+            return None, None
+        return 1.0 / _sigma_from_ci95(real_err), 1.0 / _sigma_from_ci95(imag_err)
+    raise ValueError(f"Unknown heterodyne weighting mode: {mode!r}")
+
+
 # ── Fit result ───────────────────────────────────────────────────────────────
 
 @dataclass
@@ -336,8 +364,47 @@ def fit_homodyne(omega: np.ndarray, intensity: np.ndarray, spec: FitModelSpec,
     return FitResult.from_lmfit(result, spec, data=intensity, best_fit=best_fit, minimizer=minimizer)
 
 
+def fit_heterodyne(omega: np.ndarray, real: np.ndarray, imag: np.ndarray, spec: FitModelSpec,
+                    weights_real: np.ndarray | None = None, weights_imag: np.ndarray | None = None,
+                    method: str = "leastsq") -> FitResult:
+    """Fit the Real and Imaginary parts of chi_eff simultaneously (one
+    joint least-squares problem) against measured heterodyne data,
+    reusing the same complex model (_chi_eff) that homodyne mode only
+    ever squares. The residual is the concatenation of the (optionally
+    weighted) real and imaginary residuals -- lmfit.Minimizer only cares
+    about the sum of squares, so concatenation vs. interleaving makes no
+    difference to the fit, and concatenation keeps resid[:n]/resid[n:]
+    easy to separate when debugging."""
+    params = build_homodyne_params(spec)
+
+    def _residual(p, omega, real, imag, weights_real, weights_imag):
+        chi = _chi_eff(omega, p, spec)
+        resid_real = real - chi.real
+        resid_imag = imag - chi.imag
+        if weights_real is not None:
+            resid_real = resid_real * weights_real
+        if weights_imag is not None:
+            resid_imag = resid_imag * weights_imag
+        return np.concatenate([resid_real, resid_imag])
+
+    minimizer = lmfit.Minimizer(_residual, params, fcn_args=(omega, real, imag, weights_real, weights_imag))
+    result = minimizer.minimize(method=method)
+    best_chi = _chi_eff(omega, result.params, spec)
+    data = np.concatenate([real, imag])
+    best_fit = np.concatenate([best_chi.real, best_chi.imag])
+    return FitResult.from_lmfit(result, spec, data=data, best_fit=best_fit, minimizer=minimizer)
+
+
 def fit_model_spec_from_provenance_payload(payload: dict | None) -> FitModelSpec | None:
     """`payload` is processing.provenance.parse_fit_json()'s return value."""
     if not payload or "model" not in payload:
         return None
     return FitModelSpec.from_dict(payload["model"])
+
+
+def fit_kind_from_provenance_payload(payload: dict | None) -> str | None:
+    """"homodyne" | "heterodyne" | None, from the same payload dict --
+    see fit_model_spec_from_provenance_payload()."""
+    if not payload:
+        return None
+    return payload.get("kind")

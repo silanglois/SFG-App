@@ -160,16 +160,19 @@ def format_heterodyne_provenance(provenance: dict) -> list[str]:
 
 
 def format_fit_section(model_dict: dict, weighting: str, redchi: float,
-                        r_squared: float, aic: float, bic: float) -> list[str]:
+                        r_squared: float, aic: float, bic: float, kind: str) -> list[str]:
     """A `# --- Fit ---` header block. The fit model itself is embedded as
     one compact JSON line (rather than a bespoke per-parameter line
     format) so it round-trips exactly via parse_fit_json() — colons
     inside the JSON are safe since header parsing only splits on the
-    *first* colon in a line.
+    *first* colon in a line. `kind` ("homodyne"/"heterodyne") records
+    which fit function produced this payload, since a restored
+    FitModelSpec looks identical either way.
     """
     payload = {
         "model": model_dict, "weighting": weighting,
         "redchi": redchi, "r_squared": r_squared, "aic": aic, "bic": bic,
+        "kind": kind,
     }
     return [
         "#",

@@ -23,7 +23,8 @@ from sfg_app2.processing import provenance
 from sfg_app2.processing.processed_spectrum import ProcessedSpectrum
 from sfg_app2.processing.fitting import (
     FitParam, PeakInstance, FitModelSpec, default_peak,
-    evaluate_homodyne, evaluate_chi, evaluate_peak_component, fit_homodyne, compute_weights,
+    evaluate_homodyne, evaluate_chi, evaluate_peak_component,
+    fit_homodyne, fit_heterodyne, compute_weights, compute_heterodyne_weights,
     available_lineshapes, get_lineshape, fit_model_spec_from_provenance_payload,
 )
 
@@ -35,18 +36,35 @@ _PEAK_COL_INDEX, _PEAK_COL_LINESHAPE, _PEAK_COL_REMOVE = range(3)
  _DISPLAY_COL_COLOR, _DISPLAY_COL_LINESTYLE) = range(5)
 
 # Fixed series always available for plotting, in display order; peak_{i}
-# series are appended dynamically, one per current peak.
-_FIXED_SERIES = [
+# series are appended dynamically, one per current peak. The set differs
+# by mode (homodyne fits a single intensity channel; heterodyne fits
+# Real/Imaginary simultaneously, so there's no single "total"/"residual"
+# curve) -- _series_order()/_sync_series_assignment() pick the right one
+# based on self._data.kind. "fit_real"/"fit_imag" keys (and their labels)
+# are shared verbatim across both modes: in homodyne mode they're a
+# diagnostic overlay of the model's complex chi_eff; in heterodyne mode
+# they're the actual fitted curves against data_real/data_imag.
+_FIXED_SERIES_HOMODYNE = [
     ("data", "Data"),
     ("fit_total", "Fit (total)"),
     ("fit_real", "Fit (real)"),
     ("fit_imag", "Fit (imaginary)"),
     ("residual", "Residual"),
 ]
-_DEFAULT_PLOT1_SERIES = {"data", "fit_total"}
-_DEFAULT_PLOT2_SERIES = {"fit_real", "fit_imag"}
-# residual and every peak_i default to hidden on both plots -- opt in via
-# the Display dock.
+_FIXED_SERIES_HETERODYNE = [
+    ("data_real", "Data (real)"),
+    ("data_imag", "Data (imaginary)"),
+    ("fit_real", "Fit (real)"),
+    ("fit_imag", "Fit (imaginary)"),
+    ("residual_real", "Residual (real)"),
+    ("residual_imag", "Residual (imaginary)"),
+]
+_DEFAULT_PLOT1_SERIES_HOMODYNE = {"data", "fit_total"}
+_DEFAULT_PLOT2_SERIES_HOMODYNE = {"fit_real", "fit_imag"}
+_DEFAULT_PLOT1_SERIES_HETERODYNE = {"data_real", "data_imag"}
+_DEFAULT_PLOT2_SERIES_HETERODYNE = {"fit_real", "fit_imag"}
+# residual(s) and every peak_i default to hidden on both plots -- opt in
+# via the Display dock.
 
 # (display name, matplotlib linestyle code) -- "None" gives markers only,
 # which is Data's own default look.
@@ -66,7 +84,7 @@ class SeriesStyle:
 
 
 def _default_linestyle_for(key: str) -> str:
-    return "none" if key == "data" else "-"
+    return "none" if key in ("data", "data_real", "data_imag") else "-"
 
 
 def _readonly_item(text: str) -> QTableWidgetItem:
@@ -109,21 +127,76 @@ def _lmfit_key(key: tuple) -> str:
     return f"p{i}_{name}"
 
 
+def _extract_homodyne_channels(df) -> dict | None:
+    if "Wavenumber" not in df.columns or "Intensity" not in df.columns:
+        return None
+    omega = df["Wavenumber"].to_numpy(dtype=float)
+    intensity = df["Intensity"].to_numpy(dtype=float)
+    intensity_std = df["Intensity_std"].to_numpy(dtype=float) if "Intensity_std" in df.columns else None
+    count = df["count"].to_numpy(dtype=float) if "count" in df.columns else None
+    order = np.argsort(omega)
+    return dict(
+        kind="homodyne", omega=omega[order], intensity=intensity[order],
+        intensity_std=intensity_std[order] if intensity_std is not None else None,
+        count=count[order] if count is not None else None,
+    )
+
+
+def _extract_heterodyne_channels(df) -> dict | None:
+    if not {"Wavenumber", "Real", "Imaginary"}.issubset(df.columns):
+        return None
+    omega = df["Wavenumber"].to_numpy(dtype=float)
+    real = df["Real"].to_numpy(dtype=float)
+    imag = df["Imaginary"].to_numpy(dtype=float)
+    real_err = df["Real_err"].to_numpy(dtype=float) if "Real_err" in df.columns else None
+    imag_err = df["Imag_err"].to_numpy(dtype=float) if "Imag_err" in df.columns else None
+    order = np.argsort(omega)
+    return dict(
+        kind="heterodyne", omega=omega[order], real=real[order], imag=imag[order],
+        real_err=real_err[order] if real_err is not None else None,
+        imag_err=imag_err[order] if imag_err is not None else None,
+    )
+
+
+def _extract_channels(df, preferred_kind: str | None = None) -> dict | None:
+    """Try the preferred kind first (from a Results-tab entry's own kind,
+    or a loaded file's provenance Type: header), then fall back to
+    whichever column set actually matches -- mirrors
+    processed_results.py's own kind-detection fallback chain."""
+    extractors = {"homodyne": _extract_homodyne_channels, "heterodyne": _extract_heterodyne_channels}
+    order = [preferred_kind] if preferred_kind in extractors else []
+    order += [k for k in extractors if k != preferred_kind]
+    for k in order:
+        result = extractors[k](df)
+        if result is not None:
+            return result
+    return None
+
+
 @dataclass
 class _FittableSpectrum:
     label: str
     omega: np.ndarray
-    intensity: np.ndarray
-    intensity_std: np.ndarray | None
-    count: np.ndarray | None
-    source_spectrum: object | None       # the original ProcessedSpectrum, if loaded from Results tab
-    fit_json_payload: dict | None        # a previous fit's payload, if the file carried one
+    kind: str                            # "homodyne" | "heterodyne"
+    # homodyne channel:
+    intensity: np.ndarray | None = None
+    intensity_std: np.ndarray | None = None
+    count: np.ndarray | None = None
+    # heterodyne channels:
+    real: np.ndarray | None = None
+    imag: np.ndarray | None = None
+    real_err: np.ndarray | None = None
+    imag_err: np.ndarray | None = None
+    source_spectrum: object | None = None   # the original ProcessedSpectrum, if loaded from Results tab
+    fit_json_payload: dict | None = None    # a previous fit's payload, if the file carried one
 
 
 class FittingTab(QWidget, DockablePlotPanel):
-    """Single-spectrum homodyne peak fitting: |chi_NR*e^{i.phi} +
-    sum_j resonance_j(omega)|^2 fit against measured intensity, via
-    processing.fitting (lmfit-based, Qt-free).
+    """Single-spectrum peak fitting via processing.fitting (lmfit-based,
+    Qt-free), in two modes auto-selected by the loaded spectrum's kind:
+    homodyne (|chi_NR*e^{i.phi} + sum_j resonance_j(omega)|^2 fit against
+    measured intensity) and heterodyne (Re/Im of the same complex
+    chi_eff fit simultaneously against measured Real/Imaginary data).
     """
 
     def __init__(self, parent=None):
@@ -215,10 +288,11 @@ class FittingTab(QWidget, DockablePlotPanel):
         self._results_entries = []
         if self._results_provider is None:
             return
-        entries = self._results_provider.entries(kind="homodyne")
+        entries = self._results_provider.entries(kind=None)
         self._results_entries = entries
         for e in entries:
-            self._results_combo.addItem(e.label)
+            prefix = "[heterodyne] " if e.kind == "heterodyne" else ""
+            self._results_combo.addItem(f"{prefix}{e.label}")
 
     def _on_load_selected_result(self):
         idx = self._results_combo.currentIndex()
@@ -226,26 +300,19 @@ class FittingTab(QWidget, DockablePlotPanel):
             QMessageBox.information(self, "No spectrum selected", "Pick a spectrum from the list first.")
             return
         entry = self._results_entries[idx]
-        self._load_from_processed_spectrum(entry.spectrum, entry.label)
+        self._load_from_processed_spectrum(entry.spectrum, entry.label, kind=entry.kind)
 
-    def _load_from_processed_spectrum(self, spectrum, label: str):
-        df = spectrum.data
-        if "Wavenumber" not in df.columns or "Intensity" not in df.columns:
+    def _load_from_processed_spectrum(self, spectrum, label: str, kind: str = "homodyne"):
+        channels = _extract_channels(spectrum.data, preferred_kind=kind)
+        if channels is None:
             QMessageBox.warning(
                 self, "Cannot fit this spectrum",
-                "No Wavenumber/Intensity columns found — has it been averaged and upconverted?",
+                "No Wavenumber/Intensity or Wavenumber/Real/Imaginary columns found — "
+                "has it been averaged and upconverted?",
             )
             return
-        omega = df["Wavenumber"].to_numpy(dtype=float)
-        intensity = df["Intensity"].to_numpy(dtype=float)
-        intensity_std = df["Intensity_std"].to_numpy(dtype=float) if "Intensity_std" in df.columns else None
-        count = df["count"].to_numpy(dtype=float) if "count" in df.columns else None
-        order = np.argsort(omega)
         self._data = _FittableSpectrum(
-            label=label, omega=omega[order], intensity=intensity[order],
-            intensity_std=intensity_std[order] if intensity_std is not None else None,
-            count=count[order] if count is not None else None,
-            source_spectrum=spectrum, fit_json_payload=None,
+            label=label, source_spectrum=spectrum, fit_json_payload=None, **channels,
         )
         self._on_data_loaded()
 
@@ -262,19 +329,16 @@ class FittingTab(QWidget, DockablePlotPanel):
         except Exception as e:
             QMessageBox.warning(self, "Could not load file", str(e))
             return
-        if "Wavenumber" not in df.columns or "Intensity" not in df.columns:
-            QMessageBox.warning(self, "Cannot fit this file", "No Wavenumber/Intensity columns found.")
+        channels = _extract_channels(df, preferred_kind=prov.get("kind"))
+        if channels is None:
+            QMessageBox.warning(
+                self, "Cannot fit this file",
+                "No Wavenumber/Intensity or Wavenumber/Real/Imaginary columns found.",
+            )
             return
-        omega = df["Wavenumber"].to_numpy(dtype=float)
-        intensity = df["Intensity"].to_numpy(dtype=float)
-        intensity_std = df["Intensity_std"].to_numpy(dtype=float) if "Intensity_std" in df.columns else None
-        count = df["count"].to_numpy(dtype=float) if "count" in df.columns else None
-        order = np.argsort(omega)
         self._data = _FittableSpectrum(
-            label=meta.get("label", path.stem), omega=omega[order], intensity=intensity[order],
-            intensity_std=intensity_std[order] if intensity_std is not None else None,
-            count=count[order] if count is not None else None,
-            source_spectrum=None, fit_json_payload=provenance.parse_fit_json(prov),
+            label=meta.get("label", path.stem), source_spectrum=None,
+            fit_json_payload=provenance.parse_fit_json(prov), **channels,
         )
         self._on_data_loaded()
 
@@ -284,7 +348,17 @@ class FittingTab(QWidget, DockablePlotPanel):
             prefill = fit_model_spec_from_provenance_payload(self._data.fit_json_payload)
             if prefill is not None:
                 self.statusBar_message(f"Restored a previous fit from {self._data.label}'s provenance.")
-        self._model_spec = prefill or FitModelSpec.empty()
+        if prefill is not None:
+            self._model_spec = prefill
+        else:
+            self._model_spec = FitModelSpec.empty()
+            if self._data.kind == "heterodyne":
+                # phase is degenerate with the peaks' own phase/amplitude
+                # in homodyne mode (only |chi|^2 is measured), so it's
+                # fixed there by default -- but fitting Re/Im directly
+                # constrains it well, so let it vary here.
+                self._model_spec.nonresonant["phase"].vary = True
+        self._rebuild_weighting_combo()
         self._series_assignment = {}
         self._last_result = None
         self._data_label.setText(f"Loaded: {self._data.label} ({len(self._data.omega)} points)")
@@ -378,11 +452,15 @@ class FittingTab(QWidget, DockablePlotPanel):
             return
         lineshape_key = self._lineshape_combo.currentData()
         idx = int(np.argmin(np.abs(self._data.omega - center)))
-        baseline = float(np.min(self._data.intensity))
         x_range = self.plot_widget.get_x_range()
         span = (x_range[1] - x_range[0]) if x_range else float(self._data.omega.max() - self._data.omega.min())
         width = max(span * 0.02, 1.0)
-        amplitude = max(float(np.sqrt(max(self._data.intensity[idx] - baseline, 0.0))) * (width / 2.0), 0.5)
+        if self._data.kind == "heterodyne":
+            magnitude = float(np.hypot(self._data.real[idx], self._data.imag[idx]))
+            amplitude = max(magnitude * (width / 2.0), 0.5)
+        else:
+            baseline = float(np.min(self._data.intensity))
+            amplitude = max(float(np.sqrt(max(self._data.intensity[idx] - baseline, 0.0))) * (width / 2.0), 0.5)
 
         peak = default_peak(lineshape_key, center=float(center), amplitude=amplitude, width=width)
         self._model_spec.peaks.append(peak)
@@ -552,13 +630,28 @@ class FittingTab(QWidget, DockablePlotPanel):
     # each peak) show on which plot area -- decoupled from the peak table
     # (which only manages peak identity/lineshape/removal).
 
+    def _fixed_series(self) -> list[tuple[str, str]]:
+        if self._data is not None and self._data.kind == "heterodyne":
+            return _FIXED_SERIES_HETERODYNE
+        return _FIXED_SERIES_HOMODYNE
+
+    def _default_plot1_series(self) -> set[str]:
+        if self._data is not None and self._data.kind == "heterodyne":
+            return _DEFAULT_PLOT1_SERIES_HETERODYNE
+        return _DEFAULT_PLOT1_SERIES_HOMODYNE
+
+    def _default_plot2_series(self) -> set[str]:
+        if self._data is not None and self._data.kind == "heterodyne":
+            return _DEFAULT_PLOT2_SERIES_HETERODYNE
+        return _DEFAULT_PLOT2_SERIES_HOMODYNE
+
     def _series_order(self) -> list[str]:
-        order = [key for key, _ in _FIXED_SERIES]
+        order = [key for key, _ in self._fixed_series()]
         order += [f"peak_{i}" for i in range(len(self._model_spec.peaks))]
         return order
 
     def _series_label(self, key: str) -> str:
-        fixed = dict(_FIXED_SERIES)
+        fixed = dict(_FIXED_SERIES_HOMODYNE + _FIXED_SERIES_HETERODYNE)
         if key in fixed:
             return fixed[key]
         if key.startswith("peak_"):
@@ -575,14 +668,16 @@ class FittingTab(QWidget, DockablePlotPanel):
         such a removal (same known limitation as expr constraints
         referencing peaks by index)."""
         order = self._series_order()
+        default_plot1 = self._default_plot1_series()
+        default_plot2 = self._default_plot2_series()
         new_assignment = {}
         new_styles = {}
         for key in order:
             if key in self._series_assignment:
                 new_assignment[key] = self._series_assignment[key]
-            elif key in _DEFAULT_PLOT2_SERIES:
+            elif key in default_plot2:
                 new_assignment[key] = {"plot2"}
-            elif key in _DEFAULT_PLOT1_SERIES:
+            elif key in default_plot1:
                 new_assignment[key] = {"plot1"}
             else:
                 new_assignment[key] = set()
@@ -723,9 +818,7 @@ class FittingTab(QWidget, DockablePlotPanel):
         layout.addLayout(form)
 
         self._weighting_combo = QComboBox()
-        self._weighting_combo.addItem("None", userData="none")
-        self._weighting_combo.addItem("Statistical (1/√intensity)", userData="statistical")
-        self._weighting_combo.addItem("Measurement error (SEM)", userData="measurement_error")
+        self._rebuild_weighting_combo()
         form.addRow("Weighting:", self._weighting_combo)
 
         run_btn = QPushButton("Run fit")
@@ -760,6 +853,25 @@ class FittingTab(QWidget, DockablePlotPanel):
         layout.addStretch()
         return widget
 
+    def _rebuild_weighting_combo(self):
+        """Heterodyne mode has no "statistical" option -- homodyne's
+        1/sqrt(intensity) shot-noise justification doesn't apply to
+        signed Real/Imaginary values, so only "None" and the per-channel
+        measurement-error mode are offered there."""
+        combo = self._weighting_combo
+        previous = combo.currentData()
+        combo.blockSignals(True)
+        combo.clear()
+        combo.addItem("None", userData="none")
+        if self._data is not None and self._data.kind == "heterodyne":
+            combo.addItem("Measurement error (95% CI, per channel)", userData="measurement_error")
+        else:
+            combo.addItem("Statistical (1/√intensity)", userData="statistical")
+            combo.addItem("Measurement error (SEM)", userData="measurement_error")
+        idx = combo.findData(previous)
+        combo.setCurrentIndex(idx if idx >= 0 else 0)
+        combo.blockSignals(False)
+
     def _fit_mask(self) -> np.ndarray:
         lo, hi = self._fit_min_spin.value(), self._fit_max_spin.value()
         return (self._data.omega >= lo) & (self._data.omega <= hi)
@@ -776,15 +888,26 @@ class FittingTab(QWidget, DockablePlotPanel):
             QMessageBox.warning(self, "Empty fit window", "No data points fall inside the current x-range.")
             return
         omega = self._data.omega[mask]
-        intensity = self._data.intensity[mask]
-        intensity_std = self._data.intensity_std[mask] if self._data.intensity_std is not None else None
-        count = self._data.count[mask] if self._data.count is not None else None
         weighting = self._weighting_combo.currentData()
-        weights = compute_weights(weighting, intensity, intensity_std, count)
 
         loading = show_loading(self, "Fitting...")
         try:
-            self._last_result = fit_homodyne(omega, intensity, self._model_spec, weights=weights)
+            if self._data.kind == "heterodyne":
+                real = self._data.real[mask]
+                imag = self._data.imag[mask]
+                real_err = self._data.real_err[mask] if self._data.real_err is not None else None
+                imag_err = self._data.imag_err[mask] if self._data.imag_err is not None else None
+                weights_real, weights_imag = compute_heterodyne_weights(weighting, real, imag, real_err, imag_err)
+                self._last_result = fit_heterodyne(
+                    omega, real, imag, self._model_spec,
+                    weights_real=weights_real, weights_imag=weights_imag,
+                )
+            else:
+                intensity = self._data.intensity[mask]
+                intensity_std = self._data.intensity_std[mask] if self._data.intensity_std is not None else None
+                count = self._data.count[mask] if self._data.count is not None else None
+                weights = compute_weights(weighting, intensity, intensity_std, count)
+                self._last_result = fit_homodyne(omega, intensity, self._model_spec, weights=weights)
         except Exception as e:
             logger.warning("Fit failed: %s", e)
             QMessageBox.warning(self, "Fit failed", str(e))
@@ -863,17 +986,26 @@ class FittingTab(QWidget, DockablePlotPanel):
 
         spectrum = self._data.source_spectrum
         if spectrum is None:
-            df = pd.DataFrame({"Wavenumber": self._data.omega, "Intensity": self._data.intensity})
+            if self._data.kind == "heterodyne":
+                data = {"Wavenumber": self._data.omega, "Real": self._data.real, "Imaginary": self._data.imag}
+                if self._data.real_err is not None:
+                    data["Real_err"] = self._data.real_err
+                if self._data.imag_err is not None:
+                    data["Imag_err"] = self._data.imag_err
+            else:
+                data = {"Wavenumber": self._data.omega, "Intensity": self._data.intensity}
+            df = pd.DataFrame(data)
             spectrum = ProcessedSpectrum(df, metadata={}, history=["loaded_from_file"], provenance={})
 
         weighting = self._weighting_combo.currentData()
         r = self._last_result
         fit_section = provenance.format_fit_section(
             self._model_spec.to_dict(), weighting, r.redchi, r.r_squared, r.aic, r.bic,
+            kind=self._data.kind,
         )
         try:
             provenance.write_csv_with_provenance(
-                spectrum, "homodyne", self._data.label, Path(path_str), fit_section=fit_section,
+                spectrum, self._data.kind, self._data.label, Path(path_str), fit_section=fit_section,
             )
         except Exception as e:
             QMessageBox.warning(self, "Export failed", str(e))
@@ -912,15 +1044,25 @@ class FittingTab(QWidget, DockablePlotPanel):
 
     def _compute_series_values(self) -> dict[str, np.ndarray]:
         omega = self._data.omega
-        total = evaluate_homodyne(omega, self._model_spec)
-        chi = evaluate_chi(omega, self._model_spec)
-        values = {
-            "data": self._data.intensity,
-            "fit_total": total,
-            "fit_real": chi.real,
-            "fit_imag": chi.imag,
-            "residual": self._data.intensity - total,
-        }
+        chi = evaluate_chi(omega, self._model_spec)   # reused unmodified in both modes
+        if self._data.kind == "heterodyne":
+            values = {
+                "data_real": self._data.real,
+                "data_imag": self._data.imag,
+                "fit_real": chi.real,
+                "fit_imag": chi.imag,
+                "residual_real": self._data.real - chi.real,
+                "residual_imag": self._data.imag - chi.imag,
+            }
+        else:
+            total = evaluate_homodyne(omega, self._model_spec)
+            values = {
+                "data": self._data.intensity,
+                "fit_total": total,
+                "fit_real": chi.real,
+                "fit_imag": chi.imag,
+                "residual": self._data.intensity - total,
+            }
         for i, peak in enumerate(self._model_spec.peaks):
             values[f"peak_{i}"] = evaluate_peak_component(omega, peak)
         return values
@@ -929,7 +1071,7 @@ class FittingTab(QWidget, DockablePlotPanel):
         # Data keeps its fixed marker identity; every series' color/linestyle
         # comes from self._series_styles (None color = let the active
         # plotting style's own cycle assign it -- see SeriesStyle).
-        kwargs = {"marker": ".", "markersize": 3} if key == "data" else {}
+        kwargs = {"marker": ".", "markersize": 3} if key in ("data", "data_real", "data_imag") else {}
         style = self._series_styles.get(key) or SeriesStyle(linestyle=_default_linestyle_for(key))
         kwargs["linestyle"] = style.linestyle
         if style.color is not None:
@@ -938,9 +1080,9 @@ class FittingTab(QWidget, DockablePlotPanel):
 
     def _ylabel_for(self, plot_id: str) -> str:
         keys = {k for k, plots in self._series_assignment.items() if plot_id in plots}
-        if keys == {"residual"}:
-            return "Residual (counts)"
-        if keys and keys <= {"fit_real", "fit_imag"}:
+        if keys and keys <= {"residual", "residual_real", "residual_imag"}:
+            return "Residual (a.u.)"
+        if keys and keys <= {"fit_real", "fit_imag", "data_real", "data_imag"}:
             return "χ_eff (a.u.)"
         return "Intensity (counts)"
 
