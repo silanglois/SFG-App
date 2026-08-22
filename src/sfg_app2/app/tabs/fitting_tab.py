@@ -7,11 +7,12 @@ import numpy as np
 import pandas as pd
 
 from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel, QComboBox,
     QPushButton, QCheckBox, QDoubleSpinBox, QLineEdit, QTableWidget,
     QTableWidgetItem, QHeaderView, QSizePolicy, QFileDialog, QMessageBox,
-    QInputDialog,
+    QInputDialog, QColorDialog,
 )
 
 from sfg_app2.app.widgets.spectrum_plot_widget import SpectrumPlotWidget
@@ -30,7 +31,8 @@ logger = logging.getLogger(__name__)
 
 _COL_LABEL, _COL_PARAM, _COL_FIXED, _COL_VALUE, _COL_ERROR, _COL_MIN, _COL_MAX, _COL_EXPR = range(8)
 _PEAK_COL_INDEX, _PEAK_COL_LINESHAPE, _PEAK_COL_REMOVE = range(3)
-_DISPLAY_COL_LABEL, _DISPLAY_COL_PLOT1, _DISPLAY_COL_PLOT2 = range(3)
+(_DISPLAY_COL_LABEL, _DISPLAY_COL_PLOT1, _DISPLAY_COL_PLOT2,
+ _DISPLAY_COL_COLOR, _DISPLAY_COL_LINESTYLE) = range(5)
 
 # Fixed series always available for plotting, in display order; peak_{i}
 # series are appended dynamically, one per current peak.
@@ -41,15 +43,30 @@ _FIXED_SERIES = [
     ("fit_imag", "Fit (imaginary)"),
     ("residual", "Residual"),
 ]
-_DEFAULT_PLOT1_SERIES = {"data", "fit_total"}   # + every peak_i, by default
-_DEFAULT_PLOT2_SERIES = {"residual"}
-_SERIES_STYLE = {
-    "data": {"color": "black", "marker": ".", "linestyle": "none", "markersize": 3},
-    "fit_total": {"color": "red", "linewidth": 1.5},
-    "fit_real": {"color": "blue", "linewidth": 1.0, "linestyle": "--"},
-    "fit_imag": {"color": "green", "linewidth": 1.0, "linestyle": "--"},
-    "residual": {"color": "gray", "linewidth": 0.8},
-}
+_DEFAULT_PLOT1_SERIES = {"data", "fit_total"}
+_DEFAULT_PLOT2_SERIES = {"fit_real", "fit_imag"}
+# residual and every peak_i default to hidden on both plots -- opt in via
+# the Display dock.
+
+# (display name, matplotlib linestyle code) -- "None" gives markers only,
+# which is Data's own default look.
+_LINESTYLE_OPTIONS = [
+    ("Solid", "-"), ("Dashed", "--"), ("Dash-dot", "-."), ("Dotted", ":"), ("None (markers only)", "none"),
+]
+_LINESTYLE_CODE_TO_LABEL = {code: label for label, code in _LINESTYLE_OPTIONS}
+
+
+@dataclass
+class SeriesStyle:
+    """color=None means "don't pass color= to ax.plot() at all" -- the
+    active plotting style's own color cycle (see utils/plotting_settings.py)
+    assigns it instead, same convention as processed_results.py's TraceStyle."""
+    color: str | None = None
+    linestyle: str = "-"
+
+
+def _default_linestyle_for(key: str) -> str:
+    return "none" if key == "data" else "-"
 
 
 def _readonly_item(text: str) -> QTableWidgetItem:
@@ -117,6 +134,7 @@ class FittingTab(QWidget, DockablePlotPanel):
         self._data: _FittableSpectrum | None = None
         self._model_spec: FitModelSpec = FitModelSpec.empty()
         self._series_assignment: dict[str, set[str]] = {}
+        self._series_styles: dict[str, SeriesStyle] = {}
         self._last_result = None
         self._param_row_keys: list[tuple] = []
         self._display_row_keys: list[str] = []
@@ -545,35 +563,46 @@ class FittingTab(QWidget, DockablePlotPanel):
         return key
 
     def _sync_series_assignment(self):
-        """Rebuild self._series_assignment for the current series set,
-        keeping existing choices for series that still exist and
-        defaulting newly-appeared ones. Note: since peaks are identified
-        by their current index, removing an earlier peak reindexes later
-        ones -- a later peak can inherit an earlier one's display
-        assignment across such a removal (same known limitation as expr
-        constraints referencing peaks by index)."""
+        """Rebuild self._series_assignment/_series_styles for the current
+        series set, keeping existing choices for series that still exist
+        and defaulting newly-appeared ones (dropping stale ones for
+        removed peaks). Note: since peaks are identified by their current
+        index, removing an earlier peak reindexes later ones -- a later
+        peak can inherit an earlier one's display assignment/style across
+        such a removal (same known limitation as expr constraints
+        referencing peaks by index)."""
         order = self._series_order()
         new_assignment = {}
+        new_styles = {}
         for key in order:
             if key in self._series_assignment:
                 new_assignment[key] = self._series_assignment[key]
             elif key in _DEFAULT_PLOT2_SERIES:
                 new_assignment[key] = {"plot2"}
-            elif key in _DEFAULT_PLOT1_SERIES or key.startswith("peak_"):
+            elif key in _DEFAULT_PLOT1_SERIES:
                 new_assignment[key] = {"plot1"}
             else:
                 new_assignment[key] = set()
+
+            new_styles[key] = self._series_styles.get(key) or SeriesStyle(linestyle=_default_linestyle_for(key))
         self._series_assignment = new_assignment
+        self._series_styles = new_styles
 
     def _build_display_section(self) -> QWidget:
         widget = QWidget()
         layout = QVBoxLayout(widget)
-        layout.addWidget(QLabel("Pick which curves show on which plot area:"))
-        self._display_table = QTableWidget(0, 3)
-        self._display_table.setHorizontalHeaderLabels(["Series", "Plot 1", "Plot 2"])
+        layout.addWidget(QLabel("Pick which curves show on which plot area, and how they look:"))
+        self._display_table = QTableWidget(0, 5)
+        self._display_table.setHorizontalHeaderLabels(
+            ["Series", "Plot 1", "Plot 2", "Color", "Line style"]
+        )
         self._display_table.verticalHeader().setVisible(False)
         self._display_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         layout.addWidget(self._display_table)
+
+        reset_btn = QPushButton("Reset all styles to auto")
+        reset_btn.clicked.connect(self._on_reset_all_styles)
+        layout.addWidget(reset_btn)
         return widget
 
     def _rebuild_display_table(self):
@@ -596,12 +625,71 @@ class FittingTab(QWidget, DockablePlotPanel):
             plot2_check.toggled.connect(lambda checked, k=key: self._on_series_toggle(k, "plot2", checked))
             table.setCellWidget(row, _DISPLAY_COL_PLOT2, _center_widget(plot2_check))
 
+            style = self._series_styles[key]
+
+            color_row = QHBoxLayout()
+            color_row.setContentsMargins(0, 0, 0, 0)
+            color_holder = QWidget()
+            color_btn = QPushButton()
+            color_btn.setFixedWidth(50)
+            self._style_color_button(color_btn, style.color)
+            color_btn.clicked.connect(lambda _checked=False, k=key, b=color_btn: self._on_pick_series_color(k, b))
+            reset_btn = QPushButton("×")
+            reset_btn.setFixedWidth(20)
+            reset_btn.setToolTip("Reset to auto color")
+            reset_btn.clicked.connect(lambda _checked=False, k=key, b=color_btn: self._on_reset_series_color(k, b))
+            color_row.addWidget(color_btn)
+            color_row.addWidget(reset_btn)
+            color_holder.setLayout(color_row)
+            table.setCellWidget(row, _DISPLAY_COL_COLOR, color_holder)
+
+            linestyle_combo = QComboBox()
+            for label, _code in _LINESTYLE_OPTIONS:
+                linestyle_combo.addItem(label)
+            linestyle_combo.setCurrentText(_LINESTYLE_CODE_TO_LABEL.get(style.linestyle, "Solid"))
+            linestyle_combo.currentIndexChanged.connect(
+                lambda idx, k=key: self._on_series_linestyle_changed(k, idx)
+            )
+            table.setCellWidget(row, _DISPLAY_COL_LINESTYLE, linestyle_combo)
+
     def _on_series_toggle(self, key: str, plot_id: str, checked: bool):
         assignment = self._series_assignment.setdefault(key, set())
         if checked:
             assignment.add(plot_id)
         else:
             assignment.discard(plot_id)
+        self._schedule_preview()
+
+    @staticmethod
+    def _style_color_button(button: QPushButton, color: str | None):
+        if color:
+            button.setStyleSheet(f"background-color: {color};")
+            button.setText("")
+        else:
+            button.setStyleSheet("")
+            button.setText("Auto")
+
+    def _on_pick_series_color(self, key: str, button: QPushButton):
+        current = self._series_styles[key].color or "#ffffff"
+        chosen = QColorDialog.getColor(QColor(current), self, "Series color")
+        if chosen.isValid():
+            self._series_styles[key].color = chosen.name()
+            self._style_color_button(button, chosen.name())
+            self._schedule_preview()
+
+    def _on_reset_series_color(self, key: str, button: QPushButton):
+        self._series_styles[key].color = None
+        self._style_color_button(button, None)
+        self._schedule_preview()
+
+    def _on_series_linestyle_changed(self, key: str, combo_index: int):
+        self._series_styles[key].linestyle = _LINESTYLE_OPTIONS[combo_index][1]
+        self._schedule_preview()
+
+    def _on_reset_all_styles(self):
+        for key in self._series_styles:
+            self._series_styles[key] = SeriesStyle(linestyle=_default_linestyle_for(key))
+        self._rebuild_display_table()
         self._schedule_preview()
 
     # ── Fit dock ─────────────────────────────────────────────────────────────
@@ -801,6 +889,21 @@ class FittingTab(QWidget, DockablePlotPanel):
         self.plot_widget.set_labels(xlabel="Wavenumber (cm$^{-1}$)", title=self._data.label)
         self.plot_widget2.set_labels(xlabel="Wavenumber (cm$^{-1}$)")
 
+    def redraw_for_style_change(self):
+        """Called after the global plotting style changes. full_clear()
+        recreates each Axes fresh under the new rcParams (a style change
+        alters the Axes' own background/grid/spine chrome, which is
+        baked in at Axes-creation time -- just re-plotting lines on the
+        existing Axes would leave that pre-restyle chrome behind, same
+        reasoning as ProcessedResultsTab/HDSFGPanel's own
+        redraw_for_style_change()). Every visible series' auto-cycled
+        color is also baked into its Line2D at plot time, so a normal
+        preview redraw after the clear is what actually picks up the new
+        style's color cycle, not just the background.
+        """
+        self._plot_data()
+        self._update_preview()
+
     def _schedule_preview(self):
         self._preview_timer.start()
 
@@ -819,11 +922,16 @@ class FittingTab(QWidget, DockablePlotPanel):
             values[f"peak_{i}"] = evaluate_peak_component(omega, peak)
         return values
 
-    @staticmethod
-    def _style_for(key: str) -> dict:
-        if key in _SERIES_STYLE:
-            return dict(_SERIES_STYLE[key])
-        return {"linestyle": ":", "linewidth": 1.0}   # peak components
+    def _style_for(self, key: str) -> dict:
+        # Data keeps its fixed marker identity; every series' color/linestyle
+        # comes from self._series_styles (None color = let the active
+        # plotting style's own cycle assign it -- see SeriesStyle).
+        kwargs = {"marker": ".", "markersize": 3} if key == "data" else {}
+        style = self._series_styles.get(key) or SeriesStyle(linestyle=_default_linestyle_for(key))
+        kwargs["linestyle"] = style.linestyle
+        if style.color is not None:
+            kwargs["color"] = style.color
+        return kwargs
 
     def _ylabel_for(self, plot_id: str) -> str:
         keys = {k for k, plots in self._series_assignment.items() if plot_id in plots}

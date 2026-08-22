@@ -312,6 +312,7 @@ class MainWindow(QMainWindow):
         if dialog.exec():
             self.process_review_tab.redraw_for_style_change()
             self.processed_results_tab.redraw_for_style_change()
+            self.fitting_tab.redraw_for_style_change()
             self.statusBar().showMessage(
                 f"Plotting style set to '{self.plotting_settings.style}'."
             )
