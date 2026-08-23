@@ -1,8 +1,11 @@
 import sys
+from pathlib import Path
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QPixmap, QPainter, QColor
+from PySide6.QtGui import QPixmap, QPainter, QColor, QIcon
 from PySide6.QtWidgets import QApplication, QSplashScreen
 from .main_window import MainWindow
+
+_ICON_PATH = Path(__file__).parent / "ressources" / "icon.svg"
 
 
 def _make_splash_pixmap() -> QPixmap:
@@ -20,6 +23,7 @@ def _make_splash_pixmap() -> QPixmap:
 
 def run():
     app = QApplication(sys.argv)
+    app.setWindowIcon(QIcon(str(_ICON_PATH)))
 
     # MainWindow is heavy to construct (4 tabs, each hosting a nested
     # QMainWindow full of dock widgets), all built synchronously before
