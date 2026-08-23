@@ -36,9 +36,6 @@ class MainWindow(QMainWindow):
         self._image_windows: list = []
 
         self._init_tabs()
-        self.process_review_tab.restore_dock_layouts(self.dock_layout_settings)
-        self.processed_results_tab.restore_dock_state(self.dock_layout_settings.get("results"))
-        self.fitting_tab.restore_dock_state(self.dock_layout_settings.get("fitting"))
         self._connect_menu()
         self._build_view_menu()
         self._build_window_menu()
@@ -67,14 +64,17 @@ class MainWindow(QMainWindow):
         self.load_match_tab.matching_complete.connect(self._on_matching_complete)
 
         self.process_review_tab = ProcessReviewTab()
+        self.process_review_tab.restore_dock_layouts(self.dock_layout_settings)
         self._replace_tab(1, self.process_review_tab, "Process / Review")
         self.process_review_tab.processing_complete.connect(self._on_processing_complete)
 
         self.processed_results_tab = ProcessedResultsTab()
+        self.processed_results_tab.restore_dock_state(self.dock_layout_settings.get("results"))
         self._replace_tab(2, self.processed_results_tab, "Results")
 
         from sfg_app2.app.tabs.fitting_tab import FittingTab
         self.fitting_tab = FittingTab()
+        self.fitting_tab.restore_dock_state(self.dock_layout_settings.get("fitting"))
         self.fitting_tab.set_results_provider(self.processed_results_tab)
         self._replace_tab(3, self.fitting_tab, "Fitting")
 

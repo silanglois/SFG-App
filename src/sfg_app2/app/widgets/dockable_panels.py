@@ -56,13 +56,20 @@ class DockablePlotPanel:
         # out of the whole clamp+stretch: for content that should fill the
         # dock in both directions (a table, a plot widget), sizeHint-only
         # top-left clamping is actively wrong.
-        content.setVisible(True)   # a widget detached from a QTabWidget's
-                                    # non-current page stays hidden otherwise
         wrapper = QWidget()
         outer = QVBoxLayout(wrapper)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
-        outer.addWidget(content)
+        outer.addWidget(content)   # reparent into wrapper FIRST -- content
+                                    # is often still parentless here (just
+                                    # detached from a QTabWidget page, or a
+                                    # freshly-built section widget), and
+                                    # setVisible(True) on a parentless
+                                    # QWidget makes Qt treat it as a real
+                                    # top-level window and show it on
+                                    # screen, if called before this
+        content.setVisible(True)   # a widget detached from a QTabWidget's
+                                    # non-current page stays hidden otherwise
         if not fill:
             align = Qt.AlignmentFlag.AlignTop
             if not expand_horizontally:
