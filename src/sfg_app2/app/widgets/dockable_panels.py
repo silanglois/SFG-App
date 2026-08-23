@@ -28,6 +28,12 @@ class DockablePlotPanel:
 
     def _init_dock_area(self, central_widget: QWidget | None = None) -> QMainWindow:
         self._dock_main_window = QMainWindow()
+        # Off by default in Qt -- without it, each of the four perimeter
+        # areas can only ever hold one dock (or one tabbed stack) as a
+        # single unsplittable unit, so a dock can only ever move between
+        # the four outer edges, never split against another dock's edge
+        # to build a genuine 2D grid.
+        self._dock_main_window.setDockNestingEnabled(True)
         if central_widget is not None:
             self._dock_main_window.setCentralWidget(central_widget)
         self._docks: dict[str, QDockWidget] = {}

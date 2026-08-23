@@ -189,12 +189,13 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         self.plot_widget = SpectrumPlotWidget()
         layout.addWidget(self.plot_widget)
 
-        # Each former "Visualization parameters" tab page becomes its own
-        # dock (DockablePlotPanel — same nested-QMainWindow mechanism used
-        # by the Process/Review panels, since QDockWidget needs a
-        # QMainWindow to dock into and docking against the app's single
-        # real MainWindow would snap panels to the whole app window
-        # instead of staying scoped to this tab's plot).
+        # Everything below becomes its own dock (DockablePlotPanel — same
+        # nested-QMainWindow mechanism used by the Process/Review panels,
+        # since QDockWidget needs a QMainWindow to dock into and docking
+        # against the app's single real MainWindow would snap panels to
+        # the whole app window instead of staying scoped to this tab) --
+        # including the plot itself and the spectra list, so the whole
+        # tab is user-customizable the same way FittingTab's docks are.
         outer_layout = self.ui.verticalLayout_4
         outer_layout.removeWidget(self.ui.visualizationParamsTabWidget)
         outer_layout.removeWidget(self.ui.plotWidget)
@@ -211,11 +212,26 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
             widget.setParent(None)
         self.ui.visualizationParamsTabWidget.deleteLater()
 
-        self._init_dock_area(self.ui.plotWidget)
+        # verticalLayoutWidget is the Designer-built list pane (its own
+        # self-contained layout: add/sort buttons, spectraList, export
+        # buttons) -- detach it from the splitter so it can become a dock
+        # too, same as the plot widget above.
+        list_container = self.ui.verticalLayoutWidget
+
+        self._init_dock_area()
+        self._add_dock("spectra_list", "Spectra", list_container, fill=True,
+                        tabify=False, area=Qt.DockWidgetArea.LeftDockWidgetArea)
+        self._add_dock("plot", "Plot", self.ui.plotWidget, fill=True,
+                        tabify=False, area=Qt.DockWidgetArea.RightDockWidgetArea)
         for key, title, widget in sections:
             self._add_dock(key, title, widget, area=Qt.DockWidgetArea.TopDockWidgetArea)
 
-        outer_layout.addWidget(self._dock_main_window)
+        # Both list_container and plotWidget were just reparented into
+        # dock wrappers above, so the splitter (and its now-empty
+        # verticalLayoutWidget_2 shell) holds nothing worth keeping.
+        self.ui.horizontalLayout_4.removeWidget(self.ui.splitter)
+        self.ui.splitter.deleteLater()
+        self.ui.horizontalLayout_4.addWidget(self._dock_main_window)
 
     def _setup_list(self):
         lw = self.ui.spectraList
