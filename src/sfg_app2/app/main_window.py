@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from PySide6.QtGui import QAction
+from PySide6.QtGui import QAction, QActionGroup
 from PySide6.QtWidgets import QMainWindow, QFileDialog, QMessageBox, QMenu
 from sfg_app2.app.ui.ui_main_window import Ui_MainWindow
 from sfg_app2.app.utils.pattern_manager import PatternManager
@@ -11,6 +11,7 @@ from sfg_app2.app.utils.plotting_settings import PlottingSettings
 from sfg_app2.app.utils.matching_settings import MatchingProfileManager
 from sfg_app2.app.utils.color_coding_settings import ColorCodingSettings
 from sfg_app2.app.utils.dock_layout_settings import DockLayoutSettings
+from sfg_app2.app.utils.appearance_settings import AppearanceSettings, THEMES
 from sfg_app2.app.widgets.image_window import ImageWindow
 from sfg_app2.processing.image_file import load_image_csv, UnrecognizedImageFormatError
 
@@ -31,12 +32,14 @@ class MainWindow(QMainWindow):
         self.plotting_settings = PlottingSettings()
         self.plotting_settings.apply_current()
         self.color_coding_settings = ColorCodingSettings()
+        self.appearance_settings = AppearanceSettings()
         self.dock_layout_settings = DockLayoutSettings()
         self._ignored_paths: set[Path] = set()  # resolved absolute paths
         self._image_windows: list = []
 
         self._init_tabs()
         self._connect_menu()
+        self._build_appearance_menu()
         self._build_view_menu()
         self._build_window_menu()
         self._lock_tabs_from(1)
@@ -126,6 +129,33 @@ class MainWindow(QMainWindow):
         self.ui.actionDocs_tutorials.triggered.connect(self._on_docs)
         self.ui.actionUse_metadata_patterns.setChecked(True)
         self.ui.actionLoad_from_multiple_folders.setChecked(False)
+
+    def _build_appearance_menu(self):
+        """Adds a Preferences -> Appearance submenu with mutually-exclusive
+        Light/Dark/System actions, checked to match the persisted setting."""
+        self.ui.menuPreferences.addSeparator()
+        appearance_menu = self.ui.menuPreferences.addMenu("Appearance")
+        group = QActionGroup(self)
+        group.setExclusive(True)
+        self._appearance_actions = {}
+        for theme in THEMES:
+            action = QAction(theme.capitalize(), self, checkable=True)
+            action.setChecked(theme == self.appearance_settings.theme)
+            action.triggered.connect(
+                lambda checked=False, t=theme: self._on_set_appearance(t)
+            )
+            group.addAction(action)
+            appearance_menu.addAction(action)
+            self._appearance_actions[theme] = action
+
+    def _on_set_appearance(self, theme: str):
+        if not self.appearance_settings.set_theme(theme):
+            QMessageBox.warning(
+                self, "Couldn't save appearance setting",
+                "The appearance setting could not be saved to disk. "
+                "It will apply for this session but won't persist.",
+            )
+        self.statusBar().showMessage(f"Appearance set to '{theme}'.")
 
     def _build_view_menu(self):
         """Lists every dock's own toggleViewAction() (the standard Qt
