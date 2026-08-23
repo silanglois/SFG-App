@@ -13,7 +13,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QListWidgetItem, QFileDialog,
     QMessageBox, QAbstractItemView, QInputDialog, QMenu, QCheckBox,
-    QComboBox, QLabel,
+    QComboBox, QLabel, QSizePolicy, QFrame,
 )
 
 from sfg_app2.app.ui.ui_processed_results_tab import Ui_Form
@@ -214,15 +214,22 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         outer_layout.removeWidget(self.ui.visualizationParamsTabWidget)
         outer_layout.removeWidget(self.ui.plotWidget)
 
+        # Controls in these three tabs are stretched to fill the dock's
+        # width (expand_horizontally=True below) -- lift each widget's
+        # own maximumSize cap and Expanding-ify it too, otherwise the
+        # dock-level flag alone has nothing to hand the extra width to.
+        self._stretch_panel_controls()
+        self._insert_panel_separators()
+
         fit_components_widget = self._setup_fit_component_checkboxes()
         sections = [
-            ("data_display", "Data display", self.ui.dataDisplayTab),
-            ("hd_components", "HD-SFG components", self.ui.hdComponentsTab),
-            ("fit_components", "Fit components", fit_components_widget),
-            ("colors", "Colors", self.ui.colorsTab),
-            ("labels", "Labels, legend & annotations", self.ui.labelsTab),
+            ("data_display", "Data display", self.ui.dataDisplayTab, True),
+            ("hd_components", "HD-SFG components", self.ui.hdComponentsTab, False),
+            ("fit_components", "Fit components", fit_components_widget, False),
+            ("colors", "Colors", self.ui.colorsTab, True),
+            ("labels", "Labels, legend & annotations", self.ui.labelsTab, True),
         ]
-        for _, _, widget in sections:
+        for _, _, widget, _expand in sections:
             widget.setParent(None)
         self.ui.visualizationParamsTabWidget.deleteLater()
 
@@ -237,8 +244,9 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
                         tabify=False, area=Qt.DockWidgetArea.LeftDockWidgetArea)
         self._add_dock("plot", "Plot", self.ui.plotWidget, fill=True,
                         tabify=False, area=Qt.DockWidgetArea.RightDockWidgetArea)
-        for key, title, widget in sections:
-            self._add_dock(key, title, widget, area=Qt.DockWidgetArea.TopDockWidgetArea)
+        for key, title, widget, expand in sections:
+            self._add_dock(key, title, widget, area=Qt.DockWidgetArea.TopDockWidgetArea,
+                            expand_horizontally=expand)
 
         # Both list_container and plotWidget were just reparented into
         # dock wrappers above, so the splitter (and its now-empty
@@ -246,6 +254,58 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         self.ui.horizontalLayout_4.removeWidget(self.ui.splitter)
         self.ui.splitter.deleteLater()
         self.ui.horizontalLayout_4.addWidget(self._dock_main_window)
+
+    def _stretch_panel_controls(self):
+        """Lift the .ui-defined maximumSize cap and make each control
+        Expanding-horizontal, so "Data display"/"Colors"/"Labels, legend
+        & annotations" fill their dock's width instead of staying
+        pinned small at the top-left. Each row's trailing Designer
+        spacer (itself Expanding by default) is removed so it stops
+        splitting the leftover space with the control instead of the
+        control claiming all of it; each row's own QLabel is left
+        untouched so labels stay compact while their control stretches.
+        """
+        def expand(widget):
+            widget.setMaximumWidth(16777215)   # QWIDGETSIZE_MAX
+            policy = widget.sizePolicy()
+            policy.setHorizontalPolicy(QSizePolicy.Policy.Expanding)
+            widget.setSizePolicy(policy)
+
+        for widget in (self.ui.normalizationComboBox, self.ui.doubleSpinBox,
+                       self.ui.offsetSpectraSpinner):
+            expand(widget)
+        self.ui.horizontalLayout_7.removeItem(self.ui.horizontalSpacer_2)
+
+        for widget in (self.ui.colorMapComboBox, self.ui.colormapStartSpinner,
+                       self.ui.colormapStopSpinner):
+            expand(widget)
+        self.ui.horizontalLayout_8.removeItem(self.ui.horizontalSpacer_3)
+
+        for widget in (self.ui.xAxisLabelEdit, self.ui.yAxisLabelEdit,
+                       self.ui.legendFieldComboBox, self.ui.annotationsButton):
+            expand(widget)
+        self.ui.horizontalLayout_2.removeItem(self.ui.horizontalSpacer_4)
+        self.ui.horizontalLayout_5.removeItem(self.ui.horizontalSpacer_5)
+        self.ui.horizontalLayout_6.removeItem(self.ui.horizontalSpacer_6)
+        self.ui.horizontalLayout_9.removeItem(self.ui.horizontalSpacer_7)
+
+    def _insert_separator(self, layout, index: int):
+        frame = QFrame()
+        frame.setFrameShape(QFrame.Shape.HLine)
+        frame.setFrameShadow(QFrame.Shadow.Sunken)
+        layout.insertWidget(index, frame)
+
+    def _insert_panel_separators(self):
+        """Divider lines between groups of unrelated controls within a
+        panel -- confirmed groupings: Data display splits normalization
+        (mode + value) from the spectrum offset; Colors splits the
+        colormap choice from its start/stop range; Labels splits the
+        axis-label overrides, the legend field, and the annotations
+        button into three groups."""
+        self._insert_separator(self.ui.verticalLayout_2, 2)   # data display
+        self._insert_separator(self.ui.verticalLayout_5, 1)   # colors
+        self._insert_separator(self.ui.verticalLayout_3, 2)   # labels: before legend field
+        self._insert_separator(self.ui.verticalLayout_3, 4)   # labels: before annotations button
 
     def _setup_list(self):
         lw = self.ui.spectraList
