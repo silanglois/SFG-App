@@ -4,18 +4,27 @@ from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem,
     QComboBox, QLineEdit, QPushButton, QCheckBox, QColorDialog, QDialogButtonBox,
-    QLabel, QWidget, QMenu,
+    QLabel, QWidget, QMenu, QDoubleSpinBox,
 )
 
-from sfg_app2.app.tabs.processed_results import TraceStyle, _LINESTYLE_CHOICES, _default_trace_style
+from sfg_app2.app.tabs.processed_results import (
+    TraceStyle, _LINESTYLE_CHOICES, _MARKER_CHOICES, _default_trace_style,
+)
 
 _LINESTYLE_NAMES = [name for name, _ in _LINESTYLE_CHOICES]
 _LINESTYLE_BY_NAME = dict(_LINESTYLE_CHOICES)
 _LINESTYLE_BY_VALUE = {value: name for name, value in _LINESTYLE_CHOICES}
+_MARKER_NAMES = [name for name, _ in _MARKER_CHOICES]
+_MARKER_BY_NAME = dict(_MARKER_CHOICES)
+_MARKER_BY_VALUE = {value: name for name, value in _MARKER_CHOICES}
 _AXES = ["Primary", "Secondary"]
 
-_COL_ENTRY, _COL_COMPONENT, _COL_LABEL, _COL_COLOR, _COL_LINESTYLE, _COL_AXIS, _COL_VISIBLE = range(7)
-_EDITABLE_COLS = {_COL_LABEL, _COL_COLOR, _COL_LINESTYLE, _COL_AXIS, _COL_VISIBLE}
+(_COL_ENTRY, _COL_COMPONENT, _COL_LABEL, _COL_COLOR, _COL_LINESTYLE, _COL_MARKER,
+ _COL_MARKERSIZE, _COL_LINEWIDTH, _COL_OPACITY, _COL_AXIS, _COL_VISIBLE) = range(11)
+_EDITABLE_COLS = {
+    _COL_LABEL, _COL_COLOR, _COL_LINESTYLE, _COL_MARKER, _COL_MARKERSIZE,
+    _COL_LINEWIDTH, _COL_OPACITY, _COL_AXIS, _COL_VISIBLE,
+}
 
 
 class TraceStyleDialog(QDialog):
@@ -33,7 +42,7 @@ class TraceStyleDialog(QDialog):
         n_entries = len({id(entry) for entry, _key, _name in rows})
         title = rows[0][0].label if n_entries == 1 else f"{n_entries} files"
         self.setWindowTitle(f"Trace properties — {title}")
-        self.resize(640, 320)
+        self.resize(960, 360)
         self._colors: dict[int, str] = {}   # row -> current color hex (or "" for auto)
 
         layout = QVBoxLayout(self)
@@ -42,10 +51,11 @@ class TraceStyleDialog(QDialog):
             "Right-click a cell to reset just that field, or a whole row."
         ))
 
-        self._table = QTableWidget(len(rows), 7, self)
-        self._table.setHorizontalHeaderLabels(
-            ["File", "Component", "Label", "Color", "Line style", "Axis", "Visible"]
-        )
+        self._table = QTableWidget(len(rows), 11, self)
+        self._table.setHorizontalHeaderLabels([
+            "File", "Component", "Label", "Color", "Line style", "Marker",
+            "Marker size", "Line width", "Opacity", "Axis", "Visible",
+        ])
         self._table.verticalHeader().setVisible(False)
         self._table.horizontalHeader().setStretchLastSection(False)
         self._table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -98,6 +108,24 @@ class TraceStyleDialog(QDialog):
         style_combo.setCurrentText(_LINESTYLE_BY_VALUE.get(style.linestyle, "Solid"))
         self._table.setCellWidget(row, _COL_LINESTYLE, style_combo)
 
+        marker_combo = QComboBox()
+        marker_combo.addItems(_MARKER_NAMES)
+        marker_combo.setCurrentText(_MARKER_BY_VALUE.get(style.marker, "None"))
+        self._table.setCellWidget(row, _COL_MARKER, marker_combo)
+
+        markersize_spin = self._make_auto_spin(0.0, 30.0, 0.5, style.markersize)
+        self._table.setCellWidget(row, _COL_MARKERSIZE, markersize_spin)
+
+        linewidth_spin = self._make_auto_spin(0.0, 10.0, 0.25, style.linewidth)
+        self._table.setCellWidget(row, _COL_LINEWIDTH, linewidth_spin)
+
+        opacity_spin = QDoubleSpinBox()
+        opacity_spin.setRange(0.0, 100.0)
+        opacity_spin.setSingleStep(5.0)
+        opacity_spin.setSuffix("%")
+        opacity_spin.setValue(100.0 if style.alpha is None else style.alpha * 100.0)
+        self._table.setCellWidget(row, _COL_OPACITY, opacity_spin)
+
         axis_combo = QComboBox()
         axis_combo.addItems(_AXES)
         axis_combo.setCurrentText("Secondary" if style.axis == "secondary" else "Primary")
@@ -112,6 +140,18 @@ class TraceStyleDialog(QDialog):
         cell.addWidget(visible_check)
         holder.setLayout(cell)
         self._table.setCellWidget(row, _COL_VISIBLE, holder)
+
+    def _make_auto_spin(self, minimum: float, maximum: float, step: float,
+                          value: float | None) -> QDoubleSpinBox:
+        """A spinbox whose minimum (0) doubles as an "Auto"/unset sentinel
+        via setSpecialValueText — 0 is never a meaningful marker size or
+        line width, so it's safe to overload as "use the default"."""
+        spin = QDoubleSpinBox()
+        spin.setRange(minimum, maximum)
+        spin.setSingleStep(step)
+        spin.setSpecialValueText("Auto")
+        spin.setValue(0.0 if value is None else value)
+        return spin
 
     def _style_color_button(self, button: QPushButton, color: str | None):
         if color:
@@ -143,6 +183,12 @@ class TraceStyleDialog(QDialog):
             self._style_color_button(self._table.cellWidget(row, _COL_COLOR), None)
         elif col == _COL_LINESTYLE:
             self._table.cellWidget(row, _COL_LINESTYLE).setCurrentText("Solid")
+        elif col == _COL_MARKER:
+            self._table.cellWidget(row, _COL_MARKER).setCurrentText("None")
+        elif col in (_COL_MARKERSIZE, _COL_LINEWIDTH):
+            self._table.cellWidget(row, col).setValue(0.0)
+        elif col == _COL_OPACITY:
+            self._table.cellWidget(row, _COL_OPACITY).setValue(100.0)
         elif col == _COL_AXIS:
             _entry, key, _name = self._rows[row]
             default_axis = _default_trace_style(key).axis
@@ -184,6 +230,10 @@ class TraceStyleDialog(QDialog):
         for row, (entry, key, _display_name) in enumerate(self._rows):
             label = self._table.cellWidget(row, _COL_LABEL).text().strip()
             linestyle_name = self._table.cellWidget(row, _COL_LINESTYLE).currentText()
+            marker_name = self._table.cellWidget(row, _COL_MARKER).currentText()
+            markersize = self._table.cellWidget(row, _COL_MARKERSIZE).value()
+            linewidth = self._table.cellWidget(row, _COL_LINEWIDTH).value()
+            opacity = self._table.cellWidget(row, _COL_OPACITY).value()
             axis_name = self._table.cellWidget(row, _COL_AXIS).currentText()
             visible = self._visible_checkbox(row).isChecked()
             entry.styles[key] = TraceStyle(
@@ -192,5 +242,9 @@ class TraceStyleDialog(QDialog):
                 axis="secondary" if axis_name == "Secondary" else "primary",
                 label=label or None,
                 visible=visible,
+                marker=_MARKER_BY_NAME.get(marker_name),
+                markersize=markersize or None,
+                linewidth=linewidth or None,
+                alpha=None if opacity >= 100.0 else opacity / 100.0,
             )
         self.accept()

@@ -91,7 +91,17 @@ _HD_LEGEND_LABEL = {
 # display names ("Imaginary"/"Real"/"Phase"/"|χ⁽²⁾|² (Homodyne)") instead
 AMPLITUDE_COMPONENT = "__amplitude__"
 
-_LINESTYLE_CHOICES = [("Solid", "-"), ("Dashed", "--"), ("Dotted", ":"), ("Dash-dot", "-.")]
+_LINESTYLE_CHOICES = [
+    ("Solid", "-"), ("Dashed", "--"), ("Dotted", ":"), ("Dash-dot", "-."),
+    ("No line", "None"),
+]
+
+# marker display name -> matplotlib marker code (None = no marker, matplotlib's
+# own default)
+_MARKER_CHOICES = [
+    ("None", None), ("Circle", "o"), ("Square", "s"), ("Triangle up", "^"),
+    ("Triangle down", "v"), ("Diamond", "D"), ("X", "x"), ("Plus", "+"), ("Star", "*"),
+]
 
 
 @dataclass
@@ -103,6 +113,10 @@ class TraceStyle:
     axis: str = "primary"          # "primary" | "secondary"
     label: str | None = None       # None = use the computed legend label
     visible: bool = True
+    marker: str | None = None      # None = no marker (today's behavior)
+    markersize: float | None = None   # None = matplotlib default
+    linewidth: float | None = None    # None = matplotlib default
+    alpha: float | None = None        # None = fully opaque (1.0)
 
     def is_default(self) -> bool:
         return self == TraceStyle()
@@ -712,18 +726,26 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
                 color = style.color or colors[i]
                 target_ax = self.plot_widget.secondary_axis() if is_secondary else self.plot_widget.ax
 
-                target_ax.plot(
-                    x, y_offset,
-                    color=color,
-                    linestyle=style.linestyle,
-                    label=label,
-                )
+                plot_kwargs = dict(color=color, linestyle=style.linestyle, label=label)
+                if style.marker is not None:
+                    plot_kwargs["marker"] = style.marker
+                if style.markersize is not None:
+                    plot_kwargs["markersize"] = style.markersize
+                if style.linewidth is not None:
+                    plot_kwargs["linewidth"] = style.linewidth
+                if style.alpha is not None:
+                    plot_kwargs["alpha"] = style.alpha
+                target_ax.plot(x, y_offset, **plot_kwargs)
 
                 if show_error and entry.kind == "heterodyne" and err_col in data.columns:
                     y_err = data[err_col].to_numpy() * factor
+                    # scale the band's own alpha by the trace's alpha so a
+                    # faded-out line fades its error band too, instead of
+                    # exposing a separate error-band-specific style field
+                    band_alpha = 0.25 * (style.alpha if style.alpha is not None else 1.0)
                     target_ax.fill_between(
                         x, y_offset - y_err, y_offset + y_err,
-                        color=color, alpha=0.25, linewidth=0,
+                        color=color, alpha=band_alpha, linewidth=0,
                     )
 
                 if entry.kind == "heterodyne":
