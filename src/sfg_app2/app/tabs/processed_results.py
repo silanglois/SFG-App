@@ -11,7 +11,7 @@ import matplotlib as mpl
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QListWidgetItem, QFileDialog,
+    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QListWidgetItem, QFileDialog,
     QMessageBox, QAbstractItemView, QInputDialog, QMenu, QCheckBox,
     QComboBox, QLabel,
 )
@@ -115,16 +115,14 @@ _DEFAULT_AXIS_BY_COMPONENT = {"Phase": "secondary"}
 
 
 def _default_trace_style(component: str) -> TraceStyle:
-    # Any component key outside the two fixed sets (HD's 4 checkboxes,
-    # homodyne's single AMPLITUDE_COMPONENT) is a dynamic, per-entry one
-    # -- currently only a reloaded fit's derived curves (fit total/real/
-    # imaginary, each peak). Those default to hidden so loading a fit
-    # doesn't immediately clutter the plot; the user opts a feature in
-    # via the Trace Properties dialog's own visibility checkbox.
-    is_fixed_component = component == AMPLITUDE_COMPONENT or component in _HD_COMPONENT_COLUMN
+    # Every component (including a reloaded fit's derived curves) now
+    # defaults to visible=True, matching the fixed HD/amplitude
+    # components -- the global "Fit components" checkbox panel (default
+    # unchecked) is what prevents clutter on load, not per-entry hiding.
+    # Trace Properties is still available as a per-entry override.
     return TraceStyle(
         axis=_DEFAULT_AXIS_BY_COMPONENT.get(component, "primary"),
-        visible=is_fixed_component,
+        visible=True,
     )
 
 
@@ -196,9 +194,11 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         outer_layout.removeWidget(self.ui.visualizationParamsTabWidget)
         outer_layout.removeWidget(self.ui.plotWidget)
 
+        fit_components_widget = self._setup_fit_component_checkboxes()
         sections = [
             ("data_display", "Data display", self.ui.dataDisplayTab),
             ("hd_components", "HD-SFG components", self.ui.hdComponentsTab),
+            ("fit_components", "Fit components", fit_components_widget),
             ("colors", "Colors", self.ui.colorsTab),
             ("labels", "Labels, legend & annotations", self.ui.labelsTab),
         ]
@@ -262,6 +262,47 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
 
     def _checked_hd_components(self) -> list[str]:
         return [name for name, cb in self._hd_checkboxes.items() if cb.isChecked()]
+
+    def _setup_fit_component_checkboxes(self) -> QWidget:
+        """Global toggle panel for a reloaded fit's derived curves,
+        mirroring the HD-SFG component checkboxes above. Peaks are
+        collapsed into a single "Individual features" checkbox rather
+        than one per peak index (peak count varies per entry, and
+        Trace Properties already lists them individually for anyone
+        who wants just one)."""
+        widget = QWidget()
+        outer = QVBoxLayout(widget)
+        grid = QGridLayout()
+        self._fit_checkboxes: dict[str, QCheckBox] = {
+            "Fit total": QCheckBox("Fit total"),
+            "Fit real": QCheckBox("Fit real"),
+            "Fit imaginary": QCheckBox("Fit imaginary"),
+            "Individual features": QCheckBox("Individual features"),
+        }
+        for i, cb in enumerate(self._fit_checkboxes.values()):
+            cb.setToolTip(
+                "Plot this fit-derived component for entries loaded from "
+                "an exported fit — has no effect on entries without one."
+            )
+            grid.addWidget(cb, i // 2, i % 2)
+            cb.toggled.connect(self._refresh_plot)
+        outer.addLayout(grid)
+        outer.addStretch()
+        return widget
+
+    def _fit_component_concept(self, column_name: str) -> str:
+        """Maps a fit-derived column name to one of the four global
+        panel keys above."""
+        if column_name in ("Fit (total)", "Fit (homodyne)"):
+            return "Fit total"
+        if column_name == "Fit (real)":
+            return "Fit real"
+        if column_name == "Fit (imaginary)":
+            return "Fit imaginary"
+        return "Individual features"   # "Peak 1", "Peak 2", ...
+
+    def _checked_fit_concepts(self) -> set[str]:
+        return {name for name, cb in self._fit_checkboxes.items() if cb.isChecked()}
 
     def _connect_signals(self):
         self.ui.addSpectraButton.clicked.connect(self._on_add_from_file)
@@ -544,6 +585,7 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
 
         offset_step = self.ui.offsetSpectraSpinner.value()
         checked_components = self._checked_hd_components()
+        checked_fit_concepts = self._checked_fit_concepts()
         legend_field = self.ui.legendFieldComboBox.currentText()
 
         # determine x column — use Wavenumber if available, else Wavelength
@@ -593,10 +635,12 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
 
             # Reloaded fit's derived curves (fit total/real/imaginary, each
             # peak) -- per-entry and variable in count, so independent of
-            # both entry.kind's branch above and the global HD checkboxes.
-            # Hidden by default (see _default_trace_style); toggled on via
-            # the Trace Properties dialog like any other component.
+            # entry.kind's branch above. Gated first by the global "Fit
+            # components" panel (default unchecked), then by the per-entry
+            # Trace Properties visibility override (default visible).
             for column_name, display_label in entry.fit_components:
+                if self._fit_component_concept(column_name) not in checked_fit_concepts:
+                    continue
                 style = entry.style_for(column_name)
                 if not style.visible:
                     continue
