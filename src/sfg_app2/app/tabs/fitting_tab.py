@@ -1209,7 +1209,18 @@ class FittingTab(QWidget, DockablePlotPanel):
         spectrum = self._data.source_spectrum
         if spectrum is None:
             if self._data.kind == "heterodyne":
-                data = {"Wavenumber": self._data.omega, "Real": self._data.real, "Imaginary": self._data.imag}
+                real, imag = self._data.real, self._data.imag
+                data = {
+                    "Wavenumber": self._data.omega, "Real": real, "Imaginary": imag,
+                    # Phase/Homodyne aren't tracked separately on _FittableSpectrum
+                    # (only Real/Imaginary are), but reconstructing them here
+                    # matches HDSFGResult.to_dataframe()'s schema, so a
+                    # bare-file-loaded fit's export is just as plottable via
+                    # the Results tab's Phase/Homodyne checkboxes as one
+                    # sourced from the Results tab (which already has them).
+                    "Phase": np.degrees(np.arctan2(imag, real)),
+                    "Homodyne": real ** 2 + imag ** 2,
+                }
                 if self._data.real_err is not None:
                     data["Real_err"] = self._data.real_err
                 if self._data.imag_err is not None:

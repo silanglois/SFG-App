@@ -28,7 +28,14 @@ class SpectrumDataMixin:
         sub = self._raw_df[self._raw_df["Frame"] == frame_id]
         if sub.empty:
             raise ValueError(f"No frame '{frame_id}' found")
-        return sub.sort_values("Wavelength").reset_index(drop=True)
+        # Falls back to Wavenumber only when Wavelength is genuinely
+        # absent (e.g. a reloaded fit export that was never upconverted
+        # from raw spectrometer data) -- previously this unconditionally
+        # required Wavelength and raised a KeyError otherwise, so this
+        # fallback only helps a case that was already broken, and never
+        # changes the sort order for any data that already has Wavelength.
+        sort_col = "Wavelength" if "Wavelength" in sub.columns else "Wavenumber"
+        return sub.sort_values(sort_col).reset_index(drop=True)
 
     def average_spectrum(self, exclude_frames=None):
         """Average all frames into one. exclude_frames, if given, is an

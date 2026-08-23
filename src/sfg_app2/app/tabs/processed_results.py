@@ -23,6 +23,7 @@ from sfg_app2.processing.processed_spectrum import ProcessedSpectrum
 from sfg_app2.app.utils.loading_indicator import show_loading
 from sfg_app2.app.utils.phase_wrap import wrap_phase_for_plot
 from sfg_app2.processing import provenance as provenance_mod
+from sfg_app2.processing import fitting as fitting_mod
 
 logger = logging.getLogger(__name__)
 
@@ -114,7 +115,17 @@ _DEFAULT_AXIS_BY_COMPONENT = {"Phase": "secondary"}
 
 
 def _default_trace_style(component: str) -> TraceStyle:
-    return TraceStyle(axis=_DEFAULT_AXIS_BY_COMPONENT.get(component, "primary"))
+    # Any component key outside the two fixed sets (HD's 4 checkboxes,
+    # homodyne's single AMPLITUDE_COMPONENT) is a dynamic, per-entry one
+    # -- currently only a reloaded fit's derived curves (fit total/real/
+    # imaginary, each peak). Those default to hidden so loading a fit
+    # doesn't immediately clutter the plot; the user opts a feature in
+    # via the Trace Properties dialog's own visibility checkbox.
+    is_fixed_component = component == AMPLITUDE_COMPONENT or component in _HD_COMPONENT_COLUMN
+    return TraceStyle(
+        axis=_DEFAULT_AXIS_BY_COMPONENT.get(component, "primary"),
+        visible=is_fixed_component,
+    )
 
 
 @dataclass
@@ -137,6 +148,11 @@ class SpectrumEntry:
         self.label = label
         self.kind = kind   # "homodyne" | "heterodyne"
         self.styles: dict[str, TraceStyle] = {}
+        # (column_name, display_label) pairs for a reloaded fit's derived
+        # curves (fit total/real/imaginary, each peak) -- column_name
+        # doubles as the style_for() key. Empty unless the loaded file
+        # carried a "Fit json:" provenance line -- see _on_add_from_file().
+        self.fit_components: list[tuple[str, str]] = []
 
     def style_for(self, component: str) -> TraceStyle:
         return self.styles.setdefault(component, _default_trace_style(component))
@@ -575,6 +591,17 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
                 if style.visible:
                     specs.append((entry, None, "Intensity", None, style.label or base_label, style))
 
+            # Reloaded fit's derived curves (fit total/real/imaginary, each
+            # peak) -- per-entry and variable in count, so independent of
+            # both entry.kind's branch above and the global HD checkboxes.
+            # Hidden by default (see _default_trace_style); toggled on via
+            # the Trace Properties dialog like any other component.
+            for column_name, display_label in entry.fit_components:
+                style = entry.style_for(column_name)
+                if not style.visible:
+                    continue
+                specs.append((entry, None, column_name, None, style.label or f"{base_label} ({display_label})", style))
+
         colors = self._get_colors(len(specs))
         primary_hd, secondary_hd = [], []
         primary_amp, secondary_amp = False, False
@@ -739,6 +766,46 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         from sfg_app2.processing.utils import DEFAULT_ROLE_SUFFIXES
         return {"role_mode": "suffix", "role_values": DEFAULT_ROLE_SUFFIXES, "role_field": ""}
 
+    def _add_fit_component_columns(self, df, provenance: dict, kind: str) -> list[tuple[str, str]]:
+        """If `provenance` carries a "Fit json:" header line (written by
+        FittingTab's own export), reconstruct the FitModelSpec and add
+        its derived curves as new columns directly on `df`, computed
+        over its own Wavenumber column with the same evaluation
+        functions FittingTab itself uses for its live preview. Returns
+        the (column_name, display_label) pairs to store on the
+        resulting SpectrumEntry.fit_components -- column_name doubles
+        as the style_for() key. Returns [] if there's no fit (the
+        common case)."""
+        fit_payload = provenance_mod.parse_fit_json(provenance)
+        if not fit_payload:
+            return []
+        fit_spec = fitting_mod.fit_model_spec_from_provenance_payload(fit_payload)
+        if fit_spec is None or "Wavenumber" not in df.columns:
+            return []
+
+        omega = df["Wavenumber"].to_numpy(dtype=float)
+        chi = fitting_mod.evaluate_chi(omega, fit_spec)
+        components: list[tuple[str, str]] = []
+
+        df["Fit (real)"] = chi.real
+        components.append(("Fit (real)", "Fit (real)"))
+        df["Fit (imaginary)"] = chi.imag
+        components.append(("Fit (imaginary)", "Fit (imaginary)"))
+
+        if kind == "heterodyne":
+            df["Fit (homodyne)"] = np.abs(chi) ** 2
+            components.append(("Fit (homodyne)", "Fit (homodyne)"))
+        else:
+            df["Fit (total)"] = fitting_mod.evaluate_homodyne(omega, fit_spec)
+            components.append(("Fit (total)", "Fit (total)"))
+
+        for i, peak in enumerate(fit_spec.peaks):
+            col = f"Peak {i + 1}"
+            df[col] = fitting_mod.evaluate_peak_component(omega, peak)
+            components.append((col, col))
+
+        return components
+
     def _on_add_from_file(self):
         paths, _ = QFileDialog.getOpenFileNames(
             self, "Load processed spectra", "",
@@ -768,9 +835,11 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
                 if pattern_map:
                     from sfg_app2.processing.data_file import DataFile
                     # strip a "Keep Both" duplicate suffix (e.g. "sample1 (2)")
-                    # before parsing filename fields, so it doesn't get
-                    # absorbed into the last underscore-separated field
+                    # and a Fitting-tab export's "_fit" suffix before parsing
+                    # filename fields, so neither gets absorbed into the last
+                    # underscore-separated field
                     metadata_stem = re.sub(r"\s\(\d+\)$", "", path.stem)
+                    metadata_stem = re.sub(r"_fit$", "", metadata_stem, flags=re.IGNORECASE)
                     clean_stem, _, _ = resolve_role(
                         metadata_stem, role_kwargs["role_mode"], role_kwargs["role_values"]
                     )
@@ -793,13 +862,6 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
                 if "Frame" not in df.columns:
                     df.insert(0, "Frame", 1)
 
-                spectrum = ProcessedSpectrum(
-                    df,
-                    metadata=merged_metadata,
-                    history=provenance.get("history_list", ["loaded_from_file"]),
-                )
-                spectrum.provenance = provenance
-
                 kind = provenance.get("kind")
                 if kind is None:
                     # no/old-style header — fall back to sniffing columns
@@ -807,12 +869,34 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
                             if {"Real", "Imaginary", "Phase", "Homodyne"}.issubset(df.columns)
                             else "homodyne")
 
-                label = path.stem
+                # a "Fit json:" header line (written by FittingTab's own
+                # export) reconstructs into extra derived columns (fit
+                # total/real/imaginary, each peak) added directly to df,
+                # so they're plottable/stylable via the same per-entry
+                # component machinery as Real/Imaginary/etc below
+                fit_components = self._add_fit_component_columns(df, provenance, kind)
+
+                spectrum = ProcessedSpectrum(
+                    df,
+                    metadata=merged_metadata,
+                    history=provenance.get("history_list", ["loaded_from_file"]),
+                )
+                spectrum.provenance = provenance
+
+                # the embedded "# Label:" header line (already parsed into
+                # merged_metadata above) is authoritative -- path.stem is
+                # only a fallback for files that never had one. Using
+                # path.stem unconditionally here would leak a Fitting-tab
+                # export's "_fit" filename suffix into the displayed label
+                # even though the header itself is always clean.
+                label = merged_metadata.get("label", path.stem)
                 existing_idx = next(
                     (i for i, e in enumerate(self._entries) if e.label == label), None
                 )
                 if existing_idx is None:
-                    self._entries.append(SpectrumEntry(spectrum, label, kind=kind))
+                    entry = SpectrumEntry(spectrum, label, kind=kind)
+                    entry.fit_components = fit_components
+                    self._entries.append(entry)
                     self.ui.spectraList.addItem(
                         self._make_list_item(len(self._entries) - 1)
                     )
@@ -831,14 +915,18 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
                         skipped += 1
                     elif choice == "Keep Both":
                         new_label = self._unique_label(label)
-                        self._entries.append(SpectrumEntry(spectrum, new_label, kind=kind))
+                        entry = SpectrumEntry(spectrum, new_label, kind=kind)
+                        entry.fit_components = fit_components
+                        self._entries.append(entry)
                         self.ui.spectraList.addItem(
                             self._make_list_item(len(self._entries) - 1)
                         )
                         added += 1
                         renamed += 1
                     else:  # Overwrite
-                        self._entries[existing_idx] = SpectrumEntry(spectrum, label, kind=kind)
+                        entry = SpectrumEntry(spectrum, label, kind=kind)
+                        entry.fit_components = fit_components
+                        self._entries[existing_idx] = entry
                         added += 1
 
             except Exception as e:
@@ -1009,8 +1097,10 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         (not just the currently-checked ones), or a single amplitude row
         for homodyne entries."""
         if entry.kind == "heterodyne":
-            return [(component, component) for component in _HD_COMPONENT_COLUMN]
-        return [(AMPLITUDE_COMPONENT, "Amplitude")]
+            rows = [(component, component) for component in _HD_COMPONENT_COLUMN]
+        else:
+            rows = [(AMPLITUDE_COMPONENT, "Amplitude")]
+        return rows + list(entry.fit_components)
 
     def _on_trace_properties(self, entries: list[SpectrumEntry]):
         from sfg_app2.app.dialogs.trace_style_dialog import TraceStyleDialog
