@@ -191,13 +191,15 @@ class MatchingProfileManager:
             logger.warning("Failed to load matching settings: %s — using defaults.", e)
             self._tree = copy.deepcopy(DEFAULT_PROFILE_TREE)
 
-    def save(self):
+    def save(self) -> bool:
         try:
             CONFIG_DIR.mkdir(parents=True, exist_ok=True)
             SETTINGS_FILE.write_text(json.dumps({"tree": self._tree}, indent=2))
             logger.info("Matching profiles saved to %s.", SETTINGS_FILE)
+            return True
         except Exception as e:
             logger.error("Failed to save matching settings: %s", e)
+            return False
 
     @property
     def tree(self) -> list[dict]:

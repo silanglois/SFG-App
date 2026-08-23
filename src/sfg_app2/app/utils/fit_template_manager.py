@@ -37,13 +37,15 @@ class FitTemplateManager:
             logger.warning("Failed to load fit templates: %s — starting empty.", e)
             self._templates = {}
 
-    def save(self):
+    def save(self) -> bool:
         try:
             CONFIG_DIR.mkdir(parents=True, exist_ok=True)
             TEMPLATES_FILE.write_text(json.dumps({"templates": self._templates}, indent=2))
             logger.info("Fit templates saved to %s.", TEMPLATES_FILE)
+            return True
         except Exception as e:
             logger.error("Failed to save fit templates: %s", e)
+            return False
 
     def names(self) -> list[str]:
         return sorted(self._templates.keys())
@@ -54,10 +56,10 @@ class FitTemplateManager:
             return None
         return FitModelSpec.from_dict(raw)
 
-    def set(self, name: str, spec: FitModelSpec):
+    def set(self, name: str, spec: FitModelSpec) -> bool:
         self._templates[name] = spec.to_dict()
-        self.save()
+        return self.save()
 
-    def delete(self, name: str):
+    def delete(self, name: str) -> bool:
         self._templates.pop(name, None)
-        self.save()
+        return self.save()

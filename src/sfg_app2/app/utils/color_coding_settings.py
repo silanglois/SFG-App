@@ -44,7 +44,7 @@ class ColorCodingSettings:
             self.fields = []
             self.scope = "file_list"
 
-    def save(self):
+    def save(self) -> bool:
         try:
             CONFIG_DIR.mkdir(parents=True, exist_ok=True)
             SETTINGS_FILE.write_text(json.dumps({
@@ -54,5 +54,7 @@ class ColorCodingSettings:
                 "scope": self.scope,
             }, indent=2))
             logger.info("Color-coding settings saved to %s.", SETTINGS_FILE)
+            return True
         except Exception as e:
             logger.error("Failed to save color-coding settings: %s", e)
+            return False

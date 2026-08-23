@@ -64,13 +64,15 @@ class PatternManager:
             logger.warning("Failed to load patterns: %s — using defaults.", e)
             self._tree = DEFAULT_TREE
 
-    def save(self):
+    def save(self) -> bool:
         try:
             CONFIG_DIR.mkdir(parents=True, exist_ok=True)
             PATTERNS_FILE.write_text(json.dumps({"tree": self._tree}, indent=2))
             logger.info("Patterns saved to %s.", PATTERNS_FILE)
+            return True
         except Exception as e:
             logger.error("Failed to save patterns: %s", e)
+            return False
 
     @property
     def tree(self) -> list[dict]:

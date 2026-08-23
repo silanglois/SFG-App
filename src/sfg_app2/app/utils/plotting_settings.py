@@ -113,13 +113,15 @@ class PlottingSettings:
             logger.warning("Failed to load plotting settings: %s — using default.", e)
             self._style = DEFAULT_STYLE
 
-    def save(self):
+    def save(self) -> bool:
         try:
             CONFIG_DIR.mkdir(parents=True, exist_ok=True)
             SETTINGS_FILE.write_text(json.dumps({"style": self._style}, indent=2))
             logger.info("Plotting settings saved to %s.", SETTINGS_FILE)
+            return True
         except Exception as e:
             logger.error("Failed to save plotting settings: %s", e)
+            return False
 
     @property
     def style(self) -> str:
@@ -128,7 +130,8 @@ class PlottingSettings:
     def apply_current(self):
         apply_style(self._style)
 
-    def set_style(self, name: str):
+    def set_style(self, name: str) -> bool:
         self._style = name
-        self.save()
+        saved = self.save()
         apply_style(name)
+        return saved

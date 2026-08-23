@@ -1178,7 +1178,12 @@ class FittingTab(QWidget, DockablePlotPanel):
         name, ok = QInputDialog.getText(self, "Save fit template", "Template name:")
         if not ok or not name.strip():
             return
-        self._template_manager.set(name.strip(), self._model_spec)
+        if not self._template_manager.set(name.strip(), self._model_spec):
+            QMessageBox.warning(
+                self, "Couldn't save template",
+                "The fit template could not be saved to disk. "
+                "It will be available for this session but won't persist.",
+            )
         self._refresh_template_combo()
 
     def _on_apply_template(self):

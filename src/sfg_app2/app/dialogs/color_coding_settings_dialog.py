@@ -3,6 +3,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QFormLayout, QCheckBox, QComboBox,
     QStackedWidget, QListWidget, QListWidgetItem, QLabel, QDialogButtonBox,
+    QMessageBox,
 )
 
 from sfg_app2.app.utils.color_coding_settings import ColorCodingSettings
@@ -99,5 +100,10 @@ class ColorCodingSettingsDialog(QDialog):
             self._settings.fields = []
 
         self._settings.scope = _SCOPES[self._scope_combo.currentIndex()]
-        self._settings.save()
+        if not self._settings.save():
+            QMessageBox.warning(
+                self, "Couldn't save settings",
+                "Color-coding settings could not be saved to disk. "
+                "Your changes will apply for this session but won't persist.",
+            )
         self.accept()

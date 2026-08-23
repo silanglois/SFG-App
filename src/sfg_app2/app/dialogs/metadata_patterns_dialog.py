@@ -370,5 +370,10 @@ class MetadataPatternsDialog(QDialog):
     def _on_ok(self):
         self._save_current_fields_to_pattern()
         self._manager._tree = self._tree
-        self._manager.save()
+        if not self._manager.save():
+            QMessageBox.warning(
+                self, "Couldn't save settings",
+                "Metadata patterns could not be saved to disk. "
+                "Your changes will apply for this session but won't persist.",
+            )
         self.accept()

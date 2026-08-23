@@ -38,13 +38,15 @@ class DockLayoutSettings:
             logger.warning("Failed to load dock layout settings: %s — using defaults.", e)
             self._layouts = {}
 
-    def save(self):
+    def save(self) -> bool:
         try:
             CONFIG_DIR.mkdir(parents=True, exist_ok=True)
             SETTINGS_FILE.write_text(json.dumps({"layouts": self._layouts}, indent=2))
             logger.info("Dock layout settings saved to %s.", SETTINGS_FILE)
+            return True
         except Exception as e:
             logger.error("Failed to save dock layout settings: %s", e)
+            return False
 
     def get(self, key: str) -> bytes | None:
         encoded = self._layouts.get(key)

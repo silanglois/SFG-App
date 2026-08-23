@@ -7,7 +7,8 @@ import numpy as np
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
 from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QDialogButtonBox
+    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QDialogButtonBox,
+    QMessageBox,
 )
 
 from sfg_app2.app.utils.plotting_settings import (
@@ -99,5 +100,10 @@ class PlottingSettingsDialog(QDialog):
     # ── OK ────────────────────────────────────────────────────────────────────
 
     def _on_ok(self):
-        self._settings.set_style(self._selected_style())
+        if not self._settings.set_style(self._selected_style()):
+            QMessageBox.warning(
+                self, "Couldn't save settings",
+                "The plotting style could not be saved to disk. "
+                "It will apply for this session but won't persist.",
+            )
         self.accept()

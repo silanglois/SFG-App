@@ -727,5 +727,10 @@ class AutoMatchingSettingsDialog(QDialog):
             self._save_editor_to_leaf(self._current_leaf_id)
 
         self._manager._tree = self._tree
-        self._manager.save()
+        if not self._manager.save():
+            QMessageBox.warning(
+                self, "Couldn't save settings",
+                "Auto-matching profiles could not be saved to disk. "
+                "Your changes will apply for this session but won't persist.",
+            )
         self.accept()
