@@ -151,6 +151,11 @@ class SpectrumEntry:
         # doubles as the style_for() key. Empty unless the loaded file
         # carried a "Fit json:" provenance line -- see _on_add_from_file().
         self.fit_components: list[tuple[str, str]] = []
+        # Whether this entry's checkbox is ticked in the spectra list --
+        # this, not list *selection*, is what _refresh_plot() draws.
+        # Selection is still used for context-menu/metadata/trace-property
+        # actions, which are independent of what's currently plotted.
+        self.checked: bool = False
 
     def style_for(self, component: str) -> TraceStyle:
         return self.styles.setdefault(component, _default_trace_style(component))
@@ -311,7 +316,7 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         self.ui.exportSelectedButton.clicked.connect(self._on_export_selected)
         self.ui.exportAllButton.clicked.connect(self._on_export_all)
 
-        self.ui.spectraList.itemSelectionChanged.connect(self._refresh_plot)
+        self.ui.spectraList.itemChanged.connect(self._on_item_check_changed)
         self.ui.spectraList.model().rowsMoved.connect(self._refresh_plot)
 
         self.ui.normalizationComboBox.currentIndexChanged.connect(
@@ -445,6 +450,8 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         entry = self._entries[index]
         item = QListWidgetItem(entry.label)
         item.setData(Qt.ItemDataRole.UserRole, index)
+        item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+        item.setCheckState(Qt.CheckState.Checked if entry.checked else Qt.CheckState.Unchecked)
         return item
 
     def _ordered_entries(self) -> list[SpectrumEntry]:
@@ -474,6 +481,18 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
             for item in self.ui.spectraList.selectedItems()
         }
         return [e for i, e in enumerate(ordered) if i in selected_rows]
+
+    def _checked_entries(self) -> list[SpectrumEntry]:
+        """Entries whose list-item checkbox is ticked -- this is what
+        _refresh_plot() draws, independent of selection."""
+        return [e for e in self._ordered_entries() if e.checked]
+
+    def _on_item_check_changed(self, item: QListWidgetItem):
+        idx = item.data(Qt.ItemDataRole.UserRole)
+        if idx is None or not (0 <= idx < len(self._entries)):
+            return
+        self._entries[idx].checked = item.checkState() == Qt.CheckState.Checked
+        self._refresh_plot()
 
     # ── Normalization ─────────────────────────────────────────────────────────
 
@@ -578,7 +597,7 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
 
     def _refresh_plot(self):
         self.plot_widget.soft_clear()
-        entries = self._selected_entries()
+        entries = self._checked_entries()
         if not entries:
             self.plot_widget.canvas.draw_idle()
             return
@@ -783,6 +802,8 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         for i, entry in enumerate(self._entries):
             item = QListWidgetItem(entry.label)
             item.setData(Qt.ItemDataRole.UserRole, i)
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(Qt.CheckState.Checked if entry.checked else Qt.CheckState.Unchecked)
             self.ui.spectraList.addItem(item)
         self.ui.spectraList.blockSignals(False)
 
