@@ -197,7 +197,9 @@ class MainWindow(QMainWindow):
     def _build_load_image_action(self):
         action = QAction("Load image...", self)
         action.triggered.connect(self._on_load_image)
-        self.ui.menuFile.insertAction(self.ui.actionLoad_from_multiple_folders, action)
+        # insert right after "Load file(s)", above the separator below it
+        separator = next(a for a in self.ui.menuFile.actions() if a.isSeparator())
+        self.ui.menuFile.insertAction(separator, action)
 
     # ── Menu handlers ─────────────────────────────────────────────────────────
 
