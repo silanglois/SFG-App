@@ -13,22 +13,50 @@ logger = logging.getLogger(__name__)
 CONFIG_DIR = Path(user_config_dir("SFG-App"))
 SETTINGS_FILE = CONFIG_DIR / "plotting_settings.json"
 THEMES_DIR = Path(aquarel.__file__).parent / "themes"
+CUSTOM_STYLES_DIR = CONFIG_DIR / "custom_styles"
 
 MATPLOTLIB_DEFAULT = "matplotlib_default"
 DEFAULT_STYLE = "ambivalent"
 
 
+def custom_styles_dir() -> Path:
+    return CUSTOM_STYLES_DIR
+
+
+def list_custom_styles() -> list[str]:
+    """Returns the names (file stems) of every user-created custom style."""
+    if not CUSTOM_STYLES_DIR.exists():
+        return []
+    return sorted(p.stem for p in CUSTOM_STYLES_DIR.glob("*.json"))
+
+
+def is_custom_style(name: str) -> bool:
+    return (CUSTOM_STYLES_DIR / f"{name}.json").exists()
+
+
 def available_styles() -> list[str]:
-    """Returns all selectable style names, matplotlib default first."""
-    return [MATPLOTLIB_DEFAULT, *sorted(list_themes())]
+    """Returns all selectable style names, matplotlib default first, then
+    built-in aquarel themes, then user-created custom styles."""
+    return [MATPLOTLIB_DEFAULT, *sorted(list_themes()), *list_custom_styles()]
 
 
 def _load_theme(name: str) -> Theme:
     # aquarel.load_theme() opens theme files without an explicit encoding,
     # which fails on Windows for themes containing non-ASCII descriptions
     # (e.g. ambivalent's emoji) since the default codepage isn't UTF-8.
-    text = (THEMES_DIR / f"{name}.json").read_text(encoding="utf-8")
+    directory = CUSTOM_STYLES_DIR if is_custom_style(name) else THEMES_DIR
+    text = (directory / f"{name}.json").read_text(encoding="utf-8")
     return Theme.from_dict(json.loads(text))
+
+
+def delete_custom_style(name: str) -> bool:
+    try:
+        (CUSTOM_STYLES_DIR / f"{name}.json").unlink()
+        logger.info("Deleted custom style '%s'.", name)
+        return True
+    except Exception as e:
+        logger.error("Failed to delete custom style '%s': %s", name, e)
+        return False
 
 
 def _qt_window_color() -> str:
@@ -49,6 +77,21 @@ _current_figure_bg: str | None = None
 _current_axes_bg: str | None = None
 
 
+def _apply_theme_object(theme: Theme):
+    """Applies an in-memory Theme's rcParams, patching transparent
+    backgrounds to blend with the app. Shared by apply_rcparams() (which
+    loads a style by name first) and the custom style editor's live
+    preview (which edits a Theme that has no name/file yet)."""
+    theme.apply()
+    # Qt's FigureCanvasQTAgg erases each frame to opaque white before
+    # compositing, so a "none" (transparent) figure/axes facecolor still
+    # renders as a white box instead of blending with the widget behind
+    # it. Substitute the app's real window color to actually blend in.
+    if mpl.rcParams["figure.facecolor"] == "none":
+        bg = _qt_window_color()
+        mpl.rcParams.update({"figure.facecolor": bg, "axes.facecolor": bg})
+
+
 def apply_rcparams(name: str):
     """Applies a style's rcParams only, without touching the persisted
     'currently active' background used by style_figure(). Used both by
@@ -58,14 +101,7 @@ def apply_rcparams(name: str):
     if name == MATPLOTLIB_DEFAULT:
         mpl.rcParams.update(mpl.rcParamsDefault)
     else:
-        _load_theme(name).apply()
-        # Qt's FigureCanvasQTAgg erases each frame to opaque white before
-        # compositing, so a "none" (transparent) figure/axes facecolor still
-        # renders as a white box instead of blending with the widget behind
-        # it. Substitute the app's real window color to actually blend in.
-        if mpl.rcParams["figure.facecolor"] == "none":
-            bg = _qt_window_color()
-            mpl.rcParams.update({"figure.facecolor": bg, "axes.facecolor": bg})
+        _apply_theme_object(_load_theme(name))
 
 
 def apply_style(name: str):
