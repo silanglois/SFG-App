@@ -39,6 +39,49 @@ def _set_windows_app_id():
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("SFGApp.SFGApp2")
 
 
+def _apply_native_window_icon(window, icon: QIcon):
+    """Explicitly sets the icon on the real Win32 window and its window
+    class, rather than relying solely on Qt's own windowIcon() plumbing.
+
+    Diagnostic logging (see plan history) showed Qt already reports a
+    valid per-window icon via WM_GETICON on every launch, including ones
+    where the taskbar still showed the wrong icon -- so the taskbar's
+    failure is Explorer's own, not a missing/invalid icon on our side.
+    One confirmed gap the log did surface: the window CLASS icon
+    (GCLP_HICON/GCLP_HICONSM) was never set to our icon at all. This
+    closes that gap, and re-asserts WM_SETICON shortly after the window
+    first appears in case Explorer's initial icon query races with the
+    taskbar button being created.
+    """
+    if sys.platform != "win32":
+        return
+    import ctypes
+
+    hwnd = int(window.winId())
+    hicon_small = icon.pixmap(16, 16).toImage().toHICON()
+    hicon_big = icon.pixmap(32, 32).toImage().toHICON()
+    # HICONs are native handles, independent of Python/Qt object lifetime,
+    # but keep them referenced for the app's lifetime defensively.
+    window._native_icons = (hicon_small, hicon_big)
+
+    user32 = ctypes.windll.user32
+    WM_SETICON = 0x0080
+    ICON_SMALL, ICON_BIG = 0, 1
+    GCLP_HICON, GCLP_HICONSM = -14, -34
+    set_class_long = (
+        user32.SetClassLongPtrW if hasattr(user32, "SetClassLongPtrW") else user32.SetClassLongW
+    )
+
+    def _apply():
+        set_class_long(hwnd, GCLP_HICON, hicon_big)
+        set_class_long(hwnd, GCLP_HICONSM, hicon_small)
+        user32.SendMessageW(hwnd, WM_SETICON, ICON_SMALL, hicon_small)
+        user32.SendMessageW(hwnd, WM_SETICON, ICON_BIG, hicon_big)
+
+    _apply()
+    QTimer.singleShot(500, _apply)
+
+
 def _make_splash_pixmap() -> QPixmap:
     pixmap = QPixmap(420, 260)
     pixmap.fill(QColor("#2b2b2b"))
@@ -56,7 +99,8 @@ def run():
     _set_windows_app_id()
 
     app = QApplication(sys.argv)
-    app.setWindowIcon(_load_app_icon())
+    icon = _load_app_icon()
+    app.setWindowIcon(icon)
 
     # Applied before the splash screen is constructed so every window,
     # including the splash, renders with the chosen scheme from the start.
@@ -86,6 +130,7 @@ def run():
         window.show()
         app.processEvents()   # let the new window's layout settle while
                                # the splash is still covering it
+        _apply_native_window_icon(window, icon)
         splash.finish(window)   # closes the splash once `window` is shown
         app._main_window = window   # keep a reference alive past _start()
 
