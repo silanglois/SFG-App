@@ -15,7 +15,7 @@ class HDSFGResult:
     ----------
     wavenumber:           uniform wavenumber axis (cm⁻¹)
     complex_chi:          complex χ⁽²⁾ from averaged data
-    phase:                phase in degrees [0, 360] from averaged data
+    phase:                phase in degrees (-180, 180] from averaged data
     homodyne:             |χ⁽²⁾|² from averaged data
     complex_chi_avg:      per-frame mean complex χ⁽²⁾ (may differ from above
                           when n_frames > 1, since this averages iFFT outputs)
