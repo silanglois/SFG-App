@@ -103,7 +103,11 @@ class _ColorField:
             self.button.setEnabled(True)
 
     def _pick(self):
-        chosen = QColorDialog.getColor(QColor(self.value), self.button, "Pick color")
+        # Parented to the button's top-level window rather than the button
+        # itself -- the button carries an inline background-color stylesheet
+        # (see _refresh()) that would otherwise cascade into the popup and
+        # tint its background with whatever color was last picked.
+        chosen = QColorDialog.getColor(QColor(self.value), self.button.window(), "Pick color")
         if chosen.isValid():
             self.value = chosen.name()
             self._refresh()
