@@ -28,14 +28,14 @@
 - Debounce timers, one per panel that needs to coalesce rapid input into a single recompute: `HDSFGPanel._redraw_timer` (50ms, view changes) / `_auto_process_timer` (400ms, param changes), `HomodynePanel._recompute_timer` (300ms), `FittingTab._preview_timer` (50ms)
 - `DockablePlotPanel` (`app/widgets/dockable_panels.py`): a shared mixin giving `ProcessedResultsTab`, `FittingTab`, `HomodynePanel`, and `HDSFGPanel` each their own nested `QMainWindow` of `QDockWidget`s — `QDockWidget` needs a `QMainWindow` to dock into, and docking against the app's single real `MainWindow` would snap panels to the whole app window instead of staying scoped to one tab. Dock nesting is enabled (splits, not just the 4 outer edges) and layouts persist per-tab via `DockLayoutSettings`
 - Fitting engine (`processing/fitting.py`): a lineshape registry (`register_lineshape`/`get_lineshape`) backs `FitModelSpec` (a nonresonant term + a list of `PeakInstance`s); `fit_homodyne`/`fit_heterodyne` wrap `lmfit`. Batch fitting runs every dataset independently (`fit_independent_batch`); sequential fitting seeds each fit from the previous result (`fit_sequential_batch`/`advance_seed`), with per-step checkpointing driven by chained `QTimer.singleShot(0, ...)` calls rather than a blocking loop (keeps the UI responsive and interruptible)
-- Per-curve styling: `TraceStyle` (color/linestyle/marker/marker size/line width/opacity/axis/label/visibility overrides, `None` meaning "use the automatic default"), edited via `TraceStyleDialog`, used by the Results and Fitting tabs
+- Per-curve styling: `TraceStyle` (color/linestyle/marker/marker size/line width/opacity/axis/label/visibility overrides, `None` meaning "use the automatic default"), edited via `TraceStyleDialog`, used by the Spectra Library and Fitting tabs
 
 ## Current state
-- Tabs: Load/Match, Process/Review, Results, Fitting
+- Tabs: Load/Match, Process/Review, Spectra Library, Fitting
 - Homodyne pipeline: despike → bg subtract → normalize → upconvert
 - Heterodyne pipeline: despike → average → bg subtract → FFT filter → iFFT → normalize
 - HD-SFG panel lives in `src/sfg_app2/app/widgets/hd_sfg_panel.py`
-- Fitting tab supports single-spectrum, batch (independent), and sequential (seeded) fitting for both homodyne and heterodyne data; results can be exported and reloaded into the Results tab, where fit-derived curves (total/real/imaginary, per-peak) become additional plottable columns
+- Fitting tab supports single-spectrum, batch (independent), and sequential (seeded) fitting for both homodyne and heterodyne data; results can be exported and reloaded into the Spectra Library tab, where fit-derived curves (total/real/imaginary, per-peak) become additional plottable columns
 - CCD image files can be loaded and viewed independently of the spectral pipeline (`processing/image_file.py`, `app/widgets/image_window.py`)
 
 ## Known patterns

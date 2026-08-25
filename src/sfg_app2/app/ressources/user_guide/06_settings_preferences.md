@@ -41,7 +41,7 @@ The dialog has its own preview canvas showing a small sample plot
 style as you click through the dropdown, so you can compare several
 styles side by side before committing to one — no need to close the
 dialog and check a real spectrum each time. Accepting immediately
-restyles every plot in Process/Review, Results, and Fitting to match.
+restyles every plot in Process/Review, Spectra Library, and Fitting to match.
 
 ### Custom style editor
 

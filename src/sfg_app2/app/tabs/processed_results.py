@@ -466,8 +466,8 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
                         continue   # byte-identical — nothing to resolve, skip silently
                     choice = self._prompt_conflict(
                         "Result already exists",
-                        f'A result named "{label}" already exists in Results with '
-                        f'different data. Overwrite it?',
+                        f'A result named "{label}" already exists in the Spectra '
+                        f'Library with different data. Overwrite it?',
                         ["Overwrite", "Keep Both", "Skip"], remembered,
                     )
                     if choice == "Skip":
@@ -1070,8 +1070,8 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
                 else:
                     choice = self._prompt_conflict(
                         "Name collision, different content",
-                        f'"{label}" already exists in Results with different '
-                        f'data. Overwrite it?',
+                        f'"{label}" already exists in the Spectra Library with '
+                        f'different data. Overwrite it?',
                         ["Overwrite", "Keep Both", "Skip"], remembered,
                     )
                     if choice == "Skip":

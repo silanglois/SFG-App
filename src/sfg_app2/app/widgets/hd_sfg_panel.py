@@ -197,7 +197,7 @@ class HDSFGPanel(QWidget, DockablePlotPanel):
         self._process_btn.setFixedWidth(110)
         layout.addWidget(self._process_btn)
 
-        self._finish_btn = QPushButton("✓ Send to Results")
+        self._finish_btn = QPushButton("✓ Send to Spectra Library")
         self._finish_btn.setVisible(False)
         layout.addWidget(self._finish_btn)
 

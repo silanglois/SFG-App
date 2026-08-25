@@ -74,7 +74,7 @@ class MainWindow(QMainWindow):
 
         self.processed_results_tab = ProcessedResultsTab()
         self.processed_results_tab.restore_dock_state(self.dock_layout_settings.get("results"))
-        self._replace_tab(2, self.processed_results_tab, "Results")
+        self._replace_tab(2, self.processed_results_tab, "Spectra Library")
 
         from sfg_app2.app.tabs.fitting_tab import FittingTab
         self.fitting_tab = FittingTab()
@@ -180,10 +180,10 @@ class MainWindow(QMainWindow):
                 submenu.addAction(action)
             self._view_submenus[panel_name] = submenu
 
-        results_submenu = self._view_menu.addMenu("Results panels")
+        results_submenu = self._view_menu.addMenu("Spectra Library panels")
         for action in self.processed_results_tab.view_menu_actions():
             results_submenu.addAction(action)
-        self._view_submenus["Results panels"] = results_submenu
+        self._view_submenus["Spectra Library panels"] = results_submenu
 
         fitting_submenu = self._view_menu.addMenu("Fitting panels")
         for action in self.fitting_tab.view_menu_actions():

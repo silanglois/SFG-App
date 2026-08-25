@@ -347,7 +347,7 @@ class FittingTab(QWidget, DockablePlotPanel):
         layout = QVBoxLayout(widget)
 
         row1 = QHBoxLayout()
-        row1.addWidget(QLabel("From Results tab:"))
+        row1.addWidget(QLabel("From Spectra Library tab:"))
         self._results_combo = QComboBox()
         self._results_combo.setMinimumWidth(160)
         row1.addWidget(self._results_combo, stretch=1)

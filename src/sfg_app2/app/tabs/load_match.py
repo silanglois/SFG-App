@@ -319,7 +319,7 @@ class LoadMatchTab(QWidget):
                         self._merge_files(folder_files)
                         self._folder_contents[folder] = {str(f.path.resolve()) for f in folder_files}
                     except Exception as e:
-                        QMessageBox.critical(self, "Update Error", str(e))
+                        QMessageBox.critical(self, "Reload Error", str(e))
             finally:
                 loading.close()
 

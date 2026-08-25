@@ -13,7 +13,7 @@ _SECTIONS = [
     ("01_load_match.md", "Load & Match"),
     ("02_process_review_homodyne.md", "Process & Review — Homodyne"),
     ("03_process_review_heterodyne.md", "Process & Review — Heterodyne"),
-    ("04_results.md", "Results"),
+    ("04_results.md", "Spectra Library"),
     ("05_fitting.md", "Fitting"),
     ("06_settings_preferences.md", "Settings & Preferences"),
     ("07_reference_tips.md", "Reference & Tips"),

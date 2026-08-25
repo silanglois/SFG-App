@@ -15,12 +15,12 @@ Work moves left to right across four tabs at the top of the window:
 2. **Process / Review** — configure and preview the processing
    pipeline (despike, background subtraction, normalization, and
    more) for each matched set, then send the results onward.
-3. **Results** — the working library of every processed spectrum:
-   compare, restyle, annotate, and export.
+3. **Spectra Library** — the working library of every processed
+   spectrum: compare, restyle, annotate, and export.
 4. **Fitting** — fit peaks/lineshapes to a processed spectrum, with
    batch and sequential (multi-spectrum) fitting support.
 
-You don't strictly have to go in order. **Results** and **Fitting**
+You don't strictly have to go in order. **Spectra Library** and **Fitting**
 are always reachable — for example, you can jump straight to
 **Fitting** and load a previously exported CSV without touching
 **Load / Match** at all. Only **Process / Review** stays locked until

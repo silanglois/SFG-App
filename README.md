@@ -19,8 +19,8 @@ internally as the Python package/distribution name (`sfg_app2` /
   normalize → upconvert) and heterodyne (despike → average →
   background subtraction → FFT filter → iFFT → normalize) processing
   pipelines with live preview.
-- **Results** — view, compare, and normalize processed spectra, export
-  to CSV, and save publication-ready plots.
+- **Spectra Library** — view, compare, and normalize processed
+  spectra, export to CSV, and save publication-ready plots.
 - **Fitting** — fit peaks/lineshapes (homodyne intensity or
   heterodyne real/imaginary) to a processed spectrum, with batch and
   sequential (seeded-chain) multi-spectrum fitting.

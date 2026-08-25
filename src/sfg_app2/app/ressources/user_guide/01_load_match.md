@@ -9,7 +9,7 @@ sets, ready for processing.
 Use the **File** menu:
 
 - **Load file(s)** — pick one or more raw files individually.
-- **Load files from folder** — load every recognized file in a
+- **Load files from folder...** — load every recognized file in a
   folder at once.
 - **Load files from multiple folders** (checkable) — when off,
   loading a new folder replaces the files from any previously loaded
@@ -18,7 +18,7 @@ Use the **File** menu:
 - **Load image...** — loads a CCD image CSV independently of the
   spectral pipeline, opened in its own floating image window (see
   **Reference & Tips**).
-- **Ignore selected files** — permanently excludes specific file
+- **Ignore files...** — permanently excludes specific file
   paths from loading, and removes any already-loaded matches that
   used them.
 
@@ -63,14 +63,14 @@ The match table is editable directly:
 - Click the **Type** cell to change homodyne/heterodyne via a
   dropdown.
 
-## 5. Update and start processing
+## 5. Reload files and confirm matches
 
-- **Update** re-loads/refreshes files from any loaded folders
-  (reapplying the current metadata-pattern and ignore-list settings)
-  without needing to re-browse for them — useful if new files have
-  landed in a folder you already loaded.
-- **Start Processing** converts the match table into a list of
-  matched sets and unlocks the **Process / Review** tab. If any set
+- **Reload Files** re-reads every loaded folder from disk from
+  scratch (reapplying the current metadata-pattern and ignore-list
+  settings) without needing to re-browse for them — useful if new
+  files have landed in a folder you already loaded.
+- **Confirm Matches & Continue** converts the match table into a list
+  of matched sets and unlocks the **Process / Review** tab. If any set
   is missing a required file (e.g. no reference), you'll be warned
   and offered the option to skip it rather than block the whole
   batch.

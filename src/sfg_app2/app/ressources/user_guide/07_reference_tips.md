@@ -6,7 +6,7 @@ to any one tab.
 ## The phase-display toggle, in depth
 
 Anywhere you see a **Phase range** dropdown (Process/Review's HD-SFG
-panel, and Results when plotting a heterodyne entry's Phase
+panel, and Spectra Library when plotting a heterodyne entry's Phase
 component), you're choosing between two display windows:
 **[−180°, 180°]** or **[0°, 360°)**.
 
@@ -69,12 +69,12 @@ without it needing to be part of a matched set.
 
 ## CSV export & provenance
 
-Every CSV this app writes (from Results' export buttons, or Fitting's
-export) includes a `#`-comment header recording exactly how that data
-was produced — source filenames, per-component despike settings,
-background subtraction and normalization/up-conversion parameters,
-and for fit-derived curves, the full model specification, weighting,
-and fit statistics. You can always trace an exported file back to
-exactly what produced it, and Results' **View processing parameters**
-context-menu action shows the same information without needing to
-open the file.
+Every CSV this app writes (from the Spectra Library's export buttons,
+or Fitting's export) includes a `#`-comment header recording exactly
+how that data was produced — source filenames, per-component despike
+settings, background subtraction and normalization/up-conversion
+parameters, and for fit-derived curves, the full model specification,
+weighting, and fit statistics. You can always trace an exported file
+back to exactly what produced it, and the Spectra Library's **View
+processing parameters** context-menu action shows the same
+information without needing to open the file.

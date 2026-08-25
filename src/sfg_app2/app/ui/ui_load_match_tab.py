@@ -72,8 +72,8 @@ class Ui_loadmatchTab(object):
 
     def retranslateUi(self, loadmatchTab):
         loadmatchTab.setWindowTitle(QCoreApplication.translate("loadmatchTab", u"Form", None))
-        self.pushButton.setText(QCoreApplication.translate("loadmatchTab", u"Update", None))
+        self.pushButton.setText(QCoreApplication.translate("loadmatchTab", u"Reload Files", None))
         self.automatchButton.setText(QCoreApplication.translate("loadmatchTab", u"Auto-match Files", None))
-        self.startprocessingButton.setText(QCoreApplication.translate("loadmatchTab", u"Start Processing", None))
+        self.startprocessingButton.setText(QCoreApplication.translate("loadmatchTab", u"Confirm Matches && Continue", None))
     # retranslateUi
 

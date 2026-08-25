@@ -77,12 +77,12 @@ at all).
 
 ## Committing the result
 
-**▶ Process** and **✓ Send to Results** work exactly as in the
+**▶ Process** and **✓ Send to Spectra Library** work exactly as in the
 homodyne panel. Note that parameter edits trigger an automatic
 reprocess after a brief pause (~400ms) — you generally don't need to
 click Process yourself after every small tweak. Purely visual toggles
 (checkboxes, the step selector) redraw almost immediately (~50ms)
 without reprocessing.
 
-Continue to **Results** to view, compare, and export what you've
+Continue to **Spectra Library** to view, compare, and export what you've
 processed.

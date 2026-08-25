@@ -1,6 +1,6 @@
-# Results
+# Spectra Library
 
-**Results** is the working library of every processed spectrum —
+**Spectra Library** is the working library of every processed spectrum —
 whatever you've sent here from **Process / Review**, loaded directly
 from a CSV, or exported from **Fitting**. From here you compare,
 restyle, annotate, and export.

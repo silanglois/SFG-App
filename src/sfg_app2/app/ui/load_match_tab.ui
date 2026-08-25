@@ -32,7 +32,7 @@
      <item>
       <widget class="QPushButton" name="pushButton">
        <property name="text">
-        <string>Update</string>
+        <string>Reload Files</string>
        </property>
       </widget>
      </item>
@@ -59,7 +59,7 @@
      <item>
       <widget class="QPushButton" name="startprocessingButton">
        <property name="text">
-        <string>Start Processing</string>
+        <string>Confirm Matches &amp;&amp; Continue</string>
        </property>
       </widget>
      </item>

@@ -2,7 +2,7 @@
 
 Once matched sets are ready, **Process / Review** lets you configure
 and preview the processing pipeline before committing a result to
-**Results**. This page covers the **homodyne** panel; heterodyne
+the **Spectra Library**. This page covers the **homodyne** panel; heterodyne
 (HD-SFG) data uses a different panel — see **Process & Review —
 Heterodyne**.
 
@@ -58,12 +58,12 @@ BG Subtracted → Normalized**, checking the plot at each stage:
 ## Committing the result
 
 - **▶ Process** runs the pipeline for the current step/parameters.
-- **✓ Send to Results** pushes the final processed spectrum into the
-  **Results** tab.
+- **✓ Send to Spectra Library** pushes the final processed spectrum
+  into the **Spectra Library** tab.
 
 In **Compare** mode, parameter changes apply to every selected set at
 once — except the background offset, which is always a single global
 value shared across all sets.
 
-Continue to **Results** once you've sent a spectrum through, or to
+Continue to **Spectra Library** once you've sent a spectrum through, or to
 **Settings & Preferences** to adjust matching/plotting defaults.

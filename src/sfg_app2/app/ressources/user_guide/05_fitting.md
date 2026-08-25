@@ -12,7 +12,7 @@ through them is:
 
 ## 1. Data source
 
-Load a spectrum either **from the Results tab** (pick from a
+Load a spectrum either **from the Spectra Library tab** (pick from a
 dropdown, Refresh, then **Load selected**) or **directly from a
 file**. A status label always shows what's currently loaded.
 
@@ -75,8 +75,8 @@ and line style.
 
 Fits every spectrum in a list **independently**, using whatever
 model/parameters are currently configured in the Model/Parameters/Fit
-docks (list order doesn't matter). Pull spectra in from Results
-and/or load files directly; right-click a row to remove it. All
+docks (list order doesn't matter). Pull spectra in from the Spectra
+Library and/or load files directly; right-click a row to remove it. All
 spectra in a batch must be the same kind (homodyne or heterodyne) —
 mixed kinds are rejected with a warning. Progress is shown in a
 cancelable dialog.
@@ -105,6 +105,7 @@ Both Batch and Sequential runs populate a shared results table with
 per-row drill-down, plus dedicated multi-fit, primary, and secondary
 plot panels.
 
-Fitted curves can be exported and reloaded into **Results**, where
+Fitted curves can be exported and reloaded into the **Spectra
+Library**, where
 they appear as additional plottable columns alongside the original
 spectrum.
