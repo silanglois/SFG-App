@@ -369,7 +369,8 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("Filename color-coding settings updated.")
 
     def _on_about(self):
-        self.statusBar().showMessage("SFG-App")
+        from sfg_app2.app.dialogs.about_dialog import AboutDialog
+        AboutDialog(parent=self).exec()
 
     def _on_docs(self):
         self.statusBar().showMessage("Docs & tutorials — not yet implemented")

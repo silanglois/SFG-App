@@ -1,10 +1,11 @@
 [project]
 name = "sfg-app2"
-version = "0.1.0"
-description = "Add your description here"
+version = "0.2.0"
+description = "A desktop application for processing and analyzing Sum-Frequency Generation (SFG) spectroscopy data — homodyne and heterodyne — built with PySide6."
 readme = "README.md"
+license = "GPL-3.0-or-later"
 authors = [
-    { name = "Simon", email = "170212564+silanglois@users.noreply.github.com" }
+    { name = "Simon Langlois", email = "170212564+silanglois@users.noreply.github.com" }
 ]
 requires-python = ">=3.14"
 dependencies = [
