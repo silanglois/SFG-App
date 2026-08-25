@@ -42,12 +42,23 @@ back. The **Type** dropdown controls the filter's shape:
 | 3 | Double Happ-Genzel (**default**) | A soft taper on both edges. |
 | 4 | Masking Happ-Genzel | Type 2's taper, plus an attenuated notch region inside the passband. |
 
-Depending on the selected type, additional spinboxes appear: **Start
-/ End** (points), **HG L / HG R** (Happ-Genzel taper widths, points),
-and for type 4 only, **Mask start / end / transition** (points) and
-**Mask factor** (0–1, attenuation level inside the masked region).
+A hard cutoff (type 1) is the simplest to reason about, but can
+introduce ringing artifacts if the cutoff lands where the signal
+isn't actually zero. Tapering the edges (types 2-4) trades a little
+frequency resolution for a cleaner, ringing-free result, which is why
+type 3 is the default. Reach for type 4 specifically when there's an
+unwanted feature *inside* the passband you want to suppress without
+discarding everything around it.
 
-![FFT filter window parameters, with the Type dropdown expanded](images/hetero_fft_filter.png)
+Depending on the selected type, additional spinboxes appear:
+**Start / End** (points) set where the passband begins and ends;
+**HG L / HG R** (points) control how many points the Happ-Genzel
+taper ramps over on the left/right edge respectively (a larger value
+means a gentler roll-off); and for type 4 only, **Mask start / end /
+transition** (points) define where the notch sits and how sharply it
+transitions in and out, while **Mask factor** (0–1) sets how strongly
+that region is attenuated (0 = removed entirely, 1 = no attenuation
+at all).
 
 ## Normalization parameters
 

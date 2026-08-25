@@ -56,11 +56,12 @@ If the matcher finds ambiguous matches, a warning dialog lists them
 The match table is editable directly:
 
 - **Drag a file** from the file list into any cell to assign it
-  manually.
+  manually — click and hold on a filename in the list, drag it over
+  the target cell (any of the Signal / Sample BG / Reference / Ref BG
+  columns, on any row), and release to drop it in. This works even if
+  the auto-matcher got that one cell wrong, or left it empty.
 - Click the **Type** cell to change homodyne/heterodyne via a
   dropdown.
-
-![Manually dragging a file into the match table](images/load_match_manual_drag.png)
 
 ## 5. Update and start processing
 

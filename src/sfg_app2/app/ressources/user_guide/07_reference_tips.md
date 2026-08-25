@@ -17,15 +17,31 @@ just folding the numbers into the chosen window (with a plain modulo)
 creates a spurious near-vertical line at the wrap point, because the
 plot doesn't know that jump isn't real data.
 
-![Same phase data shown in both display ranges](images/reference_phase_wrap.png)
+Concretely: suppose the real, physical phase drifts smoothly from
+170° up to 190° as you scan across a resonance. In the
+**[−180°, 180°]** window, 190° doesn't exist — it has to be displayed
+as −170° instead (190 − 360). Naively connecting the dots would make
+the curve appear to plunge from +170° straight down to −170° at that
+point, even though nothing physically unusual happens there — so a
+correct plot has to insert a break there instead of a connecting
+line. In the **[0°, 360°)** window, that same 170°→190° drift needs
+no correction or break at all — it draws as one smooth, continuous
+rise, because that window's seam is nowhere nearby. The reverse can
+just as easily happen: a drift from 10° down through 0° into −10°
+(i.e. 350°) needs a break in the **[0°, 360°)** window, but draws
+through cleanly in **[−180°, 180°]**. Which window needs the break
+depends entirely on where the data happens to sit, not on the data
+itself.
 
-SFG-App2 avoids this by reconstructing the true continuous phase
-first, then folding it into your chosen window, and inserting a
-break in the plotted line **only** exactly where the continuous phase
-crosses that window's own seam. In other words, switching this
-dropdown recomputes exactly where the line should show a gap — so the
-data reads correctly no matter which convention you display it in.
-There's no global setting for this; it's chosen per open panel.
+SFG-App2 handles this correctly in both directions: it reconstructs
+the true continuous phase first, then folds it into whichever window
+you've selected, and inserts a break in the plotted line **only**
+exactly where the continuous phase crosses *that window's own* seam
+— never elsewhere, and never missing one where it's genuinely needed.
+In other words, switching this dropdown recomputes exactly where the
+line should show a gap, so the data reads correctly no matter which
+convention you display it in. There's no global setting for this;
+it's chosen per open panel.
 
 ## Dockable panels & the View menu
 

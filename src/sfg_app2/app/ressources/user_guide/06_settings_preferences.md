@@ -34,13 +34,14 @@ actually uses). Each profile configures:
 
 ## Plotting settings
 
-![Plotting settings dialog with live preview](images/settings_plotting.png)
-
 Pick a global matplotlib/aquarel plotting style — built-in aquarel
-themes, any custom styles you've saved, or plain matplotlib defaults
-— with a live preview canvas that updates as you change the
-selection. Accepting immediately restyles every plot in Process/
-Review, Results, and Fitting.
+themes, any custom styles you've saved, or plain matplotlib defaults.
+The dialog has its own preview canvas showing a small sample plot
+(not your real data) that instantly re-renders in the newly selected
+style as you click through the dropdown, so you can compare several
+styles side by side before committing to one — no need to close the
+dialog and check a real spectrum each time. Accepting immediately
+restyles every plot in Process/Review, Results, and Fitting to match.
 
 ### Custom style editor
 

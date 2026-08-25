@@ -33,18 +33,20 @@ restyle, annotate, and export.
 Right-click an entry for a context menu including:
 
 - **Trace Properties** — opens a per-curve style editor: color, line
-  style, marker (shape and size), line width, opacity, which axis it
+  style, marker shape (circle, square, triangle up/down, diamond, X,
+  plus, star, or none) and size, line width, opacity, which axis it
   plots against (Phase defaults to a secondary axis, since it's on a
-  very different scale in degrees), and a custom label. You can
-  select multiple entries at once and edit them together.
+  very different scale in degrees), and a custom label. Select
+  multiple entries first and the dialog edits all of them together —
+  handy for restyling a whole comparison series in one pass, e.g.
+  giving every trace in a set the same marker while keeping each
+  one's own color.
 - **Review metadata** — same metadata editor as Load/Match.
 - **View processing parameters** — a read-only summary of everything
   that went into producing this entry (source filenames, despike
   settings, background subtraction, normalization/up-conversion) —
   the full provenance.
 - **Remove**.
-
-![Trace style dialog](images/results_trace_style.png)
 
 ## Annotations
 

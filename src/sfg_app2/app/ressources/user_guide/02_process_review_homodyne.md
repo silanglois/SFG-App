@@ -38,14 +38,18 @@ BG Subtracted → Normalized**, checking the plot at each stage:
   Reference, Ref BG), set the moving-window size and outlier
   threshold used to detect and remove cosmic-ray spikes.
 
-- **Background offset** — click directly on the plot (while viewing
-  an appropriate step) to place markers, or edit an X/Y table
-  directly with **Add row / Remove selected / Clear all**. A
-  polynomial-degree spinbox (0 = constant, 1 = linear, 2+ = higher
-  order) controls the least-squares fit through your markers, which
-  becomes the offset applied before background subtraction.
-
-  ![Placing background-offset markers on the plot](images/homodyne_bg_offset.png)
+- **Background offset** — sometimes the background trace itself sits
+  slightly above or below zero where it shouldn't, and a plain
+  subtraction isn't enough to correct that. Switch to a step where
+  the background is visible, then click directly on the plot to drop
+  a marker at that (x, y) position; click an existing marker again to
+  remove it. Place as many markers as you need to trace the shape of
+  the offset, or skip the plot entirely and edit the same points via
+  the X/Y table below it, using **Add row / Remove selected / Clear
+  all**. A polynomial-degree spinbox (0 = constant, 1 = linear, 2+ =
+  higher order) fits a least-squares curve through whichever markers
+  you've placed, and that curve becomes the offset subtracted from
+  the background before the rest of the pipeline runs.
 
 - **Frame exclusion** — per-component checkboxes let you exclude
   specific acquisition frames from averaging (e.g. a frame with a
