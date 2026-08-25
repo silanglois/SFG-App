@@ -22,6 +22,7 @@ from sfg_app2.app.widgets.dockable_panels import DockablePlotPanel
 from sfg_app2.processing.processed_spectrum import ProcessedSpectrum
 from sfg_app2.app.utils.loading_indicator import show_loading
 from sfg_app2.app.utils.phase_wrap import wrap_phase_for_plot
+from sfg_app2.app.utils.app_logging import LOG_FILE
 from sfg_app2.processing import provenance as provenance_mod
 from sfg_app2.processing import fitting as fitting_mod
 
@@ -438,59 +439,75 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         from sfg_app2.processing.processed_spectrum import ProcessedSpectrum
 
         remembered: dict = {}
+        failed: list[str] = []
         loading = show_loading(self, "Adding results...")
         try:
             for filename, spectrum in results.items():
-                kind = "homodyne"
-                # convert HDSFGResult to ProcessedSpectrum for display, keeping
-                # every component (Real/Imaginary/Phase/Homodyne + per-frame-avg
-                # and error-bar variants) intact — no lossy column renaming
-                if isinstance(spectrum, HDSFGResult):
-                    df = spectrum.to_dataframe()
-                    df.insert(0, "Frame", 1)
-                    ps = ProcessedSpectrum(
-                        df,
-                        metadata  = spectrum.metadata,
-                        history   = spectrum.history,
-                    )
-                    ps.provenance = spectrum.provenance
-                    spectrum = ps
-                    kind = "heterodyne"
-
-                label = Path(filename).stem
-                existing_idx = next(
-                    (i for i, e in enumerate(self._entries) if e.label == label), None
-                )
-                if existing_idx is not None:
-                    if self._same_content(self._entries[existing_idx].spectrum, spectrum):
-                        continue   # byte-identical — nothing to resolve, skip silently
-                    choice = self._prompt_conflict(
-                        "Result already exists",
-                        f'A result named "{label}" already exists in the Spectra '
-                        f'Library with different data. Overwrite it?',
-                        ["Overwrite", "Keep Both", "Skip"], remembered,
-                    )
-                    if choice == "Skip":
-                        continue
-                    if choice == "Keep Both":
-                        new_label = self._unique_label(label)
-                        self._entries.append(SpectrumEntry(spectrum, new_label, kind=kind))
-                        self.ui.spectraList.addItem(
-                            self._make_list_item(len(self._entries) - 1)
+                try:
+                    kind = "homodyne"
+                    # convert HDSFGResult to ProcessedSpectrum for display, keeping
+                    # every component (Real/Imaginary/Phase/Homodyne + per-frame-avg
+                    # and error-bar variants) intact — no lossy column renaming
+                    if isinstance(spectrum, HDSFGResult):
+                        df = spectrum.to_dataframe()
+                        df.insert(0, "Frame", 1)
+                        ps = ProcessedSpectrum(
+                            df,
+                            metadata  = spectrum.metadata,
+                            history   = spectrum.history,
                         )
-                        continue
-                    self._entries[existing_idx] = SpectrumEntry(spectrum, label, kind=kind)
-                    continue
+                        ps.provenance = spectrum.provenance
+                        spectrum = ps
+                        kind = "heterodyne"
 
-                self._entries.append(SpectrumEntry(spectrum, label, kind=kind))
-                self.ui.spectraList.addItem(
-                    self._make_list_item(len(self._entries) - 1)
-                )
+                    label = Path(filename).stem
+                    existing_idx = next(
+                        (i for i, e in enumerate(self._entries) if e.label == label), None
+                    )
+                    if existing_idx is not None:
+                        if self._same_content(self._entries[existing_idx].spectrum, spectrum):
+                            continue   # byte-identical — nothing to resolve, skip silently
+                        choice = self._prompt_conflict(
+                            "Result already exists",
+                            f'A result named "{label}" already exists in the Spectra '
+                            f'Library with different data. Overwrite it?',
+                            ["Overwrite", "Keep Both", "Skip"], remembered,
+                        )
+                        if choice == "Skip":
+                            continue
+                        if choice == "Keep Both":
+                            new_label = self._unique_label(label)
+                            self._entries.append(SpectrumEntry(spectrum, new_label, kind=kind))
+                            self.ui.spectraList.addItem(
+                                self._make_list_item(len(self._entries) - 1)
+                            )
+                            continue
+                        self._entries[existing_idx] = SpectrumEntry(spectrum, label, kind=kind)
+                        continue
+
+                    self._entries.append(SpectrumEntry(spectrum, label, kind=kind))
+                    self.ui.spectraList.addItem(
+                        self._make_list_item(len(self._entries) - 1)
+                    )
+                except Exception as e:
+                    logger.error(
+                        "Failed to add result %r to the Spectra Library: %s",
+                        filename, e, exc_info=True,
+                    )
+                    failed.append(str(filename))
         finally:
             loading.close()
 
         self._refresh_legend_field_options()
         self._refresh_plot()
+
+        if failed:
+            QMessageBox.warning(
+                self, "Some results couldn't be added",
+                "The following processed spectra could not be added to the "
+                f"Spectra Library due to an unexpected error (see log for "
+                f"details:\n{LOG_FILE}):\n\n" + "\n".join(failed),
+            )
 
     def _prompt_conflict(self, title: str, message: str, options: list[str], remembered: dict) -> str:
         """Show a conflict dialog with the given button options (last option
@@ -1109,7 +1126,7 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         if skipped:
             msg_parts.append(f"{skipped} duplicate(s) skipped")
         if failed:
-            msg_parts.append(f"{failed} failed (check terminal)")
+            msg_parts.append(f"{failed} failed (see log: {LOG_FILE})")
         if msg_parts:
             self.statusBar_message(", ".join(msg_parts) + ".")
 
@@ -1175,7 +1192,7 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         if skipped:
             msg += f"\n{skipped} file(s) skipped."
         if failed:
-            msg += f"\n{failed} file(s) failed — check terminal for details."
+            msg += f"\n{failed} file(s) failed — see log for details:\n{LOG_FILE}"
         QMessageBox.information(self, "Export complete", msg)
 
     def _unique_path(self, path: Path) -> Path:

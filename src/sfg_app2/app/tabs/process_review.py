@@ -180,11 +180,16 @@ class ProcessReviewTab(QWidget):
         if not self._matched_sets:
             QMessageBox.information(self, "No data", "Load and match files first.")
             return
-        dialog = PolystyreneCalibrationDialog(
-            matched_sets=self._matched_sets,
-            initial_wavelength=self.ui.upconversionSpinBox.value(),
-            parent=self,
-        )
+        try:
+            dialog = PolystyreneCalibrationDialog(
+                matched_sets=self._matched_sets,
+                initial_wavelength=self.ui.upconversionSpinBox.value(),
+                parent=self,
+            )
+        except ImportError:
+            # PolystyreneCalibrationDialog._check_refractiveindex() already
+            # showed the "missing dependency" message before re-raising.
+            return
         if dialog.exec():
             self.ui.upconversionSpinBox.setValue(dialog.result_wavelength)
 

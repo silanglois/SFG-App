@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from PySide6.QtWidgets import (
     QDialog, QHBoxLayout, QListWidget, QTextBrowser,
 )
+
+logger = logging.getLogger(__name__)
 
 _GUIDE_DIR = Path(__file__).parents[1] / "ressources" / "user_guide"
 
@@ -47,6 +50,11 @@ class UserGuideDialog(QDialog):
     def _show_section(self, index: int):
         if index < 0:
             return
-        filename, _ = _SECTIONS[index]
-        text = (_GUIDE_DIR / filename).read_text(encoding="utf-8")
+        filename, title = _SECTIONS[index]
+        try:
+            text = (_GUIDE_DIR / filename).read_text(encoding="utf-8")
+        except OSError as e:
+            logger.error("Failed to load user guide section %r: %s", filename, e)
+            self._browser.setPlainText(f'Couldn\'t load this section ("{title}").\n\n{e}')
+            return
         self._browser.setMarkdown(text)

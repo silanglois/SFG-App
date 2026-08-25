@@ -79,6 +79,11 @@ class PlottingSettingsDialog(QDialog):
         self._canvas = FigureCanvasQTAgg(self._figure)
         layout.addWidget(self._canvas)
 
+        self._preview_status = QLabel("")
+        self._preview_status.setStyleSheet("color: #c0392b;")
+        self._preview_status.setWordWrap(True)
+        layout.addWidget(self._preview_status)
+
         self._button_box = QDialogButtonBox(
             QDialogButtonBox.Ok | QDialogButtonBox.Cancel
         )
@@ -219,6 +224,10 @@ class PlottingSettingsDialog(QDialog):
                 warnings.simplefilter("ignore", mpl.MatplotlibDeprecationWarning)
                 apply_rcparams(style)
                 self._draw_sample_plot()
+            self._preview_status.setText("")
+        except Exception as e:
+            logger.warning("Failed to render style preview: %s", e, exc_info=True)
+            self._preview_status.setText(f"Couldn't render preview with this style: {e}")
         finally:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", mpl.MatplotlibDeprecationWarning)
