@@ -287,10 +287,13 @@ class HomodynePanel(QWidget, DockablePlotPanel):
             layout.addLayout(row)
             self._offset_degree_spin[target] = degree_spin
 
-        layout.addWidget(QLabel(
+        marker_label = QLabel(
             "Markers (click the plot in \"Signal + Background\" view to add, "
             "click a marker to remove, or edit here):"
-        ))
+        )
+        marker_label.setWordWrap(True)
+        marker_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        layout.addWidget(marker_label)
         self._marker_table = QTableWidget(0, 2)
         self._marker_table.setHorizontalHeaderLabels(["X", "Y"])
         self._marker_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)

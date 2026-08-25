@@ -426,10 +426,13 @@ class HDSFGPanel(QWidget, DockablePlotPanel):
         style_row.addStretch()
         layout.addLayout(style_row)
 
-        layout.addWidget(QLabel(
+        marker_label = QLabel(
             "Markers (click the plot in \"Signal + Background\" view to add, "
             "click a marker to remove, or edit here):"
-        ))
+        )
+        marker_label.setWordWrap(True)
+        marker_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        layout.addWidget(marker_label)
         self._bg_marker_table = QTableWidget(0, 2)
         self._bg_marker_table.setHorizontalHeaderLabels(["X", "Y"])
         self._bg_marker_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
