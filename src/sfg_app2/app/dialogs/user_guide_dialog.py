@@ -25,7 +25,7 @@ class UserGuideDialog(QDialog):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("SFG-App2 User Guide")
+        self.setWindowTitle("SFG-App User Guide")
         self.resize(900, 650)
 
         layout = QHBoxLayout(self)

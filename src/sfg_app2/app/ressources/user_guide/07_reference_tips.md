@@ -33,7 +33,7 @@ through cleanly in **[−180°, 180°]**. Which window needs the break
 depends entirely on where the data happens to sit, not on the data
 itself.
 
-SFG-App2 handles this correctly in both directions: it reconstructs
+SFG-App handles this correctly in both directions: it reconstructs
 the true continuous phase first, then folds it into whichever window
 you've selected, and inserts a break in the plotted line **only**
 exactly where the continuous phase crosses *that window's own* seam

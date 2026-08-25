@@ -1,6 +1,6 @@
 # Getting Started
 
-SFG-App2 processes and analyzes Sum-Frequency Generation (SFG)
+SFG-App processes and analyzes Sum-Frequency Generation (SFG)
 spectroscopy data, for both **homodyne** and **heterodyne** (HD-SFG)
 measurements. It takes you from raw acquisition files all the way to
 publication-ready plots and fitted peak parameters.

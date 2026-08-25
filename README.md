@@ -1,8 +1,14 @@
-# SFG-App2
+# SFG-App
 
 A desktop application for processing and analyzing Sum-Frequency
 Generation (SFG) spectroscopy data — homodyne and heterodyne — built
 with PySide6.
+
+This is the second-generation SFG-App, rewritten from the ground up
+in Python — its MATLAB-based predecessor covered only a small
+fraction of this app's functionality. The historical "2" lives on
+internally as the Python package/distribution name (`sfg_app2` /
+`sfg-app2`), but day-to-day the app is just called **SFG-App**.
 
 ## Features
 
