@@ -36,6 +36,7 @@ class MainWindow(QMainWindow):
         self.dock_layout_settings = DockLayoutSettings()
         self._ignored_paths: set[Path] = set()  # resolved absolute paths
         self._image_windows: list = []
+        self._user_guide_dialog = None
 
         self._init_tabs()
         self._connect_menu()
@@ -373,7 +374,12 @@ class MainWindow(QMainWindow):
         AboutDialog(parent=self).exec()
 
     def _on_docs(self):
-        self.statusBar().showMessage("Docs & tutorials — not yet implemented")
+        from sfg_app2.app.dialogs.user_guide_dialog import UserGuideDialog
+        if self._user_guide_dialog is None:
+            self._user_guide_dialog = UserGuideDialog(parent=self)
+        self._user_guide_dialog.show()
+        self._user_guide_dialog.raise_()
+        self._user_guide_dialog.activateWindow()
 
     # ── Ignored paths — public property for LoadMatchTab ─────────────────────
 

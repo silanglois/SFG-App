@@ -15,7 +15,9 @@ with PySide6.
   pipelines with live preview.
 - **Results** — view, compare, and normalize processed spectra, export
   to CSV, and save publication-ready plots.
-- **Post Processing** — coming soon.
+- **Fitting** — fit peaks/lineshapes (homodyne intensity or
+  heterodyne real/imaginary) to a processed spectrum, with batch and
+  sequential (seeded-chain) multi-spectrum fitting.
 - Customizable metadata patterns, auto-matching rules, plotting styles,
   and filename color-coding.
 
@@ -131,9 +133,10 @@ Then launch the app as usual with `uv run sfg-app`.
 
 ## Documentation
 
-In-depth tutorials and usage documentation are coming soon. In the
-meantime, see [ARCHITECTURE.md](ARCHITECTURE.md) for a developer-facing
-overview of the codebase structure.
+An in-depth user guide covering every tab and settings dialog is
+built into the app — open it from **Help → Docs & tutorials**. For a
+developer-facing overview of the codebase structure, see
+[ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## License
 
