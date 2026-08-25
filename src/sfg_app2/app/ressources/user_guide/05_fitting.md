@@ -7,8 +7,6 @@ heterodyne data is fit as simultaneous real/imaginary fits of the
 same complex χ⁽²⁾ against measured Real/Imaginary data. The fit mode
 is chosen automatically from the kind of spectrum you load.
 
-![Fitting tab overview](images/fitting_overview.png)
-
 Panels are dockable and rearrangeable; the natural order to work
 through them is:
 
@@ -37,8 +35,6 @@ An editable table with one row per parameter across the non-resonant
 term and every peak — label, value, error, min/max bounds, a
 **fixed** checkbox, and an **expr** field for writing lmfit
 expression constraints between parameters.
-
-![Parameters table](images/fitting_parameters.png)
 
 ## 4. Display
 
@@ -76,8 +72,6 @@ and/or load files directly; right-click a row to remove it. All
 spectra in a batch must be the same kind (homodyne or heterodyne) —
 mixed kinds are rejected with a warning. Progress is shown in a
 cancelable dialog.
-
-![Batch fit list](images/fitting_batch.png)
 
 ## 7. Sequential fit
 

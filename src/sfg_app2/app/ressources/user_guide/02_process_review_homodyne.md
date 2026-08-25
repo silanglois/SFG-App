@@ -6,8 +6,6 @@ and preview the processing pipeline before committing a result to
 (HD-SFG) data uses a different panel — see **Process & Review —
 Heterodyne**.
 
-![Process/Review tab with a matched set selected](images/homodyne_overview.png)
-
 ## Picking what to work on
 
 The list on the left shows every matched set (✓ = complete, ✗ =
@@ -31,20 +29,14 @@ applies to whichever set(s) you have selected.
   together, with per-curve visibility checkboxes, as a sanity check
   before you trust them in processing.
 
-![Calibrate with polystyrene and Review references](images/homodyne_calibration.png)
-
 ## Stepping through the pipeline
 
 Use the step selector to move through **Raw → Despiked → Averaged →
 BG Subtracted → Normalized**, checking the plot at each stage:
 
-![Step selector](images/homodyne_step_selector.png)
-
 - **Despike parameters** — per component (Sample, Sample BG,
   Reference, Ref BG), set the moving-window size and outlier
   threshold used to detect and remove cosmic-ray spikes.
-
-  ![Despike parameters](images/homodyne_despike.png)
 
 - **Background offset** — click directly on the plot (while viewing
   an appropriate step) to place markers, or edit an X/Y table
@@ -58,8 +50,6 @@ BG Subtracted → Normalized**, checking the plot at each stage:
 - **Frame exclusion** — per-component checkboxes let you exclude
   specific acquisition frames from averaging (e.g. a frame with a
   known glitch).
-
-  ![Frame exclusion strip](images/homodyne_frame_exclusion.png)
 
 ## Committing the result
 

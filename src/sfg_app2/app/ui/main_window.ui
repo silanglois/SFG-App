@@ -137,7 +137,7 @@
   </action>
   <action name="actionDocs_tutorials">
    <property name="text">
-    <string>Docs &amp;&amp; tutorials</string>
+    <string>User Guide</string>
    </property>
   </action>
   <action name="actionIgnore_selected_files">

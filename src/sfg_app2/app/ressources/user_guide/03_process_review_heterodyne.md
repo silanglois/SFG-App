@@ -5,22 +5,16 @@ homodyne data, laid out as a central plot surrounded by several
 dockable parameter panels. See **Process & Review — Homodyne** for
 the homodyne equivalent.
 
-![HD-SFG panel overview](images/hetero_overview.png)
-
 ## Step selector
 
 Move through **Raw → Despiked → Averaged → BG Subtraction → FFT +
 Filter → iFFT → Normalization** to inspect the effect of each stage:
-
-![HD-SFG step selector](images/hetero_step_selector.png)
 
 ## Despike & frame exclusion
 
 Same idea as the homodyne panel: per-component despike window/
 threshold, and per-component frame exclusion, each in their own
 dock.
-
-![Despike and exclude-frames docks](images/hetero_despike.png)
 
 ## Background subtraction + edge window
 
@@ -32,9 +26,8 @@ This dock combines two things:
   editable X/Y table mechanism as the homodyne panel's background
   offset — click on the plot in "Signal + Background" view to add a
   marker, click an existing marker to remove it, or edit the table
-  directly.
-
-![Background subtraction and edge-window dock](images/hetero_bg_edge.png)
+  directly (the same interaction shown in **Process & Review —
+  Homodyne**'s background-offset section).
 
 ## FFT filter window parameters
 
@@ -70,8 +63,6 @@ and for type 4 only, **Mask start / end / transition** (points) and
   recomputes exactly where the plotted phase line should show a gap,
   so wrapped phase data always looks continuous and correct in
   either convention. See **Reference & Tips** for more on this.
-
-![Normalization parameters dock, including the Phase range dropdown](images/hetero_normalization.png)
 
 ## Committing the result
 

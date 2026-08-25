@@ -5,8 +5,6 @@ spectroscopy data, for both **homodyne** and **heterodyne** (HD-SFG)
 measurements. It takes you from raw acquisition files all the way to
 publication-ready plots and fitted peak parameters.
 
-![Main window overview](images/overview_main_window.png)
-
 ## The four-tab workflow
 
 Work moves left to right across four tabs at the top of the window:

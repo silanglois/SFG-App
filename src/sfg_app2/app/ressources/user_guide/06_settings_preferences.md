@@ -5,8 +5,6 @@ Everything global lives under the **Preferences** menu, plus an
 
 ## Metadata patterns
 
-![Metadata patterns dialog](images/settings_metadata_patterns.png)
-
 Filenames often encode structured metadata (sample name, polarization,
 center wavelength, acquisition time, timestamp, date, concentration,
 potential, temperature) as underscore-separated tokens. A **pattern**
@@ -21,8 +19,6 @@ Filename metadata parsing can be turned off entirely from
 exist.
 
 ## Auto-matching parameters
-
-![Auto-matching settings dialog](images/settings_auto_matching.png)
 
 Manages named, tree-organized **matching profiles** (only one active
 at a time — this is what Load/Match's **Auto-match Files** button
@@ -48,8 +44,6 @@ Review, Results, and Fitting.
 
 ### Custom style editor
 
-![Custom style editor](images/settings_custom_style_editor.png)
-
 Opened from within Plotting Settings, this lets you build and save
 your own named style: fonts (size/weight/family/style/variant), line
 styles, tick/axis direction and alignment, legend location, and a
@@ -59,8 +53,6 @@ shows up in the Plotting Settings dropdown alongside the built-in
 styles).
 
 ## Filename color-coding
-
-![Color-coding settings dialog](images/settings_color_coding.png)
 
 Optionally colors filenames in the Load/Match file list and/or match
 table, to make it easier to visually group related files. Modes:

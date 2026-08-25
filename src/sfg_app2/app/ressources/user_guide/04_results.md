@@ -5,8 +5,6 @@ whatever you've sent here from **Process / Review**, loaded directly
 from a CSV, or exported from **Fitting**. From here you compare,
 restyle, annotate, and export.
 
-![Results tab overview](images/results_overview.png)
-
 ## Getting spectra in
 
 - **Add spectra from file** loads already-processed spectra directly
@@ -29,8 +27,6 @@ restyle, annotate, and export.
   Show error** — control which parts of each entry are plotted.
 - **X axis label / Y axis label / Legend** fields customize plot
   labeling directly.
-
-![Display and component controls](images/results_display_controls.png)
 
 ## Per-curve styling
 
@@ -57,8 +53,6 @@ overlays to the plot: vertical lines, horizontal lines, shaded
 x-ranges, or text labels — useful for marking known peak positions or
 regions of interest in a figure.
 
-![Annotations dialog](images/results_annotations.png)
-
 ## Exporting
 
 - **Export selected** / **Export all** write CSV files with a
@@ -68,8 +62,6 @@ regions of interest in a figure.
 - Each panel's plot can be saved via a **WYSIWYG export dialog**
   (PNG/TIFF/SVG) with a live preview that matches exactly what will
   be written to disk.
-
-![Save plot dialog with live preview](images/results_save_plot.png)
 
 Continue to **Fitting** to fit peaks/lineshapes to a spectrum from
 this list.

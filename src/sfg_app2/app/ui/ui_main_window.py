@@ -146,7 +146,7 @@ class Ui_MainWindow(object):
         self.actionUse_metadata_patterns.setText(QCoreApplication.translate("MainWindow", u"Use metadata patterns", None))
         self.actionSet_metadata_patterns.setText(QCoreApplication.translate("MainWindow", u"Metadata patterns parameters", None))
         self.actionAbout.setText(QCoreApplication.translate("MainWindow", u"About", None))
-        self.actionDocs_tutorials.setText(QCoreApplication.translate("MainWindow", u"Docs && tutorials", None))
+        self.actionDocs_tutorials.setText(QCoreApplication.translate("MainWindow", u"User Guide", None))
         self.actionIgnore_selected_files.setText(QCoreApplication.translate("MainWindow", u"Ignore selected files", None))
         self.actionLoad_from_multiple_folders.setText(QCoreApplication.translate("MainWindow", u"Load files from multiple folders", None))
         self.actionSet_auto_matching_parameters.setText(QCoreApplication.translate("MainWindow", u"Auto-matching parameters", None))

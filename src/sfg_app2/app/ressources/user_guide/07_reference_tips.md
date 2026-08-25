@@ -36,8 +36,6 @@ out of the main window, or closed. If a panel goes missing, open the
 to the currently active tab, grouped into submenus that mirror the
 tab's own layout.
 
-![View menu with dock toggles](images/reference_view_menu.png)
-
 ## The Window menu
 
 Every floating window you've opened — raw-file previews from
@@ -45,8 +43,6 @@ Load/Match, CCD image viewers — is tracked here. Use it to jump back
 to (raise) a specific window instead of hunting for it among other
 application windows, or use **Close all windows** to clean them all
 up at once.
-
-![Window menu listing open preview/image windows](images/reference_window_menu.png)
 
 ## Loading a CCD image directly
 

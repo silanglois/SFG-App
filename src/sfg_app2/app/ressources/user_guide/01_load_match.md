@@ -4,8 +4,6 @@ This tab gets raw data files into the app and organizes them into
 matched **signal / background / reference / reference-background**
 sets, ready for processing.
 
-![Load / Match tab overview](images/load_match_overview.png)
-
 ## 1. Load files
 
 Use the **File** menu:
@@ -25,8 +23,6 @@ Use the **File** menu:
   used them.
 
 Loaded files appear in the file list on the left.
-
-![File list and match table](images/load_match_file_list.png)
 
 ## 2. Review metadata and preview files (optional)
 
@@ -51,8 +47,6 @@ active auto-matching profile (**Preferences → Auto-matching
 parameters**). Matched sets populate the table on the right, with one
 column each for **Signal, Sample BG, Reference, Ref BG,** and
 **Type** (homodyne/heterodyne).
-
-![Auto-match result in the match table](images/load_match_automatch.png)
 
 If the matcher finds ambiguous matches, a warning dialog lists them
 (up to 10 at a time; the rest are logged).
