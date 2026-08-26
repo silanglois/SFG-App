@@ -6,7 +6,7 @@ from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import QApplication, QSplashScreen
 from .main_window import MainWindow
 from .utils.appearance_settings import AppearanceSettings
-from .utils.app_logging import configure_logging
+from .utils.app_logging import configure_logging, install_excepthook
 
 _ICON_PATH = Path(__file__).parent / "ressources" / "icon.svg"
 _ICON_SIZES = (16, 24, 32, 48, 64, 128, 256)
@@ -98,6 +98,7 @@ def _make_splash_pixmap() -> QPixmap:
 
 def run():
     configure_logging()
+    install_excepthook()
     _set_windows_app_id()
 
     app = QApplication(sys.argv)

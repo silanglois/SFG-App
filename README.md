@@ -137,10 +137,26 @@ uv sync
 
 Then launch the app as usual with `uv run sfg-app`.
 
+## Building a standalone .exe
+
+To build a distributable Windows executable (no Python/uv required to
+run it):
+
+```bash
+uv sync --group dev
+uv run pyinstaller packaging/sfg-app.spec
+```
+
+The built app appears in `dist/SFG-App/` — copy that whole folder to
+distribute it; `SFG-App.exe` inside it depends on the rest of the
+folder's contents. If `icon.svg` is ever changed,
+`packaging/icon.ico` needs regenerating first: `uv run --group dev
+python packaging/build_icon.py`.
+
 ## Documentation
 
 An in-depth user guide covering every tab and settings dialog is
-built into the app — open it from **Help → Docs & tutorials**. For a
+built into the app — open it from **Help → User Guide**. For a
 developer-facing overview of the codebase structure, see
 [ARCHITECTURE.md](ARCHITECTURE.md).
 

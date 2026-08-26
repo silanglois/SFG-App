@@ -128,6 +128,7 @@ class MainWindow(QMainWindow):
         self.ui.actionLoad_from_multiple_folders.toggled.connect(self._on_toggle_multi_folder)
         self.ui.actionAbout.triggered.connect(self._on_about)
         self.ui.actionDocs_tutorials.triggered.connect(self._on_docs)
+        self.ui.actionOpen_log_folder.triggered.connect(self._on_open_log_folder)
         self.ui.actionUse_metadata_patterns.setChecked(True)
         self.ui.actionLoad_from_multiple_folders.setChecked(False)
 
@@ -380,6 +381,13 @@ class MainWindow(QMainWindow):
         self._user_guide_dialog.show()
         self._user_guide_dialog.raise_()
         self._user_guide_dialog.activateWindow()
+
+    def _on_open_log_folder(self):
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+        from sfg_app2.app.utils.app_logging import LOG_DIR
+        LOG_DIR.mkdir(parents=True, exist_ok=True)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(LOG_DIR)))
 
     # ── Ignored paths — public property for LoadMatchTab ─────────────────────
 

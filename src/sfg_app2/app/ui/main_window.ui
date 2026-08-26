@@ -32,7 +32,7 @@
       </widget>
       <widget class="QWidget" name="processingTab">
        <attribute name="title">
-        <string>Processing/Review</string>
+        <string>Process / Review</string>
        </attribute>
        <layout class="QHBoxLayout" name="horizontalLayout_2">
         <item>
@@ -52,7 +52,7 @@
       </widget>
       <widget class="QWidget" name="postProcessingTab">
        <attribute name="title">
-        <string>Post Processing</string>
+        <string>Fitting</string>
        </attribute>
        <layout class="QHBoxLayout" name="horizontalLayout_4">
         <item>
@@ -101,6 +101,8 @@
     </property>
     <addaction name="actionAbout"/>
     <addaction name="actionDocs_tutorials"/>
+    <addaction name="separator"/>
+    <addaction name="actionOpen_log_folder"/>
    </widget>
    <addaction name="menuFile"/>
    <addaction name="menuPreferences"/>
@@ -138,6 +140,11 @@
   <action name="actionDocs_tutorials">
    <property name="text">
     <string>User Guide</string>
+   </property>
+  </action>
+  <action name="actionOpen_log_folder">
+   <property name="text">
+    <string>Open log folder</string>
    </property>
   </action>
   <action name="actionIgnore_selected_files">

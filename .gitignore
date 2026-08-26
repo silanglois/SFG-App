@@ -14,6 +14,7 @@ wheels/
 *.xlsm
 *.spf2
 tests/data/pharos/2026_07_17/*.png
+tests/data/new batteries/
 
 # Virtual environments
 .venv

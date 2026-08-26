@@ -20,17 +20,3 @@ def remove_outliers_movmedian(
     cleaned = cleaned.interpolate(method="linear", limit_direction="both")
 
     return cleaned.to_numpy()
-
-def detect_spikes(
-    values: np.ndarray,
-    window: int,
-    threshold_factor: float = 500.0,
-) -> np.ndarray:
-    """Return a boolean mask — True where a spike is detected.
-    Same logic as remove_outliers_movmedian but returns the mask only.
-    """
-    s = pd.Series(values)
-    local_median = s.rolling(window, center=True, min_periods=1).median()
-    abs_dev = (s - local_median).abs()
-    local_mad = abs_dev.rolling(window, center=True, min_periods=1).median() * 1.4826
-    return (abs_dev > threshold_factor * local_mad).to_numpy()

@@ -63,9 +63,9 @@ class PolystyreneCalibrationDialog(QDialog):
             import refractiveindex  # noqa: F401
         except ImportError:
             QMessageBox.critical(
-                self, "Missing dependency",
-                "The 'refractiveindex' package is required for calibration.\n"
-                "Install it with:  uv add refractiveindex"
+                self, "Feature unavailable",
+                "Polystyrene calibration is unavailable in this build "
+                "(the 'refractiveindex' package is missing)."
             )
             raise
 
