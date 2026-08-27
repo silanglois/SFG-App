@@ -2,11 +2,11 @@ import sys
 from pathlib import Path
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QPixmap, QPainter, QColor, QIcon
-from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import QApplication, QSplashScreen
 from .main_window import MainWindow
 from .utils.appearance_settings import AppearanceSettings
 from .utils.app_logging import configure_logging, install_excepthook
+from .utils.icon_rendering import render_svg_pixmap
 
 _ICON_PATH = Path(__file__).parent / "ressources" / "icon.svg"
 _ICON_SIZES = (16, 24, 32, 48, 64, 128, 256)
@@ -17,15 +17,9 @@ def _load_app_icon() -> QIcon:
     the SVG icon engine to service every size Windows' taskbar/Alt-Tab
     request on demand -- rendering them upfront is cheap and avoids any
     size the engine doesn't handle silently falling back to a blank icon."""
-    renderer = QSvgRenderer(str(_ICON_PATH))
     icon = QIcon()
     for size in _ICON_SIZES:
-        pixmap = QPixmap(size, size)
-        pixmap.fill(Qt.GlobalColor.transparent)
-        painter = QPainter(pixmap)
-        renderer.render(painter)
-        painter.end()
-        icon.addPixmap(pixmap)
+        icon.addPixmap(render_svg_pixmap(_ICON_PATH, size))
     return icon
 
 

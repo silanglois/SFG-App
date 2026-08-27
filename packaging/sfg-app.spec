@@ -11,6 +11,7 @@ every launch). To build a single-file exe instead, fold `a.binaries`/
 PyInstaller's --onefile spec docs for the exact shape.
 """
 from pathlib import Path
+from PyInstaller.utils.hooks import collect_data_files
 
 _REPO_ROOT = Path(SPECPATH).parent
 _RESSOURCES = _REPO_ROOT / "src" / "sfg_app2" / "app" / "ressources"
@@ -25,6 +26,12 @@ a = Analysis(
         # directory at runtime via Path(__file__)-relative paths -- it
         # has to be bundled explicitly, PyInstaller can't infer it.
         (str(_RESSOURCES), "sfg_app2/app/ressources"),
+        # aquarel ships its themes as *.json package data, not code --
+        # PyInstaller's Analysis only auto-detects Python modules, and
+        # there's no PyInstaller hook for this (niche) package, so its
+        # data has to be collected explicitly or theme loading fails
+        # at runtime with a FileNotFoundError.
+        *collect_data_files("aquarel"),
     ],
     hiddenimports=[
         # Only ever imported lazily inside a function

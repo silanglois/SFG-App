@@ -4,11 +4,11 @@ from importlib import metadata
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QPainter, QPixmap
-from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QLabel, QDialogButtonBox,
 )
+
+from sfg_app2.app.utils.icon_rendering import render_svg_pixmap
 
 _ICON_PATH = Path(__file__).parents[1] / "ressources" / "icon.svg"
 _ICON_DISPLAY_SIZE = 96
@@ -29,16 +29,6 @@ def _app_version() -> str:
         return _FALLBACK_VERSION
 
 
-def _render_icon_pixmap(size: int) -> QPixmap:
-    renderer = QSvgRenderer(str(_ICON_PATH))
-    pixmap = QPixmap(size, size)
-    pixmap.fill(Qt.GlobalColor.transparent)
-    painter = QPainter(pixmap)
-    renderer.render(painter)
-    painter.end()
-    return pixmap
-
-
 class AboutDialog(QDialog):
     """Shows app identity, version, and licensing info."""
 
@@ -54,7 +44,7 @@ class AboutDialog(QDialog):
         layout.setSpacing(6)
 
         icon_label = QLabel()
-        icon_label.setPixmap(_render_icon_pixmap(_ICON_DISPLAY_SIZE))
+        icon_label.setPixmap(render_svg_pixmap(_ICON_PATH, _ICON_DISPLAY_SIZE))
         icon_label.setAlignment(Qt.AlignmentFlag.AlignHCenter)
         layout.addWidget(icon_label)
 
