@@ -135,6 +135,15 @@ uv sync
 - `git pull` downloads the latest code.
 - `uv sync` installs any new or updated dependencies.
 
+> **If `git pull` fails or complains about diverged/unrelated
+> history:** this repo's history was rewritten on 2026-08-25.
+> Don't try to merge or rebase through the error. Instead, back up anything uncommitted, then either delete this folder and re-clone from scratch, or run:
+> ```bash
+> git fetch origin
+> git reset --hard origin/main
+> ```
+> (use your actual branch name if not `main`).
+
 Then launch the app as usual with `uv run sfg-app`.
 
 ## Building a standalone .exe
