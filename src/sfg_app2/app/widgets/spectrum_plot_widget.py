@@ -258,7 +258,12 @@ class SpectrumPlotWidget(QWidget):
         if not all_x:
             return None
 
-        rng = (float(np.nanmin(all_x)), float(np.nanmax(all_x)))
+        finite_x = np.asarray(all_x, dtype=float)
+        finite_x = finite_x[np.isfinite(finite_x)]
+        if not len(finite_x):
+            return None   # everything plotted is NaN/Inf -- nothing finite to range over
+
+        rng = (float(finite_x.min()), float(finite_x.max()))
         self._x_full_range = rng
         return rng
 
@@ -348,8 +353,12 @@ class SpectrumPlotWidget(QWidget):
                 y_vals_by_ax[ax] = y_for_ax
 
         for ax, y_vals in y_vals_by_ax.items():
-            y_min = float(np.nanmin(y_vals))
-            y_max = float(np.nanmax(y_vals))
+            finite_y = np.asarray(y_vals, dtype=float)
+            finite_y = finite_y[np.isfinite(finite_y)]
+            if not len(finite_y):
+                continue   # nothing finite in the visible range -- leave limits as they are
+            y_min = float(finite_y.min())
+            y_max = float(finite_y.max())
             margin = (y_max - y_min) * 0.05 if y_max != y_min else 1.0
             ax.set_ylim(y_min - margin, y_max + margin)
 
