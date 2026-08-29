@@ -1,6 +1,7 @@
 from __future__ import annotations
 import logging
 
+import numpy as np
 import matplotlib.pyplot as plt
 from PySide6.QtCore import Signal, QTimer
 from PySide6.QtWidgets import (
@@ -198,7 +199,21 @@ class HomodynePanel(QWidget, DockablePlotPanel):
 
     def _build_despike_section(self) -> QWidget:
         w = QWidget()
-        grid = QGridLayout(w)
+        layout = QVBoxLayout(w)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        self._show_spikes_checkbox = QCheckBox("Show flagged spikes")
+        self._show_spikes_checkbox.setToolTip(
+            "Overlay the points currently being flagged as cosmic-ray spikes "
+            "(at their original raw values) on the plot, for the Raw and "
+            "Despiked steps."
+        )
+        layout.addWidget(self._show_spikes_checkbox)
+
+        grid_widget = QWidget()
+        grid = QGridLayout(grid_widget)
+        grid.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(grid_widget)
 
         grid.addWidget(QLabel(""), 0, 0)
         grid.addWidget(QLabel("Window"), 0, 1)
@@ -331,6 +346,7 @@ class HomodynePanel(QWidget, DockablePlotPanel):
             self._despike_widgets[key]["threshold"].valueChanged.connect(
                 lambda _v, k=key: self._on_despike_changed(k)
             )
+        self._show_spikes_checkbox.toggled.connect(lambda _checked: self._refresh_plot())
 
         for key in COMPONENTS:
             self._exclude_strips[key].changed.connect(
@@ -885,6 +901,39 @@ class HomodynePanel(QWidget, DockablePlotPanel):
                         alpha=0.25 if is_excluded else 0.85,
                         label=f"{label} — {comp_label} F{fid}" + (" (excluded)" if is_excluded else ""),
                     )
+
+                if self._show_spikes_checkbox.isChecked():
+                    self._plot_spike_markers(idx, component, raw_source, excluded)
+
+    def _plot_spike_markers(self, idx: int, component: str, raw_source, excluded_frames: set):
+        """Overlays the points currently being flagged as cosmic-ray
+        spikes (at their original raw values, from the raw data -- not
+        the despiked/interpolated result) for a Raw/Despiked-step plot,
+        so the user can see what the current despike settings would
+        remove before committing to them."""
+        cfg = self._get_despike_cfg(idx, component)
+        try:
+            masks = raw_source.flag_cosmic_rays(
+                window=cfg["window"], threshold_factor=cfg["threshold"],
+            )
+        except Exception as e:
+            logger.warning("Could not compute spike mask for %s: %s", component, e)
+            return
+
+        first = True
+        for fid, mask in masks.items():
+            if fid in excluded_frames or not np.any(mask):
+                continue
+            fd = raw_source.frame(fid)
+            x = fd["Wavelength"].to_numpy()[mask]
+            y = fd["Intensity"].to_numpy()[mask]
+            self.plot_widget.ax.plot(
+                x, y, marker="x", linestyle="none",
+                markersize=8, markerfacecolor="red", markeredgecolor="red",
+                markeredgewidth=2, zorder=7,
+                label="Flagged spikes" if first else "_nolegend_",
+            )
+            first = False
 
     def _plot_bg_subtracted_result(self, idx: int, label: str, color):
         """'Subtracted result' view at the bg_subtracted step: the single

@@ -208,7 +208,21 @@ class HDSFGPanel(QWidget, DockablePlotPanel):
     def _build_despike_section(self) -> QWidget:
         from PySide6.QtWidgets import QGridLayout
         w = QWidget()
-        grid = QGridLayout(w)
+        outer = QVBoxLayout(w)
+        outer.setContentsMargins(0, 0, 0, 0)
+
+        self._show_spikes_checkbox = QCheckBox("Show flagged spikes")
+        self._show_spikes_checkbox.setToolTip(
+            "Overlay the points currently being flagged as cosmic-ray spikes "
+            "(at their original raw values) on the plot, for the Raw and "
+            "Despiked steps."
+        )
+        outer.addWidget(self._show_spikes_checkbox)
+
+        grid_widget = QWidget()
+        grid = QGridLayout(grid_widget)
+        grid.setContentsMargins(0, 0, 0, 0)
+        outer.addWidget(grid_widget)
 
         # headers
         grid.addWidget(QLabel(""), 0, 0)
@@ -626,6 +640,8 @@ class HDSFGPanel(QWidget, DockablePlotPanel):
             cb.stateChanged.connect(self._redraw_timer.start)
         self._phase_range_combo.currentIndexChanged.connect(self._redraw_timer.start)
 
+        self._show_spikes_checkbox.toggled.connect(self._redraw_timer.start)
+
         # despike params → auto-reprocess from despike step
         for key in self._despike_params:
             self._despike_params[key]["window"].valueChanged.connect(
@@ -865,6 +881,8 @@ class HDSFGPanel(QWidget, DockablePlotPanel):
                         linestyle=":" if is_excluded else "-",
                         label=f"{pair_label} sig F{fid}" + (" (excluded)" if is_excluded else ""),
                     )
+                if self._show_spikes_checkbox.isChecked():
+                    self._plot_spike_markers(sig_role, sig_src, excluded)
             if self._show_background() and bg_src:
                 excluded = self._get_exclude_frames(self._matched_index, bg_role)
                 for fid in bg_src.data["Frame"].unique():
@@ -877,15 +895,59 @@ class HDSFGPanel(QWidget, DockablePlotPanel):
                         alpha=0.2 if is_excluded else 0.6,
                         label=f"{pair_label} BG F{fid}" + (" (excluded)" if is_excluded else ""),
                     )
+                if self._show_spikes_checkbox.isChecked():
+                    self._plot_spike_markers(bg_role, bg_src, excluded)
         self.plot_widget.set_labels(
             xlabel="Wavenumber (cm$^{-1}$)", ylabel="Intensity (counts)", title="Raw"
         )
+
+    def _plot_spike_markers(self, role: str, raw_source, excluded_frames: set):
+        """Overlays the points currently being flagged as cosmic-ray
+        spikes (at their original raw values -- not the despiked/
+        interpolated result) for a Raw/Despiked-step plot, so the user
+        can see what the current despike settings would remove before
+        committing to them. `role` is one of "signal"/"background"/
+        "reference"/"ref_background", matching _get_despike_params'
+        keys and the sig_role/bg_role values computed by callers."""
+        if raw_source is None:
+            return
+        params = self._get_despike_params(role)
+        try:
+            masks = raw_source.flag_cosmic_rays(
+                window=params.window, threshold_factor=params.threshold,
+            )
+        except Exception as e:
+            logger.warning("Could not compute spike mask for %s: %s", role, e)
+            return
+
+        wl_to_wn = lambda wl: (1e7 / wl) - (1e7 / self._upconversion_wl())
+        first = True
+        for fid, mask in masks.items():
+            if fid in excluded_frames or not np.any(mask):
+                continue
+            fd = raw_source.frame(fid)
+            wn = wl_to_wn(fd["Wavelength"].to_numpy())[mask]
+            y = fd["Intensity"].to_numpy()[mask]
+            self.plot_widget.ax.plot(
+                wn, y, marker="x", linestyle="none",
+                markersize=8, markerfacecolor="red", markeredgecolor="red",
+                markeredgewidth=2, zorder=7,
+                label="Flagged spikes" if first else "_nolegend_",
+            )
+            first = False
 
 
     def _plot_despiked(self, data):
         wl_to_wn = lambda wl: (1e7 / wl) - (1e7 / self._upconversion_wl())
         pair = self._pair()
         source = self._source()
+
+        raw_sources = {
+            "signal": self._matched_set.signal if self._matched_set else None,
+            "background": self._matched_set.background if self._matched_set else None,
+            "reference": self._matched_set.reference if self._matched_set else None,
+            "ref_background": self._matched_set.reference_background if self._matched_set else None,
+        }
 
         pairs = []
         if self._show_sample():
@@ -908,6 +970,8 @@ class HDSFGPanel(QWidget, DockablePlotPanel):
                         linestyle=":" if is_excluded else "-",
                         label=f"{pair_label} sig F{fid}" + (" (excluded)" if is_excluded else ""),
                     )
+                if self._show_spikes_checkbox.isChecked():
+                    self._plot_spike_markers(sig_role, raw_sources[sig_role], excluded)
             if self._show_background() and bg_src:
                 excluded = self._get_exclude_frames(self._matched_index, bg_role)
                 for fid in bg_src.data["Frame"].unique():
@@ -920,6 +984,8 @@ class HDSFGPanel(QWidget, DockablePlotPanel):
                         alpha=0.2 if is_excluded else 0.6,
                         label=f"{pair_label} BG F{fid}" + (" (excluded)" if is_excluded else ""),
                     )
+                if self._show_spikes_checkbox.isChecked():
+                    self._plot_spike_markers(bg_role, raw_sources[bg_role], excluded)
         self.plot_widget.set_labels(
             xlabel="Wavenumber (cm$^{-1}$)", ylabel="Intensity (counts)", title="Despiked"
         )

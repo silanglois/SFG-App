@@ -162,5 +162,20 @@ class DataFile(SpectrumDataMixin):
             cleaned_df, metadata=self.metadata, history=self.history + ["remove_cosmic_rays"]
         )
 
+    def flag_cosmic_rays(self, window: int = 5, threshold_factor: float = 3.0) -> dict:
+        """Same detection as remove_cosmic_rays, but returns per-frame
+        boolean outlier masks (aligned to each frame's Wavelength-sorted
+        order, same as `.frame(frame_id)`) instead of cleaned data --
+        for previewing which points are currently being flagged, without
+        touching/interpolating the data itself."""
+        masks = {}
+        for frame_id, group in self._raw_df.groupby("Frame"):
+            group = group.sort_values("Wavelength")
+            _, mask = remove_outliers_movmedian(
+                group["Intensity"].to_numpy(), window, threshold_factor, return_mask=True
+            )
+            masks[frame_id] = mask
+        return masks
+
     def __repr__(self) -> str:
         return f"DataFile({self.path.name}, n_frames={self.n_frames}, metadata={self.metadata})"
