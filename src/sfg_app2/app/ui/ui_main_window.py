@@ -145,7 +145,7 @@ class Ui_MainWindow(object):
 
     def retranslateUi(self, MainWindow):
         MainWindow.setWindowTitle(QCoreApplication.translate("MainWindow", u"SFG-App", None))
-        self.actionLoad_file_s.setText(QCoreApplication.translate("MainWindow", u"Load file(s)", None))
+        self.actionLoad_file_s.setText(QCoreApplication.translate("MainWindow", u"Load file(s)...", None))
         self.actionLoad_files_from_folder.setText(QCoreApplication.translate("MainWindow", u"Load files from folder...", None))
         self.actionUse_metadata_patterns.setText(QCoreApplication.translate("MainWindow", u"Use metadata patterns", None))
         self.actionSet_metadata_patterns.setText(QCoreApplication.translate("MainWindow", u"Metadata patterns parameters", None))
