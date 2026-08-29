@@ -80,7 +80,24 @@ class SpectrumDataMixin:
             )
 
         df = self.data.copy()
-        df["Wavenumber"] = (1e7 / df["Wavelength"]) - (1e7 / upconversion_wavelength)
+        wavelength = df["Wavelength"].to_numpy()
+        bad = wavelength <= 0
+        if bad.any():
+            # Unlike a zero reference in normalize() (a legitimate degenerate
+            # data point that can be skipped), a zero/negative wavelength
+            # can't produce a meaningful wavenumber at all -- and silently
+            # NaN-ing it would just surface as a much more confusing crash
+            # wherever this Wavenumber column is used as an x-axis (e.g.
+            # CubicSpline, which requires finite values). Raising clearly
+            # here instead is caught and shown to the user by the callers
+            # of this pipeline (e.g. HomodynePanel/HDSFGPanel's bulk
+            # "Process" actions).
+            raise ValueError(
+                f"{int(bad.sum())} wavelength value(s) are zero or negative "
+                "(physically invalid) -- can't convert to wavenumber. This "
+                "usually means the source file's data is corrupt."
+            )
+        df["Wavenumber"] = (1e7 / wavelength) - (1e7 / upconversion_wavelength)
 
         return ProcessedSpectrum(
             df,

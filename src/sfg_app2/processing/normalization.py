@@ -1,5 +1,6 @@
 from __future__ import annotations
 import logging
+import numpy as np
 import pandas as pd
 
 from .processed_spectrum import ProcessedSpectrum
@@ -28,7 +29,18 @@ def normalize(sample, reference) -> ProcessedSpectrum:
         ref_avg["Intensity"].to_numpy(), index=ref_avg["Wavelength"].to_numpy()
     )
 
-    normalized_intensity = sample_avg["Intensity"].to_numpy() / ref_lookup.loc[sample_wavelength].to_numpy()
+    ref_values = ref_lookup.loc[sample_wavelength].to_numpy()
+    zero_mask = ref_values == 0
+    if zero_mask.any():
+        logger.warning(
+            "Reference intensity is exactly zero at %d of %d wavelength(s); "
+            "normalized intensity is set to NaN there instead of diverging "
+            "to infinity.",
+            int(zero_mask.sum()), len(zero_mask),
+        )
+    with np.errstate(divide="ignore", invalid="ignore"):
+        normalized_intensity = sample_avg["Intensity"].to_numpy() / ref_values
+    normalized_intensity = np.where(zero_mask, np.nan, normalized_intensity)
 
     df = pd.DataFrame({
         "Frame": 1,
