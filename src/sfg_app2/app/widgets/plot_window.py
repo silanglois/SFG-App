@@ -114,6 +114,13 @@ class PlotWindow(QWidget):
             except Exception as e:
                 logger.warning("Could not plot %s: %s", f.path.name, e)
 
+        # plot_widget.plot() auto-ranges against whatever's on the axes at
+        # the moment of the *first* call in this loop -- i.e. just the
+        # first file/frame, not the union of everything just plotted.
+        # Force a fresh full-range computation now that every series is
+        # actually on the axes.
+        self.plot_widget.finalize_initial_range()
+
         mode_label = {"average": "averaged", "all": "all frames"}.get(mode, f"frame {mode}")
         self.plot_widget.set_labels(
             xlabel="Wavelength (nm)",
