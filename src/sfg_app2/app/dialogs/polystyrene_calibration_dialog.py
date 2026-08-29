@@ -6,7 +6,7 @@ import pandas as pd
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel,
-    QDoubleSpinBox, QComboBox, QDialogButtonBox, QMessageBox
+    QDoubleSpinBox, QComboBox, QDialogButtonBox, QMessageBox, QPushButton,
 )
 
 from sfg_app2.app.widgets.spectrum_plot_widget import SpectrumPlotWidget
@@ -31,6 +31,53 @@ def _get_polystyrene_material():
             shelf="organic", book="polystyrene", page="Myers"
         )
     return _ps_material_cache
+
+
+def find_best_upconversion_wavelength(
+    ratio_wavelength: np.ndarray,
+    ratio_intensity: np.ndarray,
+    ps_material,
+    wn_min: float = 2750.0,
+    wn_max: float = 3150.0,
+    candidates: np.ndarray | None = None,
+) -> tuple[float | None, float]:
+    """Scans candidate upconversion wavelengths, scoring each by the
+    Pearson correlation between the measured SFG ratio curve and the
+    reference polystyrene extinction spectrum over the fixed analysis
+    window, and returns the best-scoring (wavelength, correlation).
+    Returns (None, -inf) if no candidate produced a usable score.
+
+    Pure/Qt-free so it can be unit-tested and reused independently of
+    the dialog; `ps_material` is a RefractiveIndexMaterial (or anything
+    exposing get_extinction_coefficient(wavenumber, unit="cm-1")).
+    """
+    if candidates is None:
+        # common upconversion sources (515/532/800/1030 nm) all fall
+        # well inside this range, but the scan isn't restricted to just
+        # those -- any wavelength in [400, 1400] nm is considered.
+        candidates = np.arange(400.0, 1400.0, 0.25)
+
+    best_wl, best_score = None, -np.inf
+    for wl in candidates:
+        wavenumber = (1e7 / ratio_wavelength) - (1e7 / wl)
+        mask = (
+            (wavenumber >= wn_min) & (wavenumber <= wn_max)
+            & np.isfinite(ratio_intensity)
+        )
+        if mask.sum() < 5:
+            continue
+        try:
+            ps_ext = ps_material.get_extinction_coefficient(wavenumber[mask], unit="cm-1")
+        except Exception:
+            continue
+        ratio_in_window = ratio_intensity[mask]
+        if np.std(ratio_in_window) == 0 or np.std(ps_ext) == 0:
+            continue
+        score = np.corrcoef(ratio_in_window, ps_ext)[0, 1]
+        if np.isfinite(score) and score > best_score:
+            best_score, best_wl = score, float(wl)
+
+    return best_wl, best_score
 
 
 class PolystyreneCalibrationDialog(QDialog):
@@ -101,10 +148,26 @@ class PolystyreneCalibrationDialog(QDialog):
         self._wl_spinbox.setSuffix(" nm")
         self._wl_spinbox.setValue(initial_wavelength)
         controls.addWidget(self._wl_spinbox)
+
+        self._auto_detect_btn = QPushButton("Auto-detect")
+        self._auto_detect_btn.setToolTip(
+            "Scan for the upconversion wavelength that best aligns the measured "
+            "SFG ratio peaks with the reference polystyrene spectrum, scored over "
+            "the plot's current visible x-range. Sets the spinbox above to its "
+            "best guess -- still freely adjustable afterward."
+        )
+        self._auto_detect_btn.clicked.connect(self._on_auto_detect)
+        controls.addWidget(self._auto_detect_btn)
+
         controls.addStretch()
         layout.addLayout(controls)
 
-        # plot — uses raw figure for twin axes
+        # plot — uses raw figure for twin axes, so _update_plot() syncs
+        # the widget's own x-range controls (min/max spinboxes, Reset,
+        # Save plot) by hand after every rebuild, via set_x_range()/
+        # _apply_x_range()/_compute_full_range() -- see _update_plot().
+        # Those controls double as the polystyrene analysis window
+        # (what auto-detect scores against), not just the visible zoom.
         self.plot_widget = SpectrumPlotWidget()
         layout.addWidget(self.plot_widget)
 
@@ -165,6 +228,50 @@ class PolystyreneCalibrationDialog(QDialog):
             self._ratio_wavelength = None
             self._ratio_intensity = None
 
+    def _on_auto_detect(self):
+        """Scans candidate upconversion wavelengths (see
+        find_best_upconversion_wavelength) and sets the spinbox to the
+        best-scoring one. The user still sees the resulting plot and
+        can freely override it afterward -- this never applies without
+        that visual check."""
+        if self._ratio_wavelength is None or self._ratio_intensity is None:
+            QMessageBox.information(
+                self, "No data", "Select a calibration set first."
+            )
+            return
+
+        x_range = self.plot_widget.get_x_range()
+        wn_min, wn_max = x_range if x_range is not None else (2750.0, 3150.0)
+
+        loading = show_loading(self, "Scanning for best upconversion wavelength...")
+        try:
+            ps = _get_polystyrene_material()
+            best_wl, best_score = find_best_upconversion_wavelength(
+                self._ratio_wavelength, self._ratio_intensity, ps,
+                wn_min=wn_min, wn_max=wn_max,
+            )
+        except Exception as e:
+            logger.error("Auto-detect failed: %s", e, exc_info=True)
+            QMessageBox.warning(self, "Auto-detect failed", str(e))
+            return
+        finally:
+            loading.close()
+
+        if best_wl is None:
+            QMessageBox.information(
+                self, "Auto-detect failed",
+                "Could not find a good alignment across the scanned "
+                "wavelength range (400-1400 nm). Try adjusting manually."
+            )
+            return
+
+        self._wl_spinbox.setValue(best_wl)   # triggers _update_plot via valueChanged
+        QMessageBox.information(
+            self, "Auto-detect complete",
+            f"Best match: {best_wl:.2f} nm (correlation {best_score:.2f}). "
+            "Check the plot and fine-tune manually if needed."
+        )
+
     def _update_plot(self):
         """Replot with current upconversion wavelength — called on every spinbox change."""
         wl = self._wl_spinbox.value()
@@ -200,7 +307,6 @@ class PolystyreneCalibrationDialog(QDialog):
         )
         ax1.set_xlabel("Wavenumber (cm$^{-1}$)")
         ax1.set_ylabel("SFG Intensity ratio (a.u.)", color="steelblue")
-        ax1.set_xlim(2750, 3150)
 
         if ps_ext is not None:
             ax2 = ax1.twinx()
@@ -216,6 +322,21 @@ class PolystyreneCalibrationDialog(QDialog):
             ax1.legend(lines, labels, fontsize=8)
 
         ax1.set_title(f"Upconversion: {wl:.2f} nm")
+
+        # Keep the plot widget's own range controls in sync with axes
+        # that get fully rebuilt on every redraw. _compute_full_range()
+        # refreshes what "Reset" restores to (the whole measured
+        # spectrum, not just the analysis window). First call ever:
+        # seed the familiar default 2750-3150 window. Every later call
+        # (wavelength or set changed): re-apply whatever's currently
+        # dialed into the spinboxes, so zooming/picking a region
+        # doesn't get silently reset on every tweak.
+        self.plot_widget._compute_full_range()
+        if self.plot_widget.get_x_range() is None:
+            self.plot_widget.set_x_range(2750.0, 3150.0)
+        else:
+            self.plot_widget._apply_x_range()
+
         self.plot_widget.figure.tight_layout()
         self.plot_widget.canvas.draw()
         # update stored axes reference

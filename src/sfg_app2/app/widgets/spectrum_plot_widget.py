@@ -158,13 +158,16 @@ class SpectrumPlotWidget(QWidget):
         return self.ax2
 
     def set_x_range(self, x_min: float, x_max: float):
-        """Programmatically set the x range (e.g. from calibration dialog)."""
+        """Programmatically set the x range (e.g. from calibration dialog).
+        Marks the range as initialized so get_x_range() reflects it
+        immediately afterward, same as a manual edit or plot() would."""
         self._x_min_spin.blockSignals(True)
         self._x_max_spin.blockSignals(True)
         self._x_min_spin.setValue(x_min)
         self._x_max_spin.setValue(x_max)
         self._x_min_spin.blockSignals(False)
         self._x_max_spin.blockSignals(False)
+        self._x_range_initialized = True
         self._apply_x_range()
 
     def sync_x_range(self):
