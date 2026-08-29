@@ -1133,6 +1133,12 @@ class FittingTab(QWidget, DockablePlotPanel):
         self._fit_max_spin.setDecimals(2)
         self._fit_max_spin.valueChanged.connect(self._on_fit_range_changed)
         range_row.addWidget(self._fit_max_spin)
+        self._set_fit_range_to_view_btn = QPushButton("Set range to current view")
+        self._set_fit_range_to_view_btn.setToolTip(
+            "Set the fit range to match Plot 1's current zoomed x-axis view."
+        )
+        self._set_fit_range_to_view_btn.clicked.connect(self._on_set_fit_range_to_view)
+        range_row.addWidget(self._set_fit_range_to_view_btn)
         layout.addLayout(range_row)
         range_note = QLabel("Independent of the plots' own view zoom — shown as a shaded region on Plot 1.")
         range_note.setWordWrap(True)
@@ -1202,6 +1208,19 @@ class FittingTab(QWidget, DockablePlotPanel):
 
     def _on_fit_range_changed(self, *_args):
         self._schedule_preview()
+
+    def _on_set_fit_range_to_view(self):
+        x_range = self.plot_widget.get_x_range()
+        if x_range is None:
+            return
+        lo, hi = x_range
+        for spin in (self._fit_min_spin, self._fit_max_spin):
+            spin.blockSignals(True)
+        self._fit_min_spin.setValue(lo)
+        self._fit_max_spin.setValue(hi)
+        for spin in (self._fit_min_spin, self._fit_max_spin):
+            spin.blockSignals(False)
+        self._on_fit_range_changed()
 
     def _on_run_fit(self):
         if self._data is None:
