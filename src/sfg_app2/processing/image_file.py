@@ -83,6 +83,13 @@ def find_brightest_region(data: np.ndarray, median_size: int = 3) -> tuple[int, 
 
 def load_image_csv(path: str | Path) -> CCDImage:
     path = Path(path)
+    if path.suffix.lower() == ".spe":
+        # Binary format -- dispatch straight to its own parser instead of
+        # trying (and failing) the CSV parsers first. Deferred import
+        # avoids a circular import (spe_file imports CCDImage from here).
+        from sfg_app2.processing.spe_file import load_spe
+        return load_spe(path)
+
     errors = []
     for parser in _FORMAT_PARSERS:
         try:

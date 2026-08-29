@@ -308,7 +308,8 @@ class MainWindow(QMainWindow):
 
     def _on_load_image(self):
         path, _ = QFileDialog.getOpenFileName(
-            self, "Load CCD image", "", "CSV files (*.csv);;All files (*.*)",
+            self, "Load CCD image", "",
+            "CSV/SPE files (*.csv *.spe);;CSV files (*.csv);;SPE files (*.spe);;All files (*.*)",
         )
         if not path:
             return
