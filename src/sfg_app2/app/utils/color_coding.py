@@ -9,15 +9,26 @@ from sfg_app2.app.utils.color_coding_settings import ColorCodingSettings
 # grouping fields — "role" gets its own dedicated mode instead.
 NON_GROUPING_KEYS = {"source_filename", "filename_parts", "extra_filename_parts", "role"}
 
-# A fixed, curated categorical palette (matplotlib "tab10" + a few "tab20"
-# lighter variants). Each entry is mid-toned/saturated enough that a
-# contrasting black-or-white foreground (see contrasting_text_color) always
-# reads clearly against it, regardless of the app's own light/dark theme.
+# A fixed, curated categorical palette (matplotlib's full "tab20" set, 20
+# colors). Each entry is mid-toned/saturated enough that a contrasting
+# black-or-white foreground (see contrasting_text_color) always reads
+# clearly against it, regardless of the app's own light/dark theme --
+# every one of the 8 lighter entries added past the original 12 has been
+# checked to land clearly above contrasting_text_color's 140 threshold
+# (all >160), not near the boundary.
+#
+# NB: color_for_key() hashes `key` to an index via `crc32(key) % len(_PALETTE)`,
+# so changing this list's length reshuffles every existing key's color
+# assignment, not just adds new colors at the end -- expected, since these
+# are for visual grouping, not a persisted per-key identity.
 _PALETTE = [
     QColor(31, 119, 180), QColor(255, 127, 14), QColor(44, 160, 44),
     QColor(214, 39, 40), QColor(148, 103, 189), QColor(140, 86, 75),
     QColor(227, 119, 194), QColor(127, 127, 127), QColor(188, 189, 34),
     QColor(23, 190, 207), QColor(174, 199, 232), QColor(255, 187, 120),
+    QColor(152, 223, 138), QColor(255, 152, 150), QColor(197, 176, 213),
+    QColor(196, 156, 148), QColor(247, 182, 210), QColor(199, 199, 199),
+    QColor(219, 219, 141), QColor(158, 218, 229),
 ]
 
 
