@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 
 from sfg_app2.processing.fitting import (
-    FitParam, PeakInstance, FitModelSpec, default_peak,
+    FitParam, PeakInstance, FitModelSpec, default_peak, estimate_peak_seed,
     evaluate_homodyne, evaluate_peak_component,
     fit_homodyne, compute_weights, get_lineshape, available_lineshapes,
     fit_model_spec_from_provenance_payload,
@@ -218,3 +218,72 @@ def test_default_peak_seeds_from_click_and_heuristic():
 def test_default_peak_falls_back_to_lineshape_defaults():
     seeded = default_peak("lorentzian", center=3350.0)
     assert seeded.params["amplitude"].value == get_lineshape("lorentzian").params[0].default
+
+
+# ── estimate_peak_seed() -- data-driven click-to-add-peak guess ────────────
+
+def test_estimate_peak_seed_recovers_known_lorentzian():
+    ls = get_lineshape("lorentzian")
+    omega = np.linspace(3200.0, 3400.0, 400)
+    true_amplitude, true_center, true_width = 5.0, 3300.0, 15.0
+    chi = ls.chi(omega, amplitude=true_amplitude, center=true_center, width=true_width)
+    intensity = np.abs(chi) ** 2
+
+    idx = int(np.argmin(np.abs(omega - true_center)))
+    amplitude, width = estimate_peak_seed(omega, intensity, idx, squared=True)
+
+    assert width == pytest.approx(true_width, rel=0.5)
+    assert amplitude == pytest.approx(true_amplitude, rel=0.75)
+
+
+def test_estimate_peak_seed_ignores_flanking_peak_when_residual_subtracted():
+    ls = get_lineshape("lorentzian")
+    omega = np.linspace(3200.0, 3400.0, 400)
+    # Close enough together (15 cm^-1 apart, width 10-15) that the first
+    # peak's tail meaningfully distorts the raw combined intensity around
+    # the second peak's center.
+    peak1 = dict(amplitude=8.0, center=3285.0, width=15.0)
+    peak2 = dict(amplitude=3.0, center=3300.0, width=10.0)
+    combined = np.abs(ls.chi(omega, **peak1) + ls.chi(omega, **peak2)) ** 2
+    peak1_only = np.abs(ls.chi(omega, **peak1)) ** 2
+
+    idx = int(np.argmin(np.abs(omega - peak2["center"])))
+
+    raw_amplitude, raw_width = estimate_peak_seed(omega, combined, idx, squared=True)
+    residual = combined - peak1_only
+    resid_amplitude, resid_width = estimate_peak_seed(omega, residual, idx, squared=True)
+
+    assert abs(resid_amplitude - peak2["amplitude"]) < abs(raw_amplitude - peak2["amplitude"])
+    assert abs(resid_width - peak2["width"]) <= abs(raw_width - peak2["width"])
+
+
+def test_estimate_peak_seed_handles_flat_data():
+    omega = np.linspace(3200.0, 3400.0, 200)
+    flat = np.full_like(omega, 2.0)
+    amplitude, width = estimate_peak_seed(omega, flat, idx=100, squared=True)
+    assert np.isfinite(amplitude) and amplitude > 0
+    assert np.isfinite(width) and width > 0
+
+
+@pytest.mark.parametrize("idx", [0, -1])
+def test_estimate_peak_seed_handles_edge_click(idx):
+    ls = get_lineshape("lorentzian")
+    omega = np.linspace(3200.0, 3400.0, 200)
+    intensity = np.abs(ls.chi(omega, amplitude=5.0, center=3300.0, width=15.0)) ** 2
+    amplitude, width = estimate_peak_seed(omega, intensity, idx, squared=True)
+    assert np.isfinite(amplitude) and amplitude > 0
+    assert np.isfinite(width) and width > 0
+
+
+def test_estimate_peak_seed_heterodyne_linear_relation():
+    ls = get_lineshape("lorentzian")
+    omega = np.linspace(3200.0, 3400.0, 400)
+    true_amplitude, true_center, true_width = 4.0, 3300.0, 12.0
+    chi = ls.chi(omega, amplitude=true_amplitude, center=true_center, width=true_width)
+    magnitude = np.abs(chi)
+
+    idx = int(np.argmin(np.abs(omega - true_center)))
+    amplitude, width = estimate_peak_seed(omega, magnitude, idx, squared=False)
+
+    assert width == pytest.approx(true_width, rel=0.5)
+    assert amplitude == pytest.approx(true_amplitude, rel=0.75)

@@ -26,7 +26,7 @@ from sfg_app2.app.utils.fit_template_manager import FitTemplateManager
 from sfg_app2.processing import provenance
 from sfg_app2.processing.processed_spectrum import ProcessedSpectrum
 from sfg_app2.processing.fitting import (
-    FitParam, PeakInstance, FitModelSpec, default_peak,
+    FitParam, PeakInstance, FitModelSpec, default_peak, estimate_peak_seed,
     evaluate_homodyne, evaluate_chi, evaluate_peak_component,
     fit_homodyne, fit_heterodyne, compute_weights, compute_heterodyne_weights,
     available_lineshapes, get_lineshape, fit_model_spec_from_provenance_payload,
@@ -622,7 +622,8 @@ class FittingTab(QWidget, DockablePlotPanel):
         self._add_peak_btn.setCheckable(True)
         self._add_peak_btn.setToolTip(
             "Click, then click on the plot to place a peak there "
-            "(right-click to cancel)"
+            "(right-click to cancel). Hold Ctrl while placing to seed "
+            "a negative amplitude."
         )
         self._add_peak_btn.toggled.connect(self._on_add_peak_toggled)
         row.addWidget(self._add_peak_btn)
@@ -664,23 +665,33 @@ class FittingTab(QWidget, DockablePlotPanel):
             return
         if event.button != 1 or event.xdata is None:
             return
-        self._add_peak_at(event.xdata)
+        negative = bool(QApplication.keyboardModifiers() & Qt.KeyboardModifier.ControlModifier)
+        self._add_peak_at(event.xdata, negative_amplitude=negative)
         self._add_peak_btn.setChecked(False)
 
-    def _add_peak_at(self, center: float):
+    def _add_peak_at(self, center: float, negative_amplitude: bool = False):
         if self._data is None:
             return
         lineshape_key = self._lineshape_combo.currentData()
-        idx = int(np.argmin(np.abs(self._data.omega - center)))
-        x_range = self.plot_widget.get_x_range()
-        span = (x_range[1] - x_range[0]) if x_range else float(self._data.omega.max() - self._data.omega.min())
-        width = max(span * 0.02, 1.0)
+        omega = self._data.omega
+        idx = int(np.argmin(np.abs(omega - center)))
+
+        # Estimate against the residual (data minus what's already
+        # modeled), not the raw data -- otherwise an existing peak's/the
+        # background's contribution gets counted as if it belonged to
+        # the new peak (see estimate_peak_seed's docstring).
         if self._data.kind == "heterodyne":
-            magnitude = float(np.hypot(self._data.real[idx], self._data.imag[idx]))
-            amplitude = max(magnitude * (width / 2.0), 0.5)
+            chi_existing = evaluate_chi(omega, self._model_spec)
+            residual = np.hypot(self._data.real - chi_existing.real,
+                                 self._data.imag - chi_existing.imag)
+            amplitude, width = estimate_peak_seed(omega, residual, idx, squared=False)
         else:
-            baseline = float(np.min(self._data.intensity))
-            amplitude = max(float(np.sqrt(max(self._data.intensity[idx] - baseline, 0.0))) * (width / 2.0), 0.5)
+            model_existing = evaluate_homodyne(omega, self._model_spec)
+            residual = self._data.intensity - model_existing
+            amplitude, width = estimate_peak_seed(omega, residual, idx, squared=True)
+
+        if negative_amplitude:
+            amplitude = -amplitude
 
         peak = default_peak(lineshape_key, center=float(center), amplitude=amplitude, width=width)
         self._model_spec.peaks.append(peak)

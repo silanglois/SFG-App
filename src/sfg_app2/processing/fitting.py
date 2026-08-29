@@ -133,6 +133,70 @@ class FitModelSpec:
         )
 
 
+def _local_height_and_width(omega: np.ndarray, y: np.ndarray, idx: int,
+                             min_width: float) -> tuple[float, float]:
+    """Local baseline + half-width-at-half-max walk around omega[idx].
+    No fitting, just array inspection -- safe to call synchronously on
+    a single click. Works regardless of whether omega is ascending or
+    descending, since widths are always measured as abs(omega diffs)."""
+    n = len(omega)
+    radius0 = max(n // 20, 5)
+    lo, hi = max(idx - radius0, 0), min(idx + radius0 + 1, n)
+    window = y[lo:hi]
+    q = max(len(window) // 4, 1)
+    flanks = np.concatenate([window[:q], window[-q:]])
+    baseline = float(np.median(flanks))
+    height = max(float(y[idx]) - baseline, 0.0)
+
+    half = baseline + height / 2.0
+    search_cap = max(n // 4, radius0)
+    j = idx
+    while j + 1 < n and (j - idx) < search_cap and y[j] > half:
+        j += 1
+    right = abs(float(omega[j]) - float(omega[idx])) if y[j] <= half else 0.0
+    k = idx
+    while k - 1 >= 0 and (idx - k) < search_cap and y[k] > half:
+        k -= 1
+    left = abs(float(omega[idx]) - float(omega[k])) if y[k] <= half else 0.0
+
+    if right > 0 and left > 0:
+        hwhm = (right + left) / 2.0
+    elif right > 0 or left > 0:
+        hwhm = right or left
+    else:
+        # Flat/noisy neighborhood: no HWHM crossing found within the
+        # search cap -- fall back to a few local sample spacings rather
+        # than anything view-dependent.
+        spacing = np.median(np.abs(np.diff(omega[lo:hi]))) if hi - lo > 1 else min_width
+        hwhm = max(2.0 * float(spacing), min_width) / 2.0
+
+    return height, max(2.0 * hwhm, min_width)
+
+
+def estimate_peak_seed(omega: np.ndarray, response: np.ndarray, idx: int,
+                        squared: bool, min_width: float = 1.0) -> tuple[float, float]:
+    """(amplitude, width) initial guess for a peak clicked at omega[idx],
+    replacing the old "2% of the current view" heuristic with an
+    estimate driven by the data itself -- no optimization, runs
+    synchronously on a single click.
+
+    `response` should already have the model's *currently fitted* peaks
+    and non-resonant background subtracted out by the caller, so an
+    existing nearby peak/background isn't double-counted as if it
+    belonged to the new one (the coherent sum means |sum|^2 != sum(|.|^2),
+    so this matters whenever other peaks/background are present).
+
+    squared=True: response is |chi|^2 (homodyne intensity) -- amplitude
+      relates to height via height = (amplitude / (width/2))^2.
+    squared=False: response is |chi| (heterodyne magnitude) -- linear:
+      height = amplitude / (width/2).
+    """
+    height, width = _local_height_and_width(omega, response, idx, min_width)
+    half_width = width / 2.0
+    amplitude = np.sqrt(height) * half_width if squared else height * half_width
+    return max(float(amplitude), 0.5), width
+
+
 def default_peak(lineshape_key: str, center: float,
                   amplitude: float | None = None, width: float | None = None) -> PeakInstance:
     """Seed a new peak for click-to-place: center comes from the click,
