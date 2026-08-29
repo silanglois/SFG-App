@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QBrush, QPalette
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel, QComboBox,
     QPushButton, QCheckBox, QDoubleSpinBox, QLineEdit, QTableWidget,
@@ -23,6 +23,7 @@ from sfg_app2.app.widgets.spectrum_plot_widget import SpectrumPlotWidget
 from sfg_app2.app.widgets.dockable_panels import DockablePlotPanel
 from sfg_app2.app.utils.loading_indicator import show_loading
 from sfg_app2.app.utils.fit_template_manager import FitTemplateManager
+from sfg_app2.app.utils import color_coding
 from sfg_app2.processing import provenance
 from sfg_app2.processing.processed_spectrum import ProcessedSpectrum
 from sfg_app2.processing.fitting import (
@@ -247,6 +248,7 @@ class FittingTab(QWidget, DockablePlotPanel):
         super().__init__(parent)
 
         self._results_provider = None
+        self._display_settings = None
         self._results_entries: list = []
         self._data: _FittableSpectrum | None = None
         self._model_spec: FitModelSpec = FitModelSpec.empty()
@@ -341,6 +343,18 @@ class FittingTab(QWidget, DockablePlotPanel):
         tabs exist."""
         self._results_provider = provider
         self._on_refresh_results()
+
+    def set_display_settings(self, settings):
+        """`settings` is a FittingDisplaySettings instance, set once from
+        MainWindow -- controls whether the peak/parameter tables are
+        colored by peak."""
+        self._display_settings = settings
+        self._apply_peak_row_colors()
+
+    def refresh_peak_coloring(self):
+        """Re-applies peak-row coloring without a full table rebuild --
+        called when the display setting is toggled from Preferences."""
+        self._apply_peak_row_colors()
 
     def _build_data_source_section(self) -> QWidget:
         widget = QWidget()
@@ -729,6 +743,8 @@ class FittingTab(QWidget, DockablePlotPanel):
             remove_btn.clicked.connect(lambda _checked=False, row=i: self._on_remove_peak(row))
             table.setCellWidget(i, _PEAK_COL_REMOVE, remove_btn)
 
+        self._apply_peak_row_colors()
+
     def _on_remove_peak(self, row: int):
         if 0 <= row < len(self._model_spec.peaks):
             del self._model_spec.peaks[row]
@@ -806,6 +822,78 @@ class FittingTab(QWidget, DockablePlotPanel):
             expr_edit = QLineEdit(fp.expr or "")
             expr_edit.editingFinished.connect(lambda r=row: self._on_param_expr_changed(r))
             table.setCellWidget(row, _COL_EXPR, expr_edit)
+
+        self._apply_peak_row_colors()
+
+    # ── Peak-row coloring (Preferences > Fitting > Color parameter table
+    # by peak) ───────────────────────────────────────────────────────────────
+
+    def _peak_row_color(self, peak_index: int) -> QColor | None:
+        """The color to tint a peak's rows with: an explicit Display-dock
+        override if the user set one (guaranteed to match what's actually
+        plotted), otherwise a stable, deterministic fallback shared with
+        the Load/Match tab's color-coding palette."""
+        style = self._series_styles.get(f"peak_{peak_index}")
+        if style is not None and style.color:
+            return QColor(style.color)
+        return QColor(color_coding.color_for_key(f"peak_{peak_index}"))
+
+    @staticmethod
+    def _tint_widget(widget: QWidget, color: QColor | None):
+        """Recolors an embedded cell-widget (QDoubleSpinBox/QLineEdit/the
+        Fixed checkbox's centering wrapper/the Remove button) via QPalette
+        rather than a stylesheet, so the platform style still paints spin
+        arrows/borders/button chrome normally."""
+        if color is None:
+            widget.setAutoFillBackground(False)
+            widget.setPalette(QPalette())
+            return
+        text = color_coding.contrasting_text_color(color)
+        pal = widget.palette()
+        for role in (QPalette.ColorRole.Base, QPalette.ColorRole.Window,
+                     QPalette.ColorRole.Button):
+            pal.setColor(role, color)
+        for role in (QPalette.ColorRole.Text, QPalette.ColorRole.WindowText,
+                     QPalette.ColorRole.ButtonText):
+            pal.setColor(role, text)
+        widget.setAutoFillBackground(True)
+        widget.setPalette(pal)
+
+    def _tint_table_row(self, table: QTableWidget, row: int,
+                         item_cols: list[int], widget_cols: list[int], color: QColor | None):
+        fg = color_coding.contrasting_text_color(color) if color is not None else QBrush()
+        bg = QBrush(color) if color is not None else QBrush()
+        for col in item_cols:
+            item = table.item(row, col)
+            if item is not None:
+                item.setBackground(bg)
+                item.setForeground(fg)
+        for col in widget_cols:
+            widget = table.cellWidget(row, col)
+            if widget is not None:
+                self._tint_widget(widget, color)
+
+    def _apply_peak_row_colors(self):
+        enabled = (self._display_settings is not None
+                   and self._display_settings.color_parameter_table_by_peak)
+
+        for row, key in enumerate(self._param_row_keys):
+            color = self._peak_row_color(key[1]) if (enabled and key[0] == "peak") else None
+            self._tint_table_row(
+                self._param_table, row,
+                item_cols=[_COL_LABEL, _COL_PARAM, _COL_ERROR],
+                widget_cols=[_COL_VALUE, _COL_FIXED, _COL_MIN, _COL_MAX, _COL_EXPR],
+                color=color,
+            )
+
+        for row in range(self._peak_table.rowCount()):
+            color = self._peak_row_color(row) if enabled else None
+            self._tint_table_row(
+                self._peak_table, row,
+                item_cols=[_PEAK_COL_INDEX, _PEAK_COL_LINESHAPE],
+                widget_cols=[_PEAK_COL_REMOVE],
+                color=color,
+            )
 
     def _on_param_value_changed(self, row: int, value: float):
         key = self._param_row_keys[row]
@@ -1006,11 +1094,13 @@ class FittingTab(QWidget, DockablePlotPanel):
         if chosen.isValid():
             self._series_styles[key].color = chosen.name()
             self._style_color_button(button, chosen.name())
+            self._apply_peak_row_colors()
             self._schedule_preview()
 
     def _on_reset_series_color(self, key: str, button: QPushButton):
         self._series_styles[key].color = None
         self._style_color_button(button, None)
+        self._apply_peak_row_colors()
         self._schedule_preview()
 
     def _on_series_linestyle_changed(self, key: str, combo_index: int):
@@ -1021,6 +1111,7 @@ class FittingTab(QWidget, DockablePlotPanel):
         for key in self._series_styles:
             self._series_styles[key] = SeriesStyle(linestyle=_default_linestyle_for(key))
         self._rebuild_display_table()
+        self._apply_peak_row_colors()
         self._schedule_preview()
 
     # ── Fit dock ─────────────────────────────────────────────────────────────

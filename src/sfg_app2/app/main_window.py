@@ -12,6 +12,7 @@ from sfg_app2.app.utils.matching_settings import MatchingProfileManager
 from sfg_app2.app.utils.color_coding_settings import ColorCodingSettings
 from sfg_app2.app.utils.dock_layout_settings import DockLayoutSettings
 from sfg_app2.app.utils.appearance_settings import AppearanceSettings, THEMES
+from sfg_app2.app.utils.fitting_display_settings import FittingDisplaySettings
 from sfg_app2.app.widgets.image_window import ImageWindow
 from sfg_app2.processing.image_file import load_image_csv, UnrecognizedImageFormatError
 
@@ -34,6 +35,7 @@ class MainWindow(QMainWindow):
         self.color_coding_settings = ColorCodingSettings()
         self.appearance_settings = AppearanceSettings()
         self.dock_layout_settings = DockLayoutSettings()
+        self.fitting_display_settings = FittingDisplaySettings()
         self._ignored_paths: set[Path] = set()  # resolved absolute paths
         self._image_windows: list = []
         self._user_guide_dialog = None
@@ -80,6 +82,7 @@ class MainWindow(QMainWindow):
         self.fitting_tab = FittingTab()
         self.fitting_tab.restore_dock_state(self.dock_layout_settings.get("fitting"))
         self.fitting_tab.set_results_provider(self.processed_results_tab)
+        self.fitting_tab.set_display_settings(self.fitting_display_settings)
         self._replace_tab(3, self.fitting_tab, "Fitting")
 
     def _replace_tab(self, index: int, widget, label: str):
