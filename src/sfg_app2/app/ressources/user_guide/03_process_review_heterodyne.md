@@ -13,8 +13,9 @@ Filter → iFFT → Normalization** to inspect the effect of each stage:
 ## Despike & frame exclusion
 
 Same idea as the homodyne panel: per-component despike window/
-threshold, and per-component frame exclusion, each in their own
-dock.
+threshold, a **Show flagged spikes** checkbox to preview which points
+the current settings would flag, and per-component frame exclusion,
+each in their own dock.
 
 ## Background subtraction + edge window
 

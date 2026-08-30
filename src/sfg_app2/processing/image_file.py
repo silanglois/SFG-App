@@ -7,7 +7,8 @@ from scipy.ndimage import median_filter
 
 
 class UnrecognizedImageFormatError(ValueError):
-    """Raised when a file matches none of the known CCD image CSV formats."""
+    """Raised when a file matches none of the known CCD image formats
+    (CSV grid layouts, or a malformed/unrecognized `.spe` file)."""
 
 
 class CCDImage:
@@ -63,7 +64,8 @@ def _parse_indexed_grid(path: Path) -> CCDImage:
 
 # Tried in order; the first parser that doesn't raise wins. Add future
 # image CSV formats as additional functions here — nothing else needs
-# to change.
+# to change. (Binary formats like `.spe` are dispatched separately, by
+# extension, in load_image_csv() below, before this list is ever tried.)
 _FORMAT_PARSERS = [_parse_indexed_grid]
 
 
@@ -82,6 +84,9 @@ def find_brightest_region(data: np.ndarray, median_size: int = 3) -> tuple[int, 
 
 
 def load_image_csv(path: str | Path) -> CCDImage:
+    """Loads a CCD image file -- a `.spe` (Princeton Instruments
+    LightField) binary file, dispatched by extension, or one of the
+    recognized CSV grid formats in _FORMAT_PARSERS."""
     path = Path(path)
     if path.suffix.lower() == ".spe":
         # Binary format -- dispatch straight to its own parser instead of

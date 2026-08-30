@@ -40,10 +40,12 @@ knowing them up front:
   opened (raw-file previews from Load/Match, CCD image viewers) so
   you can jump back to one instead of hunting for it, or close them
   all at once.
-- **The Preferences menu** is where all of the app's global settings
-  live — metadata patterns, auto-matching rules, plotting style,
-  filename color-coding, and light/dark/system appearance. See
-  **Settings & Preferences** in this guide for details on each.
+- **The Preferences menu** is organized into submenus by workflow —
+  **Load / Match** (metadata patterns, auto-matching, filename
+  color-coding), **Plotting** (plotting style), **Fitting**
+  (parameter-table coloring), and **Appearance** (light/dark/system
+  theme). See **Settings & Preferences** in this guide for details on
+  each.
 - **Debounced auto-updates.** In the processing panels, editing a
   parameter doesn't require an explicit "apply" click for most
   things — the plot updates automatically a short moment after you

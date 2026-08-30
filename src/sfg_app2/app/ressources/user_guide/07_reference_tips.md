@@ -62,10 +62,12 @@ up at once.
 
 ## Loading a CCD image directly
 
-**File → Load image...** opens a CCD image CSV in its own floating
-image window, entirely independent of the spectral matching/
-processing pipeline — useful for a quick look at a raw camera frame
-without it needing to be part of a matched set.
+**File → Load image...** opens a CCD image — a CSV grid, or a
+Princeton Instruments LightField `.spe` file (its own per-pixel
+wavelength calibration is used for the column axis when present) — in
+its own floating image window, entirely independent of the spectral
+matching/processing pipeline — useful for a quick look at a raw camera
+frame without it needing to be part of a matched set.
 
 ## CSV export & provenance
 

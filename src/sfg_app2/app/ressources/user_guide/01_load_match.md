@@ -15,8 +15,9 @@ Use the **File** menu:
   loading a new folder replaces the files from any previously loaded
   folder. Turn it on to accumulate files from several folders at
   once.
-- **Load image...** — loads a CCD image CSV independently of the
-  spectral pipeline, opened in its own floating image window (see
+- **Load image...** — loads a CCD image (CSV, or a Princeton
+  Instruments LightField `.spe` file) independently of the spectral
+  pipeline, opened in its own floating image window (see
   **Reference & Tips**).
 - **Ignore files...** — permanently excludes specific file
   paths from loading, and removes any already-loaded matches that
