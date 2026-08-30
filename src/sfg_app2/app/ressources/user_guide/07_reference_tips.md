@@ -43,6 +43,71 @@ line should show a gap, so the data reads correctly no matter which
 convention you display it in. There's no global setting for this;
 it's chosen per open panel.
 
+## Where the heterodyne error bars ("95% CI") actually come from
+
+The HD-SFG Normalization step's **Show errors** checkbox (and the
+Spectra Library's error bands for heterodyne entries) come from a
+per-frame re-analysis, not an analytic noise-propagation formula: each
+raw acquisition frame is pushed independently through the exact same
+background subtraction, edge window, FFT filter, and reference used to
+produce the main result, and at every wavenumber point, how much those
+frames *disagree* with each other becomes the error estimate. No
+assumptions about shot noise or detector characteristics are needed —
+it's a direct empirical measure of how reproducible the measurement
+actually was.
+
+Concretely, the half-width shown is `1.96 × std(across frames) / √n` —
+a 95% confidence interval on the mean, under the normal approximation.
+Two caveats worth knowing:
+- It uses a **fixed z = 1.96** rather than a proper small-sample
+  Student-t critical value. That's only exactly right as the frame
+  count grows large; with only a handful of frames (common in SFG —
+  say 3–10), the true 95% critical value is meaningfully bigger (e.g.
+  ≈4.30 for 3 frames, ≈2.78 for 5), so the displayed band is somewhat
+  **narrower than a rigorous 95% CI** would be at low frame counts.
+- It measures spread using NumPy's default (`ddof=0`, dividing by N)
+  rather than the Bessel-corrected sample standard deviation
+  (`ddof=1`, dividing by N−1) — a small further underestimate,
+  more noticeable at low N.
+- It only captures **signal**-frame-to-frame variability — the
+  reference, background, and reference background are never tracked
+  per-frame (only ever averaged once), so the true total uncertainty
+  is understated to whatever extent those also fluctuate frame to
+  frame.
+
+**Why Real/Imaginary have one unambiguous value, but Phase and
+|χ⁽²⁾|² needed a deliberate choice:** every step of the pipeline up to
+normalization (interpolation, smoothing, background subtraction,
+windowing, FFT/mask/iFFT, dividing by the reference) is linear, so
+"average the raw frames, then run the pipeline once" and "run the
+pipeline on each frame, then average the results" arrive at exactly
+the same complex χ⁽²⁾ — not just approximately, mathematically
+identical. Phase and homodyne intensity (|χ|²), though, are *nonlinear*
+functions of χ, so those two orders of operation genuinely disagree —
+and one of them is measurably wrong: averaging each frame's own
+|χ|² **systematically overestimates** the true intensity (a basic
+statistical fact — for any noisy quantity, the average of the
+squared-magnitudes is always ≥ the squared-magnitude of the average,
+with equality only when there's zero frame-to-frame noise). Averaging
+each frame's own phase angle directly is also risky, independent of
+that bias — it can distort badly if frames scatter across the ±180°
+seam. SFG-App avoids both problems by always deriving phase and
+homodyne intensity from the single, coherently-averaged χ⁽²⁾ (never
+by averaging per-frame phase/intensity values separately) — the error
+bars still come from the per-frame spread, they just don't change
+which central value is displayed.
+
+**A quick glossary**, since "error"/"CI"/"uncertainty" mean genuinely
+different things in different corners of this app:
+
+| Where | What it actually is |
+|---|---|
+| Heterodyne "Show errors" (this section) | Empirical 95% CI from per-frame spread, pre-fit — describes measurement reproducibility. |
+| Homodyne's "Measurement error (SEM)" fit weighting | A plain standard error of the mean (`std/√n`, **no** 1.96 factor, despite the similar name) from `average_spectrum()`'s per-wavelength frame statistics — and that std uses the *opposite* convention (`ddof=1`) from the heterodyne CI above. |
+| Fitting tab's parameter-table "Value ± stderr" | Always shown after **Run fit** — `lmfit`'s asymptotic covariance-matrix estimate. Post-fit: describes how uncertain a *fitted parameter* is, unrelated to either measurement-spread quantity above. |
+| "Compute confidence intervals" | `lmfit`'s profile-likelihood method — reports **three** confidence levels by default (≈68.3%/95.4%/99.7%, i.e. 1/2/3-σ), not a single 95% figure. More rigorous and more expensive than the stderr shown by default. |
+| Multi-fit results' trend-plot error bars | The same parameter `stderr` as above, just plotted across a batch of independent fits. |
+
 ## Dockable panels & the View menu
 
 Most tabs are built from several independent dock panels (parameter

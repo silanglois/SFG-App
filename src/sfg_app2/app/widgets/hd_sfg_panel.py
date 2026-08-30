@@ -1107,8 +1107,7 @@ class HDSFGPanel(QWidget, DockablePlotPanel):
         Lines are created once and stored in self._norm_lines.
         """
         import numpy as np
-        wn      = data.wavenumber
-        use_avg = data.n_frames > 1
+        wn       = data.wavenumber
         show_err = self._cb_errors.isChecked()
 
         # ── First call: create all lines ─────────────────────────────────────────
@@ -1146,17 +1145,17 @@ class HDSFGPanel(QWidget, DockablePlotPanel):
         ax = self.plot_widget.ax
 
         # imaginary
-        y_imag = data.complex_chi_avg.imag if use_avg else data.complex_chi.imag
+        y_imag = data.complex_chi.imag
         self._norm_lines["imag"].set_ydata(y_imag)
         self._norm_lines["imag"].set_visible(self._cb_imag.isChecked())
 
         # real
-        y_real = data.complex_chi_avg.real if use_avg else data.complex_chi.real
+        y_real = data.complex_chi.real
         self._norm_lines["real"].set_ydata(y_real)
         self._norm_lines["real"].set_visible(self._cb_real.isChecked())
 
         # homodyne — scaled to Im/Re amplitude
-        y_homo = data.homodyne_avg if use_avg else data.homodyne
+        y_homo = data.homodyne
         ref_amp = max(
             np.abs(y_imag).max() if self._cb_imag.isChecked() else 0.0,
             np.abs(y_real).max() if self._cb_real.isChecked() else 0.0,
@@ -1168,7 +1167,7 @@ class HDSFGPanel(QWidget, DockablePlotPanel):
         self._norm_lines["homo"].set_visible(self._cb_homodyne.isChecked())
 
         # phase
-        y_phase = data.phase_avg if use_avg else data.phase
+        y_phase = data.phase
         y_phase = wrap_phase_for_plot(
             y_phase, self._phase_range_combo.currentData() == "0to360"
         )
@@ -1183,7 +1182,7 @@ class HDSFGPanel(QWidget, DockablePlotPanel):
         for coll in self._norm_ax2.collections[:]:
             coll.remove()
 
-        if show_err and use_avg:
+        if show_err and data.n_frames > 1:
             if self._cb_imag.isChecked():
                 ax.fill_between(wn, y_imag - data.imag_err,
                                 y_imag + data.imag_err, alpha=0.3,

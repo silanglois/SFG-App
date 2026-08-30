@@ -71,10 +71,19 @@ and line style.
   Measurement error (SEM). For heterodyne: None or Measurement error
   (95% CI, per channel) — there's no statistical option here, since
   shot-noise weighting doesn't apply to signed real/imaginary values.
+  Despite the similar names, homodyne's "SEM" and heterodyne's "95% CI"
+  are computed differently (one's a plain standard error, the other's
+  1.96× that) — see the error/uncertainty glossary in
+  **Reference & Tips** if you want the exact formulas.
 - **Run fit** — runs the optimization; a quality readout summarizes
   the result.
 - **Compute confidence intervals** — a separate, more expensive step
-  for rigorous parameter uncertainty.
+  for rigorous parameter uncertainty, using `lmfit`'s profile-likelihood
+  method rather than the covariance-based "Value ± stderr" already
+  shown in the parameter table above. Reports **three** confidence
+  levels at once (≈68.3%/95.4%/99.7%, i.e. 1/2/3-σ), not a single 95%
+  figure — see **Reference & Tips** for how this compares to the
+  other "error"-labeled things in the app.
 - **Fit templates** — save the current model (lineshapes, peaks,
   constraints) as a named, reusable preset, and apply saved templates
   to new spectra later.
