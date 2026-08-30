@@ -27,13 +27,30 @@ internally as the Python package/distribution name (`sfg_app2` /
 - Customizable metadata patterns, auto-matching rules, plotting styles,
   and filename color-coding.
 
+## Download
+
+Grab the latest installer (or a portable ZIP, if you'd rather not
+install anything) from the
+[Releases page](https://github.com/silanglois/SFG-App/releases/latest) —
+no Python or Git required. Run `SFG-App-Setup-*.exe` and follow the
+wizard, or unzip the portable build and run `SFG-App.exe` directly.
+
+Windows will likely show a "Windows protected your PC" SmartScreen
+warning the first time you run either one, since the app isn't
+code-signed — click **More info → Run anyway** to proceed; this is
+expected and not a sign anything is wrong.
+
+The rest of this section covers running the app **from source**
+instead (for development, or on macOS/Linux) — most users should just
+use the installer above.
+
 ## Requirements
 
 - Python 3.14
 - [uv](https://docs.astral.sh/uv/) (recommended — this repo is uv-managed:
   `uv.lock` + `uv_build` backend)
 
-## Installation & running
+## Running from source
 
 This app is managed with **[uv](https://docs.astral.sh/uv/)**, a tool that
 automatically installs the right version of Python and all required
@@ -161,6 +178,20 @@ distribute it; `SFG-App.exe` inside it depends on the rest of the
 folder's contents. If `icon.svg` is ever changed,
 `packaging/icon.ico` needs regenerating first: `uv run --group dev
 python packaging/build_icon.py`.
+
+To build the installer locally instead of waiting on CI, install
+[Inno Setup 6](https://jrsoftware.org/isinfo.php), then run:
+
+```bash
+iscc /DMyAppVersion=X.Y.Z packaging\sfg-app.iss
+```
+
+The installer appears in `packaging/installer_output/`. In practice
+this happens automatically: pushing a `vX.Y.Z` tag triggers
+`.github/workflows/release.yml`, which builds the exe, packages both
+the installer and a portable ZIP, and publishes them to a
+[GitHub Release](https://github.com/silanglois/SFG-App/releases) —
+see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Documentation
 
