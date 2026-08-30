@@ -1,7 +1,8 @@
 # Settings & Preferences
 
-Everything global lives under the **Preferences** menu, plus an
-**Appearance** submenu for light/dark/system theme.
+Everything global lives under the **Preferences** menu, organized into
+four submenus: **Load / Match**, **Plotting**, **Fitting**, and
+**Appearance**.
 
 ## Metadata patterns
 
@@ -32,6 +33,20 @@ actually uses). Each profile configures:
 - Rules that force homodyne vs. heterodyne classification based on
   filename or metadata.
 
+## Filename color-coding
+
+Optionally colors filenames in the Load/Match file list and/or match
+table, to make it easier to visually group related files. Modes:
+
+- **Single field** — one metadata field's distinct values get
+  distinct colors.
+- **Multiple fields** — pick several fields via a checklist.
+- **Role** — a fixed two-color split between signal and background
+  files.
+
+A separate **Apply to** control scopes coloring to the file list, the
+match table, or both.
+
 ## Plotting settings
 
 Pick a global matplotlib/aquarel plotting style — built-in aquarel
@@ -53,19 +68,15 @@ or from matplotlib's defaults, and the result is saved for reuse (and
 shows up in the Plotting Settings dropdown alongside the built-in
 styles).
 
-## Filename color-coding
+## Fitting
 
-Optionally colors filenames in the Load/Match file list and/or match
-table, to make it easier to visually group related files. Modes:
-
-- **Single field** — one metadata field's distinct values get
-  distinct colors.
-- **Multiple fields** — pick several fields via a checklist.
-- **Role** — a fixed two-color split between signal and background
-  files.
-
-A separate **Apply to** control scopes coloring to the file list, the
-match table, or both.
+- **Color parameter table by peak** — off by default. When enabled,
+  every row belonging to the same peak in the Fitting tab's parameter
+  and peak tables is tinted with that peak's color, making it easier
+  to tell at a glance which rows belong together once a model has
+  several peaks. The color matches whatever you've explicitly picked
+  for that peak in the Display dock, if anything; otherwise it falls
+  back to a stable, automatically-assigned color.
 
 ## Appearance (Light / Dark / System)
 

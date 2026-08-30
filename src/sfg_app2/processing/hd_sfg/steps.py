@@ -83,6 +83,17 @@ class FFTFilterData:
 # ── Internal helpers ──────────────────────────────────────────────────────────
 
 def _to_wavenumber(wavelength_nm: np.ndarray, upconversion_nm: float) -> np.ndarray:
+    bad = wavelength_nm <= 0
+    if bad.any():
+        # Same reasoning as ProcessedSpectrum.upconvert_to_wavenumber(): this
+        # becomes the x-axis grid for CubicSpline right after, which requires
+        # finite values -- a NaN here would just relocate the crash into a
+        # much more confusing one, so raise clearly instead.
+        raise ValueError(
+            f"{int(bad.sum())} wavelength value(s) are zero or negative "
+            "(physically invalid) -- can't convert to wavenumber. This "
+            "usually means the source file's data is corrupt."
+        )
     return (1e7 / wavelength_nm) - (1e7 / upconversion_nm)
 
 
@@ -125,7 +136,20 @@ def _normalize_chi(sig_ifft: np.ndarray,
                    phase_corr_deg: float) -> np.ndarray:
     phi = np.deg2rad(phase_corr_deg)
     phase_factor = 1j * (np.cos(phi) + 1j * np.sin(phi))
-    return (sig_ifft / ref_ifft) * (ref_exp / sample_exp) * phase_factor
+
+    zero_mask = ref_ifft == 0
+    if zero_mask.any():
+        logger.warning(
+            "Reference iFFT is exactly zero at %d of %d point(s) (often from "
+            "the FFT filter window zeroing that band); normalized chi is set "
+            "to NaN there instead of diverging to infinity.",
+            int(zero_mask.sum()), len(zero_mask),
+        )
+    with np.errstate(divide="ignore", invalid="ignore"):
+        chi = (sig_ifft / ref_ifft) * (ref_exp / sample_exp) * phase_factor
+    if zero_mask.any():
+        chi = np.where(zero_mask, np.nan + 1j * np.nan, chi)
+    return chi
 
 
 # ── Step functions ────────────────────────────────────────────────────────────

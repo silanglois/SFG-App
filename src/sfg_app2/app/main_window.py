@@ -12,6 +12,7 @@ from sfg_app2.app.utils.matching_settings import MatchingProfileManager
 from sfg_app2.app.utils.color_coding_settings import ColorCodingSettings
 from sfg_app2.app.utils.dock_layout_settings import DockLayoutSettings
 from sfg_app2.app.utils.appearance_settings import AppearanceSettings, THEMES
+from sfg_app2.app.utils.fitting_display_settings import FittingDisplaySettings
 from sfg_app2.app.widgets.image_window import ImageWindow
 from sfg_app2.processing.image_file import load_image_csv, UnrecognizedImageFormatError
 
@@ -34,12 +35,14 @@ class MainWindow(QMainWindow):
         self.color_coding_settings = ColorCodingSettings()
         self.appearance_settings = AppearanceSettings()
         self.dock_layout_settings = DockLayoutSettings()
+        self.fitting_display_settings = FittingDisplaySettings()
         self._ignored_paths: set[Path] = set()  # resolved absolute paths
         self._image_windows: list = []
         self._user_guide_dialog = None
 
         self._init_tabs()
         self._connect_menu()
+        self._build_preferences_menu()
         self._build_appearance_menu()
         self._build_view_menu()
         self._build_window_menu()
@@ -80,6 +83,7 @@ class MainWindow(QMainWindow):
         self.fitting_tab = FittingTab()
         self.fitting_tab.restore_dock_state(self.dock_layout_settings.get("fitting"))
         self.fitting_tab.set_results_provider(self.processed_results_tab)
+        self.fitting_tab.set_display_settings(self.fitting_display_settings)
         self._replace_tab(3, self.fitting_tab, "Fitting")
 
     def _replace_tab(self, index: int, widget, label: str):
@@ -132,9 +136,57 @@ class MainWindow(QMainWindow):
         self.ui.actionUse_metadata_patterns.setChecked(True)
         self.ui.actionLoad_from_multiple_folders.setChecked(False)
 
+    def _build_preferences_menu(self):
+        """Regroups the flat Preferences menu into per-workflow submenus.
+        Done at runtime (like _build_appearance_menu below) rather than by
+        editing main_window.ui/ui_main_window.py -- the existing QAction
+        objects are owned by self (constructed as QAction(MainWindow) in
+        the .ui file), not by menuPreferences, so clear()+re-add doesn't
+        lose or recreate any of them."""
+        menu = self.ui.menuPreferences
+        menu.clear()
+
+        load_match_menu = menu.addMenu("Load / Match")
+        load_match_menu.addAction(self.ui.actionSet_metadata_patterns)
+        load_match_menu.addAction(self.ui.actionUse_metadata_patterns)
+        load_match_menu.addSeparator()
+        load_match_menu.addAction(self.ui.actionSet_auto_matching_parameters)
+        load_match_menu.addAction(self.ui.actionSet_color_coding)
+
+        plotting_menu = menu.addMenu("Plotting")
+        plotting_menu.addAction(self.ui.actionSet_plotting_settings)
+
+        fitting_menu = menu.addMenu("Fitting")
+        self._fitting_color_by_peak_action = QAction(
+            "Color parameter table by peak", self, checkable=True
+        )
+        self._fitting_color_by_peak_action.setChecked(
+            self.fitting_display_settings.color_parameter_table_by_peak
+        )
+        self._fitting_color_by_peak_action.triggered.connect(
+            self._on_toggle_fitting_peak_coloring
+        )
+        fitting_menu.addAction(self._fitting_color_by_peak_action)
+
+    def _on_toggle_fitting_peak_coloring(self, checked: bool):
+        self.fitting_display_settings.color_parameter_table_by_peak = checked
+        if not self.fitting_display_settings.save():
+            QMessageBox.warning(
+                self, "Couldn't save preference",
+                "The setting could not be saved to disk. It will apply for this "
+                "session but won't persist.",
+            )
+        self.fitting_tab.refresh_peak_coloring()
+        self.statusBar().showMessage(
+            f"Parameter table peak-coloring {'enabled' if checked else 'disabled'}."
+        )
+
     def _build_appearance_menu(self):
         """Adds a Preferences -> Appearance submenu with mutually-exclusive
-        Light/Dark/System actions, checked to match the persisted setting."""
+        Light/Dark/System actions, checked to match the persisted setting.
+        Appended after _build_preferences_menu's submenus -- stays its own
+        top-level entry (not nested in Plotting) since it's broader than
+        plot styling."""
         self.ui.menuPreferences.addSeparator()
         appearance_menu = self.ui.menuPreferences.addMenu("Appearance")
         group = QActionGroup(self)
@@ -256,7 +308,8 @@ class MainWindow(QMainWindow):
 
     def _on_load_image(self):
         path, _ = QFileDialog.getOpenFileName(
-            self, "Load CCD image", "", "CSV files (*.csv);;All files (*.*)",
+            self, "Load CCD image", "",
+            "CSV/SPE files (*.csv *.spe);;CSV files (*.csv);;SPE files (*.spe);;All files (*.*)",
         )
         if not path:
             return

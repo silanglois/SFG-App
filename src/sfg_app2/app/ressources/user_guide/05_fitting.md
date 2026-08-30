@@ -24,7 +24,11 @@ peak**: it's a checkable button, so clicking it "arms" placement mode
 (the button stays visibly pressed while armed) rather than adding a
 peak immediately. With it armed, click anywhere on the plot to drop a
 new peak centered at that x-position; right-click cancels placement
-without adding one. Repeat for as many peaks as you need, switching
+without adding one. The initial amplitude/width guess is estimated
+from the data itself around the clicked point (not a fixed default),
+so a fit is more likely to converge without manual adjustment first.
+Hold **Ctrl** while clicking to seed a negative amplitude instead of
+positive. Repeat for as many peaks as you need, switching
 the lineshape dropdown between clicks if you want a mix of
 lineshapes across peaks. An **Include non-resonant background**
 checkbox is on by default. The peak table lists every current peak
@@ -39,6 +43,10 @@ An editable table with one row per parameter across the non-resonant
 term and every peak — label, value, error, min/max bounds, a
 **fixed** checkbox, and an **expr** field for writing lmfit
 expression constraints between parameters.
+
+Rows can optionally be tinted by which peak they belong to — enable
+**Preferences → Fitting → Color parameter table by peak** (off by
+default; see **Settings & Preferences**).
 
 ## 4. Display
 
@@ -56,7 +64,9 @@ and line style.
   Zooming in or out never changes what gets fit, and moving the Fit
   range spinboxes never moves the view; if a fit looks like it's
   ignoring part of your data, check these spinboxes rather than the
-  zoom level.
+  zoom level. A **Set range to current view** button next to the
+  spinboxes copies the plot's current zoomed x-axis into the fit range
+  in one click, if you'd rather not type the bounds by hand.
 - **Weighting** — for homodyne: None, Statistical (1/√intensity), or
   Measurement error (SEM). For heterodyne: None or Measurement error
   (95% CI, per channel) — there's no statistical option here, since

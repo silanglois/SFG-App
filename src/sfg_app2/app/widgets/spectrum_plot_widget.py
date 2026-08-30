@@ -158,13 +158,16 @@ class SpectrumPlotWidget(QWidget):
         return self.ax2
 
     def set_x_range(self, x_min: float, x_max: float):
-        """Programmatically set the x range (e.g. from calibration dialog)."""
+        """Programmatically set the x range (e.g. from calibration dialog).
+        Marks the range as initialized so get_x_range() reflects it
+        immediately afterward, same as a manual edit or plot() would."""
         self._x_min_spin.blockSignals(True)
         self._x_max_spin.blockSignals(True)
         self._x_min_spin.setValue(x_min)
         self._x_max_spin.setValue(x_max)
         self._x_min_spin.blockSignals(False)
         self._x_max_spin.blockSignals(False)
+        self._x_range_initialized = True
         self._apply_x_range()
 
     def sync_x_range(self):
@@ -258,7 +261,12 @@ class SpectrumPlotWidget(QWidget):
         if not all_x:
             return None
 
-        rng = (float(np.nanmin(all_x)), float(np.nanmax(all_x)))
+        finite_x = np.asarray(all_x, dtype=float)
+        finite_x = finite_x[np.isfinite(finite_x)]
+        if not len(finite_x):
+            return None   # everything plotted is NaN/Inf -- nothing finite to range over
+
+        rng = (float(finite_x.min()), float(finite_x.max()))
         self._x_full_range = rng
         return rng
 
@@ -313,6 +321,28 @@ class SpectrumPlotWidget(QWidget):
         self._apply_x_range()
         self.xRangeEdited.emit()
 
+    def finalize_initial_range(self):
+        """Force a fresh full-range computation/apply, ignoring the
+        one-shot `_x_range_initialized` guard that `plot()` normally
+        respects. Call this once *after* plotting a whole batch of
+        series (e.g. multiple selected files in one PlotWindow) rather
+        than relying on the per-`plot()`-call auto-range, which only
+        ever sees whatever's on the axes at that single moment — i.e.
+        just the first series in a batch, not the union of all of them.
+        """
+        rng = self._compute_full_range()
+        if rng is None:
+            return
+        x_min, x_max = rng
+        self._x_min_spin.blockSignals(True)
+        self._x_max_spin.blockSignals(True)
+        self._x_min_spin.setValue(x_min)
+        self._x_max_spin.setValue(x_max)
+        self._x_min_spin.blockSignals(False)
+        self._x_max_spin.blockSignals(False)
+        self._x_range_initialized = True
+        self._apply_x_range()
+
     def get_x_range(self) -> tuple[float, float] | None:
         """The currently visible x-range, or None if nothing's been plotted yet."""
         if not (self._x_range_initialized or self._x_range_locked):
@@ -348,8 +378,12 @@ class SpectrumPlotWidget(QWidget):
                 y_vals_by_ax[ax] = y_for_ax
 
         for ax, y_vals in y_vals_by_ax.items():
-            y_min = float(np.nanmin(y_vals))
-            y_max = float(np.nanmax(y_vals))
+            finite_y = np.asarray(y_vals, dtype=float)
+            finite_y = finite_y[np.isfinite(finite_y)]
+            if not len(finite_y):
+                continue   # nothing finite in the visible range -- leave limits as they are
+            y_min = float(finite_y.min())
+            y_max = float(finite_y.max())
             margin = (y_max - y_min) * 0.05 if y_max != y_min else 1.0
             ax.set_ylim(y_min - margin, y_max + margin)
 

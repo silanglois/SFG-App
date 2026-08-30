@@ -5,8 +5,15 @@ def remove_outliers_movmedian(
     values: np.ndarray,
     window: int,
     threshold_factor: float = 500.0,
-) -> np.ndarray:
-    """Python equivalent of MATLAB's filloutliers(..., "linear", "movmedian", window, ThresholdFactor=tf)."""
+    return_mask: bool = False,
+):
+    """Python equivalent of MATLAB's filloutliers(..., "linear", "movmedian", window, ThresholdFactor=tf).
+
+    If `return_mask` is True, also returns the boolean array of points
+    that were flagged as outliers (before interpolation) -- for
+    previewing which points would be removed, without changing the
+    return shape for existing callers.
+    """
     s = pd.Series(values)
 
     local_median = s.rolling(window, center=True, min_periods=1).median()
@@ -19,4 +26,6 @@ def remove_outliers_movmedian(
     cleaned[is_outlier] = np.nan
     cleaned = cleaned.interpolate(method="linear", limit_direction="both")
 
+    if return_mask:
+        return cleaned.to_numpy(), is_outlier.to_numpy()
     return cleaned.to_numpy()
