@@ -81,11 +81,18 @@ def _make_splash_pixmap() -> QPixmap:
     pixmap = QPixmap(420, 260)
     pixmap.fill(QColor("#2b2b2b"))
     painter = QPainter(pixmap)
+
+    icon_size = 120
+    icon_top = 28
+    icon_pixmap = render_svg_pixmap(_ICON_PATH, icon_size)
+    painter.drawPixmap((pixmap.width() - icon_size) // 2, icon_top, icon_pixmap)
+
     painter.setPen(QColor("#f0f0f0"))
     font = painter.font()
     font.setPointSize(18)
     painter.setFont(font)
-    painter.drawText(pixmap.rect(), Qt.AlignmentFlag.AlignCenter, "SFG-App")
+    text_rect = pixmap.rect().adjusted(0, icon_top + icon_size + 12, 0, 0)
+    painter.drawText(text_rect, Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop, "SFG-App")
     painter.end()
     return pixmap
 
