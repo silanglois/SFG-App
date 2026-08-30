@@ -1,0 +1,58 @@
+name: Release
+
+# Builds the exe, packages it as both an Inno Setup installer and a
+# portable ZIP, and publishes both to a GitHub Release -- fires only
+# for pushed version tags (v1.0.0, v1.0.0-test1, etc.), never on every
+# commit.
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install dependencies
+        run: uv sync --group dev
+
+      - name: Build executable
+        run: uv run pyinstaller packaging/sfg-app.spec
+
+      - name: Determine version from tag
+        id: version
+        shell: bash
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" `
+            "/DMyAppVersion=${{ steps.version.outputs.version }}" `
+            packaging\sfg-app.iss
+
+      - name: Zip portable build
+        shell: pwsh
+        run: Compress-Archive -Path "dist\SFG-App\*" -DestinationPath "SFG-App-${{ steps.version.outputs.version }}-portable.zip"
+
+      - name: Publish GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            "packaging/installer_output/SFG-App-Setup-${{ steps.version.outputs.version }}.exe" \
+            "SFG-App-${{ steps.version.outputs.version }}-portable.zip" \
+            --title "SFG-App ${{ github.ref_name }}" \
+            --generate-notes

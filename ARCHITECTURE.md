@@ -40,6 +40,7 @@
 - Preferences menu is organized into per-workflow submenus (Load/Match, Plotting, Fitting, Appearance) built at runtime in `main_window.py`'s `_build_preferences_menu`/`_build_appearance_menu`
 - Fitting tab's parameter/peak tables can optionally be tinted by peak (`app/utils/fitting_display_settings.py`, off by default)
 - Homodyne/heterodyne despike docks can preview which points current settings would flag as spikes, without altering the pipeline (`DataFile.flag_cosmic_rays`)
+- Releases are built by CI: pushing a `vX.Y.Z` tag triggers `.github/workflows/release.yml`, which builds the exe (`packaging/sfg-app.spec`), packages it as both an Inno Setup installer (`packaging/sfg-app.iss`) and a portable ZIP, and publishes both to a GitHub Release
 
 ## Known patterns
 - All plots use `SpectrumPlotWidget`: x-range spinboxes, per-x-domain zoom memory, and y-autoscaling restricted to the currently-visible x-range
