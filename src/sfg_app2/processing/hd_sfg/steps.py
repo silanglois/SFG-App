@@ -308,16 +308,26 @@ def step_normalize(
     fft_data: FFTFilterData,
     config: HDSFGConfig,
 ) -> "HDSFGResult":
-    """Step 5 — normalize sample by reference, compute per-frame statistics."""
+    """Step 5 — normalize sample by reference, compute per-frame statistics.
+
+    complex_chi is computed from the per-frame mean rather than also
+    computing a separate "normalize the once-averaged signal" version --
+    every step upstream (interpolation, smoothing, background
+    subtraction, windowing, FFT/mask/iFFT, and normalization by the
+    fixed reference) is linear, so those two are mathematically
+    identical anyway (averaging commutes through every linear step).
+    Phase and homodyne intensity are NONLINEAR functions of chi, so
+    they're always derived from that same single averaged chi -- never
+    by averaging each frame's own phase/intensity, which would be a
+    systematically biased-high estimator for homodyne intensity
+    (E[|X|^2] >= |E[X]|^2, Jensen's inequality) and wraparound-prone
+    for phase. Only the *spread* across frames (the error bars) needs
+    the per-frame decomposition.
+    """
     from .result import HDSFGResult
 
-    chi_from_avg = _normalize_chi(
-        fft_data.sig_ifft, fft_data.ref_ifft,
-        config.sample_exposure, config.reference_exposure,
-        config.phase_correction_deg,
-    )
-
-    # per-frame normalization for error statistics
+    # per-frame normalization -- both the point estimate and the error
+    # statistics come from this one decomposition
     per_frame = [
         _normalize_chi(
             f, fft_data.ref_ifft,
@@ -330,34 +340,29 @@ def step_normalize(
     n_frames = len(per_frame)
     stack = np.array(per_frame)
     chi_avg = stack.mean(axis=0)
+    phase = _phase_degrees(chi_avg)
+    homodyne = chi_avg.real**2 + chi_avg.imag**2
 
     if n_frames > 1:
         factor    = 1.96 / np.sqrt(n_frames)
         real_err  = stack.real.std(axis=0) * factor
         imag_err  = stack.imag.std(axis=0) * factor
         phases    = np.array([_phase_degrees(f) for f in per_frame])
-        homodyne  = np.array([f.real**2 + f.imag**2 for f in per_frame])
-        phase_avg = phases.mean(axis=0)
-        phase_err = phases.std(axis=0) * factor
-        homo_avg  = homodyne.mean(axis=0)
-        homo_err  = homodyne.std(axis=0) * factor
+        homodyne_per_frame = np.array([f.real**2 + f.imag**2 for f in per_frame])
+        phase_err    = phases.std(axis=0) * factor
+        homodyne_err = homodyne_per_frame.std(axis=0) * factor
     else:
-        zeros     = np.zeros(len(fft_data.wavenumber))
-        real_err  = imag_err = phase_err = homo_err = zeros
-        phase_avg = _phase_degrees(chi_avg)
-        homo_avg  = chi_avg.real**2 + chi_avg.imag**2
+        zeros = np.zeros(len(fft_data.wavenumber))
+        real_err = imag_err = phase_err = homodyne_err = zeros
 
     return HDSFGResult(
-        wavenumber      = fft_data.wavenumber,
-        complex_chi     = chi_from_avg,
-        phase           = _phase_degrees(chi_from_avg),
-        homodyne        = chi_from_avg.real**2 + chi_from_avg.imag**2,
-        complex_chi_avg = chi_avg,
-        real_err        = real_err,
-        imag_err        = imag_err,
-        phase_avg       = phase_avg,
-        phase_err       = phase_err,
-        homodyne_avg    = homo_avg,
-        homodyne_err    = homo_err,
-        n_frames        = n_frames,
+        wavenumber   = fft_data.wavenumber,
+        complex_chi  = chi_avg,
+        phase        = phase,
+        homodyne     = homodyne,
+        real_err     = real_err,
+        imag_err     = imag_err,
+        phase_err    = phase_err,
+        homodyne_err = homodyne_err,
+        n_frames     = n_frames,
     )

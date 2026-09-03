@@ -74,16 +74,23 @@ class FitParam:
     min: float = -np.inf
     max: float = np.inf
     expr: str | None = None
+    # Batch-fit only (see fit_global_batch): when True, this parameter
+    # is optimized as one value shared across every spectrum in a batch
+    # run, rather than independently per spectrum. Ignored everywhere
+    # else (single-spectrum "Run fit", Sequential fit).
+    shared: bool = False
 
     def to_dict(self) -> dict:
         return {"value": self.value, "vary": self.vary,
-                "min": self.min, "max": self.max, "expr": self.expr}
+                "min": self.min, "max": self.max, "expr": self.expr,
+                "shared": self.shared}
 
     @staticmethod
     def from_dict(d: dict) -> "FitParam":
         return FitParam(
             value=d["value"], vary=d.get("vary", True),
             min=d.get("min", -np.inf), max=d.get("max", np.inf), expr=d.get("expr"),
+            shared=d.get("shared", False),
         )
 
 
@@ -240,7 +247,16 @@ def build_homodyne_params(spec: FitModelSpec) -> lmfit.Parameters:
     return params
 
 
-def _chi_eff(omega: np.ndarray, params: lmfit.Parameters, spec: FitModelSpec) -> np.ndarray:
+def _chi_eff(omega: np.ndarray, params: lmfit.Parameters, spec: FitModelSpec,
+             key_fn: Callable[[str], str] = lambda k: k) -> np.ndarray:
+    """`key_fn` maps a *local* parameter key ("nr_amplitude", "p0_center",
+    ...) to the actual name to look up in `params` -- defaults to the
+    identity, i.e. `params` uses the local keys directly, exactly as
+    build_homodyne_params() produces them. fit_global_batch() is the one
+    caller that passes something else: there, `params` is one shared
+    lmfit.Parameters covering every dataset in a batch, so each dataset's
+    local keys are looked up under a per-dataset-prefixed (or, for a
+    shared parameter, unprefixed/common) name instead."""
     omega = np.asarray(omega, dtype=float)
     p = params.valuesdict()
     # np.full (not a bare scalar multiply) so chi always has omega's shape,
@@ -248,11 +264,11 @@ def _chi_eff(omega: np.ndarray, params: lmfit.Parameters, spec: FitModelSpec) ->
     # gets broadcast against omega, and callers that plot/subtract against
     # the full-length data array fail (matplotlib in particular: it does
     # not auto-broadcast a 0-d y against an N-point x).
-    nr = p["nr_amplitude"] * np.exp(1j * p["nr_phase"])
+    nr = p[key_fn("nr_amplitude")] * np.exp(1j * p[key_fn("nr_phase")])
     chi = np.full(omega.shape, nr, dtype=complex)
     for i, peak in enumerate(spec.peaks):
         ls = get_lineshape(peak.lineshape_key)
-        kwargs = {name: p[f"p{i}_{name}"] for name in peak.params}
+        kwargs = {name: p[key_fn(f"p{i}_{name}")] for name in peak.params}
         chi = chi + ls.chi(omega, **kwargs)
     return chi
 
@@ -591,3 +607,209 @@ def fit_independent_batch(datasets: list[BatchDataset], template: FitModelSpec,
         results.append(fit_one_dataset(ds, template, weighting, fit_range))
 
     return results
+
+
+# ── Global (shared-parameter) batch fitting ─────────────────────────────────
+# Phase 2 of "batch fitting" (see the comment above fit_independent_batch):
+# one or more parameters marked FitParam.shared=True are optimized as a
+# single value common to every dataset in the batch, in one simultaneous
+# least-squares problem, rather than independently per dataset. Everything
+# else about the model (peak topology, bounds, non-shared values) stays
+# per-dataset, same as fit_independent_batch. This is lmfit's own
+# documented pattern for global fitting across multiple datasets: one
+# shared lmfit.Parameters object, a residual that concatenates every
+# dataset's own residual, fed to a single Minimizer -- the same
+# concatenation trick fit_heterodyne() already uses across the
+# real/imaginary channels of one spectrum, just extended across datasets.
+
+def _local_params(template: FitModelSpec) -> list[tuple[str, FitParam]]:
+    """(local_key, FitParam) pairs in the same key convention
+    build_homodyne_params()/_chi_eff() use ("nr_amplitude", "p0_center",
+    ...) -- the vocabulary every dataset's parameters are named from,
+    before per-dataset prefixing."""
+    items = [(f"nr_{name}", fp) for name, fp in template.nonresonant.items()]
+    for i, peak in enumerate(template.peaks):
+        items += [(f"p{i}_{name}", fp) for name, fp in peak.params.items()]
+    return items
+
+
+def _dataset_param_name(dataset_index: int, local_key: str, shared: bool) -> str:
+    """Maps a local per-spectrum key to its name in a global batch's one
+    shared lmfit.Parameters: a shared parameter is added once, under its
+    bare local key, so every dataset's residual reads the exact same
+    lmfit Parameter object; a non-shared parameter gets a per-dataset
+    prefix so each dataset keeps its own independent value."""
+    return local_key if shared else f"d{dataset_index}_{local_key}"
+
+
+def build_global_params(datasets: list[BatchDataset], template: FitModelSpec) -> lmfit.Parameters:
+    """One lmfit.Parameters covering every dataset: each FitParam.shared
+    parameter in `template` is added once (common to all datasets); every
+    other parameter is added once per dataset (independent, same as
+    today's per-dataset fits)."""
+    params = lmfit.Parameters()
+    local = _local_params(template)
+    for local_key, fp in local:
+        if fp.shared:
+            params.add(local_key, value=fp.value, vary=fp.vary, min=fp.min, max=fp.max, expr=fp.expr)
+    for i in range(len(datasets)):
+        for local_key, fp in local:
+            if fp.shared:
+                continue
+            params.add(_dataset_param_name(i, local_key, False),
+                        value=fp.value, vary=fp.vary, min=fp.min, max=fp.max, expr=fp.expr)
+    return params
+
+
+@dataclass
+class GlobalFitResult:
+    redchi: float          # over the whole combined residual -- not meaningful per-dataset
+    aic: float
+    bic: float
+    success: bool
+    message: str
+    shared_keys: list[str]         # local keys (e.g. "nr_amplitude") that were fit jointly
+    per_dataset: list["FitResult"]  # one FitResult-shaped view per dataset, same order as `datasets`
+    lmfit_result: object = None
+    lmfit_minimizer: object = None
+
+
+def _unpack_global_result(lmfit_result, template: FitModelSpec, datasets: list[BatchDataset],
+                           prepared: list[tuple], kind: str, shared_map: dict[str, bool],
+                           ) -> list[FitResult]:
+    """Splits one combined MinimizerResult back into one FitResult per
+    dataset: demaps that dataset's global param names back to local keys
+    (folding the shared value in identically for every dataset), then
+    reuses _spec_from_param_results() exactly as the single-dataset path
+    does. redchi here is a per-dataset diagnostic, *not* the same
+    quantity as GlobalFitResult.redchi: that dataset's own
+    sum-of-squared-residuals over (n_points - n_locally_free_params),
+    counting shared parameters as contributing 0 free params for this
+    dataset alone (their value is fixed by the joint fit, not free to
+    move independently here) -- there is no single well-defined "reduced
+    chi-square" split evenly across datasets in a joint fit."""
+    local = _local_params(template)
+    per_dataset = []
+    for i, _ds in enumerate(datasets):
+        local_results: dict[str, ParamResult] = {}
+        for local_key, _fp in local:
+            actual_key = _dataset_param_name(i, local_key, shared_map[local_key])
+            par = lmfit_result.params[actual_key]
+            at_bound = (
+                (par.min is not None and np.isfinite(par.min) and np.isclose(par.value, par.min, rtol=1e-6, atol=1e-9))
+                or (par.max is not None and np.isfinite(par.max) and np.isclose(par.value, par.max, rtol=1e-6, atol=1e-9))
+            )
+            local_results[local_key] = ParamResult(
+                value=par.value, stderr=par.stderr, vary=par.vary,
+                min=par.min, max=par.max, expr=par.expr, at_bound=at_bound,
+            )
+        best_spec = _spec_from_param_results(template, local_results)
+
+        if kind == "heterodyne":
+            omega, real, imag, _w_real, _w_imag = prepared[i]
+            best_chi = evaluate_chi(omega, best_spec)
+            raw_residual = np.concatenate([real - best_chi.real, imag - best_chi.imag])
+            data = np.concatenate([real, imag])
+        else:
+            omega, intensity, _weights = prepared[i]
+            best_fit = evaluate_homodyne(omega, best_spec)
+            raw_residual = intensity - best_fit
+            data = intensity
+
+        ss_res = float(np.sum(raw_residual ** 2))
+        ss_tot = float(np.sum((data - np.mean(data)) ** 2))
+        r_squared = 1.0 - ss_res / ss_tot if ss_tot > 0 else float("nan")
+
+        n_free_local = sum(
+            1 for local_key, _fp in local
+            if not shared_map[local_key] and local_results[local_key].vary
+        )
+        dof = max(len(data) - n_free_local, 1)
+        redchi = ss_res / dof
+
+        per_dataset.append(FitResult(
+            spec=best_spec, param_results=local_results,
+            redchi=redchi, r_squared=r_squared,
+            aic=float("nan"), bic=float("nan"),   # only well-defined for the whole joint fit
+            success=lmfit_result.success, message=lmfit_result.message,
+            lmfit_result=None, lmfit_minimizer=None,
+        ))
+    return per_dataset
+
+
+def fit_global_batch(datasets: list[BatchDataset], template: FitModelSpec,
+                      weighting: str = "none", fit_range: tuple[float, float] | None = None,
+                      method: str = "leastsq", iter_cb=None) -> GlobalFitResult:
+    """Jointly fits every dataset in `datasets` against one shared
+    lmfit.Parameters: any FitParam marked shared=True in `template` is
+    optimized as a single value common to every dataset; everything else
+    stays independent per dataset (same freedom as fit_independent_batch).
+    `iter_cb(params, iteration, resid)` is lmfit's own per-iteration hook,
+    if the caller wants incremental progress/cancellation on what is
+    otherwise one atomic, non-incremental Minimizer.minimize() call."""
+    _check_one_kind(datasets)
+    kind = datasets[0].kind
+    local = _local_params(template)
+    shared_map = {local_key: fp.shared for local_key, fp in local}
+
+    prepared: list[tuple] = []
+    for ds in datasets:
+        mask = np.ones_like(ds.omega, dtype=bool)
+        if fit_range is not None:
+            lo, hi = fit_range
+            mask = (ds.omega >= lo) & (ds.omega <= hi)
+        omega = ds.omega[mask]
+        if kind == "heterodyne":
+            real, imag = ds.real[mask], ds.imag[mask]
+            real_err = ds.real_err[mask] if ds.real_err is not None else None
+            imag_err = ds.imag_err[mask] if ds.imag_err is not None else None
+            w_real, w_imag = compute_heterodyne_weights(weighting, real, imag, real_err, imag_err)
+            prepared.append((omega, real, imag, w_real, w_imag))
+        else:
+            intensity = ds.intensity[mask]
+            intensity_std = ds.intensity_std[mask] if ds.intensity_std is not None else None
+            count = ds.count[mask] if ds.count is not None else None
+            weights = compute_weights(weighting, intensity, intensity_std, count)
+            prepared.append((omega, intensity, weights))
+
+    params = build_global_params(datasets, template)
+
+    def _key_fn_for(dataset_index: int):
+        return lambda local_key: _dataset_param_name(dataset_index, local_key, shared_map[local_key])
+
+    def _residual(p):
+        parts = []
+        for i, pack in enumerate(prepared):
+            key_fn = _key_fn_for(i)
+            if kind == "heterodyne":
+                omega, real, imag, w_real, w_imag = pack
+                chi = _chi_eff(omega, p, template, key_fn=key_fn)
+                r_real = real - chi.real
+                r_imag = imag - chi.imag
+                if w_real is not None:
+                    r_real = r_real * w_real
+                if w_imag is not None:
+                    r_imag = r_imag * w_imag
+                parts.append(r_real)
+                parts.append(r_imag)
+            else:
+                omega, intensity, weights = pack
+                model = np.abs(_chi_eff(omega, p, template, key_fn=key_fn)) ** 2
+                r = intensity - model
+                if weights is not None:
+                    r = r * weights
+                parts.append(r)
+        return np.concatenate(parts)
+
+    minimizer = lmfit.Minimizer(_residual, params, iter_cb=iter_cb)
+    result = minimizer.minimize(method=method)
+
+    per_dataset = _unpack_global_result(result, template, datasets, prepared, kind, shared_map)
+    shared_keys = [local_key for local_key, fp in local if fp.shared]
+
+    return GlobalFitResult(
+        redchi=result.redchi, aic=result.aic, bic=result.bic,
+        success=result.success, message=result.message,
+        shared_keys=shared_keys, per_dataset=per_dataset,
+        lmfit_result=result, lmfit_minimizer=minimizer,
+    )

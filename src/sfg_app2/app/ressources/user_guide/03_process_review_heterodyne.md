@@ -69,7 +69,11 @@ at all).
 - **Phase correction** (degrees, −360 to 360) — an additional
   rotation applied to the computed phase.
 - Plot-component checkboxes — **Im(χ⁽²⁾)**, **Re(χ⁽²⁾)**, **|χ⁽²⁾|²**,
-  **Phase**, and **Show errors**.
+  **Phase**, and **Show errors** — the last one shades a 95% confidence
+  band around each shown curve, estimated from how much the individual
+  acquisition frames disagree with each other (nothing to show with
+  only one frame). See **Reference & Tips** for exactly how that
+  estimate is computed and its caveats.
 - **Phase range** — choose how phase is displayed: **[−180°, 180°]**
   or **[0°, 360°)**. This isn't just a relabeling: switching it
   recomputes exactly where the plotted phase line should show a gap,

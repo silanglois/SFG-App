@@ -32,11 +32,13 @@ from sfg_app2.processing.fitting import (
     fit_homodyne, fit_heterodyne, compute_weights, compute_heterodyne_weights,
     available_lineshapes, get_lineshape, fit_model_spec_from_provenance_payload,
     BatchDataset, fit_sequential_batch, fit_independent_batch, fit_one_dataset, advance_seed,
+    fit_global_batch,
 )
 
 logger = logging.getLogger(__name__)
 
-_COL_LABEL, _COL_PARAM, _COL_FIXED, _COL_VALUE, _COL_ERROR, _COL_MIN, _COL_MAX, _COL_EXPR = range(8)
+(_COL_LABEL, _COL_PARAM, _COL_FIXED, _COL_VALUE, _COL_ERROR,
+ _COL_MIN, _COL_MAX, _COL_EXPR, _COL_SHARED) = range(9)
 _PEAK_COL_INDEX, _PEAK_COL_LINESHAPE, _PEAK_COL_REMOVE = range(3)
 (_DISPLAY_COL_LABEL, _DISPLAY_COL_PLOT1, _DISPLAY_COL_PLOT2,
  _DISPLAY_COL_COLOR, _DISPLAY_COL_LINESTYLE) = range(5)
@@ -279,6 +281,11 @@ class FittingTab(QWidget, DockablePlotPanel):
         self._batch_fit_range: tuple[float, float] | None = None
         self._batch_weighting: str | None = None
         self._batch_run_mode: str | None = None   # "batch" | "sequential"
+        # Set only when the last Batch run had >=1 Shared parameter (see
+        # _shared_param_keys/_on_run_batch_fit) -- None for an
+        # independent batch run or a sequential run.
+        self._batch_global_result = None
+        self._batch_shared_keys: list[str] = []
 
         # File-loaded spectra merged into each mode's own selection list
         # alongside Results-tab entries (see _load_files_into()).
@@ -307,6 +314,17 @@ class FittingTab(QWidget, DockablePlotPanel):
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(4, 4, 4, 4)
         main_layout.setSpacing(4)
+
+        # Added to the tab's own outer layout (not a dock's content
+        # widget) so it stays visible no matter how the docks below are
+        # rearranged/closed -- there's no other persistent header area.
+        warning_banner = QLabel(
+            "⚠ Fitting is experimental — results should be independently verified."
+        )
+        warning_banner.setStyleSheet(
+            "background-color: #fff3cd; color: #664d03; border: 1px solid #ffeeba; padding: 4px;"
+        )
+        main_layout.addWidget(warning_banner)
 
         self._init_dock_area()
         # Untabified and in its own area so it stays visible by default
@@ -758,14 +776,25 @@ class FittingTab(QWidget, DockablePlotPanel):
     def _build_parameters_section(self) -> QWidget:
         widget = QWidget()
         layout = QVBoxLayout(widget)
-        self._param_table = QTableWidget(0, 8)
+        self._param_table = QTableWidget(0, 9)
         self._param_table.setHorizontalHeaderLabels(
-            ["Peak", "Parameter", "Fixed", "Value", "Error", "Min", "Max", "Expr"]
+            ["Peak", "Parameter", "Fixed", "Value", "Error", "Min", "Max", "Expr", "Shared"]
+        )
+        self._param_table.horizontalHeaderItem(_COL_SHARED).setToolTip(
+            "Batch fit only: optimize this parameter as one value shared "
+            "across every spectrum in the batch, instead of independently "
+            "per spectrum. Checking any Shared box turns the next \"Run "
+            "batch fit\" into a joint fit for those parameters. Has no "
+            "effect on a single-spectrum \"Run fit\" or on Sequential fit."
         )
         self._param_table.verticalHeader().setVisible(False)
         # Interactive (not Stretch) so the user can drag-resize columns --
         # Stretch locks every column's width to fill the viewport.
         self._param_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        # Fixed/Shared are just a checkbox each -- no need for the wider
+        # default width QTableWidget's auto-sizing heuristic gives them.
+        self._param_table.horizontalHeader().resizeSection(_COL_FIXED, 50)
+        self._param_table.horizontalHeader().resizeSection(_COL_SHARED, 50)
         # Error/Expr are rarely needed day-to-day; hidden (not removed) so
         # a future "show hidden columns" toggle stays cheap to add.
         self._param_table.setColumnHidden(_COL_ERROR, True)
@@ -810,6 +839,15 @@ class FittingTab(QWidget, DockablePlotPanel):
             fixed_check.setChecked(not fp.vary)
             fixed_check.toggled.connect(lambda checked, r=row: self._on_param_fixed_changed(r, checked))
             table.setCellWidget(row, _COL_FIXED, _center_widget(fixed_check))
+
+            shared_check = QCheckBox()
+            shared_check.setChecked(fp.shared)
+            shared_check.setToolTip(
+                "Batch fit only: force this parameter to the same value "
+                "across every spectrum in the batch, optimized jointly."
+            )
+            shared_check.toggled.connect(lambda checked, r=row: self._on_param_shared_changed(r, checked))
+            table.setCellWidget(row, _COL_SHARED, _center_widget(shared_check))
 
             min_edit = QLineEdit(_fmt_bound(fp.min))
             min_edit.editingFinished.connect(lambda r=row: self._on_param_min_changed(r))
@@ -882,7 +920,7 @@ class FittingTab(QWidget, DockablePlotPanel):
             self._tint_table_row(
                 self._param_table, row,
                 item_cols=[_COL_LABEL, _COL_PARAM, _COL_ERROR],
-                widget_cols=[_COL_VALUE, _COL_FIXED, _COL_MIN, _COL_MAX, _COL_EXPR],
+                widget_cols=[_COL_VALUE, _COL_FIXED, _COL_SHARED, _COL_MIN, _COL_MAX, _COL_EXPR],
                 color=color,
             )
 
@@ -903,6 +941,10 @@ class FittingTab(QWidget, DockablePlotPanel):
     def _on_param_fixed_changed(self, row: int, checked: bool):
         key = self._param_row_keys[row]
         self._param_at(key).vary = not checked
+
+    def _on_param_shared_changed(self, row: int, checked: bool):
+        key = self._param_row_keys[row]
+        self._param_at(key).shared = checked
 
     def _on_param_min_changed(self, row: int):
         key = self._param_row_keys[row]
@@ -1159,10 +1201,6 @@ class FittingTab(QWidget, DockablePlotPanel):
         self._quality_label.setWordWrap(True)
         layout.addWidget(self._quality_label)
 
-        ci_btn = QPushButton("Compute confidence intervals")
-        ci_btn.clicked.connect(self._on_compute_ci)
-        layout.addWidget(ci_btn)
-
         layout.addWidget(QLabel("Fit templates:"))
         template_row = QHBoxLayout()
         self._template_combo = QComboBox()
@@ -1175,6 +1213,9 @@ class FittingTab(QWidget, DockablePlotPanel):
         save_template_btn = QPushButton("Save current model as template")
         save_template_btn.clicked.connect(self._on_save_template)
         layout.addWidget(save_template_btn)
+        manage_templates_btn = QPushButton("Manage templates...")
+        manage_templates_btn.clicked.connect(self._on_manage_templates)
+        layout.addWidget(manage_templates_btn)
 
         export_btn = QPushButton("Export fit (CSV with provenance)")
         export_btn.clicked.connect(self._on_export_fit)
@@ -1274,23 +1315,6 @@ class FittingTab(QWidget, DockablePlotPanel):
             f"({'converged' if r.success else 'did not converge'})"
         )
 
-    def _on_compute_ci(self):
-        if self._last_result is None or self._last_result.lmfit_minimizer is None:
-            QMessageBox.information(self, "No fit yet", "Run a fit first.")
-            return
-        import lmfit
-        loading = show_loading(self, "Computing confidence intervals...")
-        try:
-            ci = lmfit.conf_interval(self._last_result.lmfit_minimizer, self._last_result.lmfit_result)
-            text = lmfit.ci_report(ci)
-        except Exception as e:
-            logger.warning("Could not compute confidence intervals: %s", e)
-            QMessageBox.warning(self, "Could not compute confidence intervals", str(e))
-            return
-        finally:
-            loading.close()
-        QMessageBox.information(self, "Confidence intervals", text)
-
     def _refresh_template_combo(self):
         self._template_combo.clear()
         self._template_combo.addItems(self._template_manager.names())
@@ -1299,7 +1323,9 @@ class FittingTab(QWidget, DockablePlotPanel):
         name, ok = QInputDialog.getText(self, "Save fit template", "Template name:")
         if not ok or not name.strip():
             return
-        if not self._template_manager.set(name.strip(), self._model_spec):
+        fit_range = (self._fit_min_spin.value(), self._fit_max_spin.value())
+        weighting = self._weighting_combo.currentData()
+        if not self._template_manager.set(name.strip(), self._model_spec, fit_range, weighting):
             QMessageBox.warning(
                 self, "Couldn't save template",
                 "The fit template could not be saved to disk. "
@@ -1311,16 +1337,33 @@ class FittingTab(QWidget, DockablePlotPanel):
         name = self._template_combo.currentText()
         if not name:
             return
-        spec = self._template_manager.get(name)
-        if spec is None:
+        full = self._template_manager.get_full(name)
+        if full is None:
             return
-        self._model_spec = spec
+        self._model_spec = full["spec"]
         self._last_result = None
         self._rebuild_peak_table()
         self._rebuild_parameter_table()
         self._rebuild_display_table()
         self._update_quality_readout()
+        # Older templates (saved before fit_range/weighting existed) come
+        # back as None here -- leave the Fit dock's current controls
+        # untouched rather than resetting them to something arbitrary.
+        if full["fit_range"] is not None:
+            lo, hi = full["fit_range"]
+            self._fit_min_spin.setValue(lo)
+            self._fit_max_spin.setValue(hi)
+        if full["weighting"] is not None:
+            idx = self._weighting_combo.findData(full["weighting"])
+            if idx >= 0:
+                self._weighting_combo.setCurrentIndex(idx)
         self._schedule_preview()
+
+    def _on_manage_templates(self):
+        from sfg_app2.app.dialogs.template_manager_dialog import TemplateManagerDialog
+        dlg = TemplateManagerDialog(self._template_manager, self)
+        dlg.exec()
+        self._refresh_template_combo()
 
     def _on_export_fit(self):
         if self._data is None or self._last_result is None:
@@ -1451,6 +1494,41 @@ class FittingTab(QWidget, DockablePlotPanel):
 
         return dialog, progress_cb
 
+    def _shared_param_keys(self, spec: FitModelSpec) -> list[str]:
+        """Local lmfit-style keys ("nr_amplitude", "p0_width", ...) of
+        every parameter currently marked Shared in the Parameters table
+        -- a non-empty result is what auto-promotes "Run batch fit" into
+        a joint/global fit (see _on_run_batch_fit)."""
+        keys = [f"nr_{name}" for name, fp in spec.nonresonant.items() if fp.shared]
+        for i, peak in enumerate(spec.peaks):
+            keys += [f"p{i}_{name}" for name, fp in peak.params.items() if fp.shared]
+        return keys
+
+    def _run_indeterminate_progress_dialog(self, title: str, label: str) -> tuple[QProgressDialog, object]:
+        """For a global fit: one atomic Minimizer.minimize() call has no
+        natural per-dataset progress point the way independent batch
+        fitting does, so this drives a busy/indeterminate dialog off
+        lmfit's own per-iteration iter_cb hook instead -- Cancel sets a
+        flag that iter_cb returns as True, which lmfit (confirmed for
+        the "leastsq" method used throughout this app) treats as a
+        clean user-abort rather than raising."""
+        dialog = QProgressDialog(label, "Cancel", 0, 0, self)
+        dialog.setWindowTitle(title)
+        dialog.setWindowModality(Qt.WindowModality.WindowModal)
+        dialog.setMinimumDuration(0)
+
+        def iter_cb(_params, iteration: int, _resid) -> bool:
+            # processEvents() on every single evaluation would be
+            # needlessly slow for fits with thousands of evals -- a
+            # canceled dialog stays canceled, so checking/painting
+            # every 10th iteration doesn't meaningfully delay Cancel.
+            if iteration % 10 == 0:
+                dialog.setLabelText(f"{label} (evaluation {iteration})")
+                QApplication.processEvents()
+            return dialog.wasCanceled()
+
+        return dialog, iter_cb
+
     def _on_run_batch_fit(self):
         entries = self._all_batch_entries()
         if len(entries) < 2:
@@ -1474,17 +1552,39 @@ class FittingTab(QWidget, DockablePlotPanel):
         self._batch_weighting = weighting
         self._batch_run_mode = "batch"
 
-        dialog, progress_cb = self._run_progress_dialog(len(datasets), "Batch fit")
-        try:
-            results = fit_independent_batch(
-                datasets, self._model_spec, weighting=weighting, fit_range=fit_range,
-                progress_cb=progress_cb,
+        shared_keys = self._shared_param_keys(self._model_spec)
+        self._batch_global_result = None
+        self._batch_shared_keys = shared_keys
+
+        if shared_keys:
+            dialog, iter_cb = self._run_indeterminate_progress_dialog(
+                "Global batch fit", f"Fitting {len(datasets)} spectra jointly...",
             )
-        except Exception as e:
+            dialog.show()
+            try:
+                global_result = fit_global_batch(
+                    datasets, self._model_spec, weighting=weighting, fit_range=fit_range,
+                    iter_cb=iter_cb,
+                )
+            except Exception as e:
+                dialog.close()
+                QMessageBox.warning(self, "Global fit failed", str(e))
+                return
             dialog.close()
-            QMessageBox.warning(self, "Batch fit failed", str(e))
-            return
-        dialog.close()
+            self._batch_global_result = global_result
+            results = global_result.per_dataset
+        else:
+            dialog, progress_cb = self._run_progress_dialog(len(datasets), "Batch fit")
+            try:
+                results = fit_independent_batch(
+                    datasets, self._model_spec, weighting=weighting, fit_range=fit_range,
+                    progress_cb=progress_cb,
+                )
+            except Exception as e:
+                dialog.close()
+                QMessageBox.warning(self, "Batch fit failed", str(e))
+                return
+            dialog.close()
 
         n = len(results)
         self._batch_rows = list(zip(entries[:n], datasets[:n], results))
@@ -1616,6 +1716,7 @@ class FittingTab(QWidget, DockablePlotPanel):
         self._batch_run_mode = "sequential"
         self._batch_rows = []
         self._batch_row_overrides = []
+        self._batch_global_result = None   # Shared parameters are batch-only -- see _shared_param_keys
 
         if not any(is_cp for _e, _ds, is_cp in queue):
             # nothing to pause for -- run straight through with the same
@@ -1738,6 +1839,7 @@ class FittingTab(QWidget, DockablePlotPanel):
         layout = QVBoxLayout(widget)
 
         self._multifit_status_label = QLabel("No batch or sequential run yet.")
+        self._multifit_status_label.setWordWrap(True)
         layout.addWidget(self._multifit_status_label)
 
         self._multifit_table = QTableWidget(0, 4)
@@ -1805,7 +1907,33 @@ class FittingTab(QWidget, DockablePlotPanel):
     def _finish_multifit_run(self):
         self._populate_multifit_table()
         mode_label = "Batch fit" if self._batch_run_mode == "batch" else "Sequential fit"
-        self._multifit_status_label.setText(f"Showing: {mode_label} of {len(self._batch_rows)} spectra")
+        status = f"Showing: {mode_label} of {len(self._batch_rows)} spectra"
+        global_result = self._batch_global_result
+        status_tooltip = ""
+        redchi_tooltip = ""
+        if global_result is not None:
+            label_by_key = {_lmfit_key(k): label for k, label in self._batch_param_columns(self._batch_template)}
+            shared_labels = ", ".join(label_by_key.get(k, k) for k in global_result.shared_keys)
+            converged = "converged" if global_result.success else "did not converge"
+            # Kept short so it doesn't force the dock wider -- the "why is
+            # the per-row redchi different from this" explanation lives in
+            # tooltips instead (on the label itself, and on the redchi
+            # column header), not inline in the label text.
+            status += f" — global fit ({shared_labels} shared), {converged}, combined redchi={global_result.redchi:.4g}"
+            status_tooltip = (
+                "Each row's own redchi in the table below is that spectrum's "
+                "own diagnostic, not this combined value -- see the redchi "
+                "column header."
+            )
+            redchi_tooltip = (
+                "This spectrum's own sum-of-squared-residuals over its own "
+                "degrees of freedom (shared parameters count as 0 free "
+                "params for this row) -- not the same quantity as the "
+                "combined fit's overall redchi shown in the status line above."
+            )
+        self._multifit_status_label.setToolTip(status_tooltip)
+        self._multifit_table.horizontalHeaderItem(2).setToolTip(redchi_tooltip)
+        self._multifit_status_label.setText(status)
         self._rebuild_multifit_param_combo()
         self._update_multifit_plot()
 
@@ -1898,14 +2026,19 @@ class FittingTab(QWidget, DockablePlotPanel):
             ax.legend(fontsize=7)
 
     def _on_export_batch_summary(self):
+        """Writes batch_fit_summary.csv (one row per spectrum, every
+        parameter's value/stderr as columns) PLUS one full per-spectrum
+        provenance CSV per row -- the exact same content
+        _on_export_fit() writes for a single spectrum -- into the same
+        folder, so a batch export is just as traceable/reloadable
+        per-file as an individual "Export fit" would be."""
         if not self._batch_rows:
             QMessageBox.information(self, "Nothing to export", "Run a batch or sequential fit first.")
             return
-        path_str, _ = QFileDialog.getSaveFileName(
-            self, "Export batch summary", "batch_fit_summary.csv", "CSV files (*.csv)",
-        )
-        if not path_str:
+        folder = QFileDialog.getExistingDirectory(self, "Select export folder")
+        if not folder:
             return
+        path_str = str(Path(folder) / "batch_fit_summary.csv")
 
         param_columns = self._batch_param_columns(self._batch_template)
         rows = []
@@ -1947,8 +2080,18 @@ class FittingTab(QWidget, DockablePlotPanel):
             f"# Exported:    {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
             "#",
             f"# Batch json: {json.dumps(batch_payload)}",
-            "#",
         ]
+        if self._batch_global_result is not None:
+            gr = self._batch_global_result
+            header_lines.append(
+                f"# Shared parameters (fit jointly across every row): {', '.join(gr.shared_keys)}"
+            )
+            header_lines.append(
+                f"# Combined fit: redchi={gr.redchi:.6g}, aic={gr.aic:.6g}, bic={gr.bic:.6g}, "
+                f"success={gr.success} -- per-row redchi/aic/bic below are per-row diagnostics, "
+                f"not this combined value."
+            )
+        header_lines.append("#")
         try:
             with open(path_str, "w", newline="", encoding="utf-8") as f:
                 for line in header_lines:
@@ -1957,7 +2100,31 @@ class FittingTab(QWidget, DockablePlotPanel):
         except Exception as e:
             QMessageBox.warning(self, "Export failed", str(e))
             return
-        QMessageBox.information(self, "Export complete", f"Batch summary exported to {path_str}")
+
+        exported, failed = 0, 0
+        for i, (entry, _dataset, result) in enumerate(self._batch_rows):
+            if result is None:
+                continue   # no fit to write provenance for
+            override = self._batch_row_overrides[i] if i < len(self._batch_row_overrides) else None
+            weighting = override["weighting"] if override else self._batch_weighting
+            try:
+                fit_section = provenance.format_fit_section(
+                    result.spec.to_dict(), weighting, result.redchi, result.r_squared,
+                    result.aic, result.bic, kind=entry.kind,
+                )
+                out_path = Path(folder) / f"{entry.label}_fit.csv"
+                provenance.write_csv_with_provenance(
+                    entry.spectrum, entry.kind, entry.label, out_path, fit_section=fit_section,
+                )
+                exported += 1
+            except Exception as e:
+                logger.warning("Could not export per-spectrum fit CSV for %s: %s", entry.label, e)
+                failed += 1
+
+        msg = f"Batch summary + {exported} per-spectrum fit CSV(s) exported to {folder}."
+        if failed:
+            msg += f"\n{failed} per-spectrum CSV(s) failed — see log for details."
+        QMessageBox.information(self, "Export complete", msg)
 
     # ── Plot ─────────────────────────────────────────────────────────────────
 

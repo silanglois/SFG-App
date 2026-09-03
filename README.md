@@ -22,8 +22,9 @@ internally as the Python package/distribution name (`sfg_app2` /
 - **Spectra Library** — view, compare, and normalize processed
   spectra, export to CSV, and save publication-ready plots.
 - **Fitting** — fit peaks/lineshapes (homodyne intensity or
-  heterodyne real/imaginary) to a processed spectrum, with batch and
-  sequential (seeded-chain) multi-spectrum fitting.
+  heterodyne real/imaginary) to a processed spectrum, with independent
+  batch, sequential (seeded-chain), and global (shared-parameter,
+  jointly-optimized) multi-spectrum fitting.
 - Customizable metadata patterns, auto-matching rules, plotting styles,
   and filename color-coding.
 

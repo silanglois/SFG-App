@@ -1,6 +1,6 @@
 [project]
 name = "sfg-app2"
-version = "1.0.0"
+version = "1.1.0"
 description = "A desktop application for processing and analyzing Sum-Frequency Generation (SFG) spectroscopy data — homodyne and heterodyne — built with PySide6."
 readme = "README.md"
 license = "GPL-3.0-or-later"
