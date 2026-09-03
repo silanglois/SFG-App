@@ -1,9 +1,17 @@
 from __future__ import annotations
+import io
+from PySide6.QtCore import QSize
+from PySide6.QtGui import QGuiApplication, QImage
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QComboBox,
     QSpinBox, QDoubleSpinBox, QCheckBox, QLineEdit, QDialogButtonBox,
     QTableWidget, QTableWidgetItem, QHeaderView, QWidget, QLabel,
 )
+
+# Preview canvas is capped to this box (px) and scaled down preserving
+# the true export aspect ratio -- see _update_preview_geometry().
+_PREVIEW_MAX_W = 700
+_PREVIEW_MAX_H = 380
 
 
 class SavePlotDialog(QDialog):
@@ -32,7 +40,17 @@ class SavePlotDialog(QDialog):
         self._reparent_canvas_in()
 
         layout = QVBoxLayout(self)
-        layout.addWidget(self._canvas, stretch=1)
+
+        # Canvas sits in a centered row rather than being added directly
+        # with stretch=1 -- _update_preview_geometry() gives it a fixed
+        # size matching the true export aspect ratio, and without the
+        # stretches on either side a narrower-than-wide canvas would
+        # just hug the left edge instead of centering.
+        canvas_row = QHBoxLayout()
+        canvas_row.addStretch(1)
+        canvas_row.addWidget(self._canvas)
+        canvas_row.addStretch(1)
+        layout.addLayout(canvas_row, stretch=1)
 
         columns = QHBoxLayout()
         layout.addLayout(columns)
@@ -52,13 +70,24 @@ class SavePlotDialog(QDialog):
         )
         button_box.accepted.connect(self.accept)
         button_box.rejected.connect(self.reject)
+        copy_btn = button_box.addButton(
+            "📋 Copy to clipboard", QDialogButtonBox.ButtonRole.ActionRole
+        )
+        copy_btn.setToolTip("Copy the plot, as currently configured below, to the clipboard as an image.")
+        copy_btn.clicked.connect(self._on_copy_to_clipboard)
         layout.addWidget(button_box)
 
         self._apply_overrides()
+        self._update_preview_geometry()
+        self._width_check.toggled.connect(self._update_preview_geometry)
+        self._width_spin.valueChanged.connect(self._update_preview_geometry)
+        self._height_check.toggled.connect(self._update_preview_geometry)
+        self._height_spin.valueChanged.connect(self._update_preview_geometry)
 
     # ── Setup: snapshot / canvas borrowing ──────────────────────────────────
 
     def _snapshot_original_state(self):
+        self._orig_fig_size = self.figure.get_size_inches()
         self._orig_title = self.ax.get_title()
         self._orig_xlabel = self.ax.get_xlabel()
         self._orig_ylabel = self.ax.get_ylabel()
@@ -251,6 +280,35 @@ class SavePlotDialog(QDialog):
     def _on_setting_changed(self, *_args):
         self._apply_overrides()
 
+    def _target_size_inches(self) -> tuple[float, float]:
+        """The (width, height) in inches export() will actually use --
+        the forced value where checked, the original figure size
+        otherwise. Shared by export()/the clipboard action (which apply
+        it to the real figure) and _update_preview_geometry() (which
+        only uses it to pick the preview canvas's aspect ratio)."""
+        orig_w, orig_h = self._orig_fig_size
+        w = self._width_spin.value() if self._width_check.isChecked() else orig_w
+        h = self._height_spin.value() if self._height_check.isChecked() else orig_h
+        return w, h
+
+    def _update_preview_geometry(self, *_args):
+        """Sizes the (reparented, live) canvas so its on-screen aspect
+        ratio matches the true forced width/height -- previously Force
+        width/height had no visible effect on the preview at all (only
+        export() applied them, briefly, purely to render to disk). Only
+        the *shape* is previewed at preview resolution; the real
+        inches/DPI are still only applied for the actual render in
+        _render_bytes()."""
+        w_in, h_in = self._target_size_inches()
+        aspect = w_in / h_in if h_in > 0 else 1.0
+        if _PREVIEW_MAX_W / _PREVIEW_MAX_H > aspect:
+            h_px = _PREVIEW_MAX_H
+            w_px = max(int(round(_PREVIEW_MAX_H * aspect)), 1)
+        else:
+            w_px = _PREVIEW_MAX_W
+            h_px = max(int(round(_PREVIEW_MAX_W / aspect)), 1)
+        self._canvas.setFixedSize(QSize(w_px, h_px))
+
     def _apply_overrides(self, include_size: bool = False):
         self.ax.set_title(self._title_edit.text() if self._title_check.isChecked() else "")
 
@@ -275,10 +333,7 @@ class SavePlotDialog(QDialog):
         self._apply_legend_overrides()
 
         if include_size:
-            orig_w, orig_h = self.figure.get_size_inches()
-            w = self._width_spin.value() if self._width_check.isChecked() else orig_w
-            h = self._height_spin.value() if self._height_check.isChecked() else orig_h
-            self.figure.set_size_inches(w, h)
+            self.figure.set_size_inches(*self._target_size_inches())
 
         self._canvas.draw_idle()
 
@@ -329,6 +384,15 @@ class SavePlotDialog(QDialog):
 
     def done(self, result):
         self._restore_original_state()
+        self.figure.set_size_inches(*self._orig_fig_size)
+        # _update_preview_geometry() pins the canvas to a small fixed
+        # preview box via setFixedSize() (both min AND max size) -- that
+        # constraint has to be cleared before handing the canvas back to
+        # its real, freely-growable host layout, or it can never grow
+        # past the tiny preview size again (the live plot would stay
+        # permanently shrunk/clipped after every use of this dialog).
+        self._canvas.setMinimumSize(0, 0)
+        self._canvas.setMaximumSize(16777215, 16777215)   # QWIDGETSIZE_MAX
         self._reparent_canvas_out()
         self._canvas.draw_idle()
         super().done(result)
@@ -336,22 +400,66 @@ class SavePlotDialog(QDialog):
     def selected_format(self) -> str:
         return self._EXTS[self._format_combo.currentIndex()]
 
+    def _resync_figure_size_to_canvas(self):
+        """Restores figure.get_size_inches() to match the canvas
+        widget's actual current pixel size -- undoes the transient
+        forced-size mutation _apply_overrides(include_size=True) makes
+        for rendering, the same way FigureCanvasQTAgg's own
+        resizeEvent keeps the two in sync during ordinary interactive
+        resizing. Needed because _render_bytes() can run while the
+        canvas is still visibly embedded in this (open) dialog -- e.g.
+        Copy to clipboard -- where a raw set_size_inches() left
+        mismatched with the widget's real pixel size would show up as
+        a corrupted/cropped repaint, not just an invisible transient."""
+        dpi = self.figure.dpi
+        w_px, h_px = self._canvas.width(), self._canvas.height()
+        if w_px > 0 and h_px > 0 and dpi > 0:
+            self.figure.set_size_inches(w_px / dpi, h_px / dpi, forward=False)
+
+    def _render_bytes(self, fmt: str, dpi: int) -> bytes:
+        """Applies the currently chosen overrides (including forced
+        width/height, which the live preview only reflects in shape --
+        see _apply_overrides/_update_preview_geometry), renders to an
+        in-memory buffer, then restores the figure -- shared by export()
+        (writes the bytes to disk) and _on_copy_to_clipboard() (hands
+        them to QImage instead), so both produce byte-identical output.
+        Callers that invoke this while the canvas is still visible (the
+        clipboard action) are responsible for re-applying their own
+        current decorations afterward -- see _on_copy_to_clipboard.
+        """
+        buf = io.BytesIO()
+        try:
+            self._apply_overrides(include_size=True)
+            self.figure.savefig(buf, format=fmt, dpi=dpi)
+        finally:
+            self._restore_original_state()
+            self._resync_figure_size_to_canvas()
+            self._canvas.draw_idle()
+        return buf.getvalue()
+
     def export(self, path: str):
-        """Re-applies the currently chosen overrides (including forced
-        width/height, which the live preview intentionally skips — see
-        _apply_overrides), saves to `path`, then restores the figure.
-        Called by the caller after this dialog has already closed (and
-        so already restored/reparented everything once); this briefly
-        re-applies the same overrides purely for the export, and cleans
-        up again immediately after.
+        """Renders with the currently chosen overrides and writes
+        straight to `path`. Called by the caller after this dialog has
+        already closed (and so already restored/reparented everything
+        once); this briefly re-applies the same overrides purely for
+        the export, and cleans up again immediately after.
         """
         fmt = self.selected_format()
         dpi = self._dpi_spin.value()
-        orig_size = self.figure.get_size_inches()
-        try:
-            self._apply_overrides(include_size=True)
-            self.figure.savefig(path, format=fmt, dpi=dpi)
-        finally:
-            self._restore_original_state()
-            self.figure.set_size_inches(*orig_size)
-            self._canvas.draw_idle()
+        with open(path, "wb") as f:
+            f.write(self._render_bytes(fmt, dpi))
+
+    def _on_copy_to_clipboard(self):
+        """Same render path as export(), minus the file write -- always
+        PNG (clipboard image formats don't include vector SVG/TIFF, and
+        PNG is what every target application expects for a pasted
+        image). Unlike export() (called after this dialog has already
+        closed), the canvas is still visibly embedded here, so
+        _render_bytes()'s internal restore-to-pre-dialog-state has to
+        be immediately undone by re-applying this dialog's own current
+        settings -- otherwise the live preview would visibly revert to
+        its undecorated original state right after the copy."""
+        data = self._render_bytes("png", self._dpi_spin.value())
+        self._apply_overrides()
+        image = QImage.fromData(data, "PNG")
+        QGuiApplication.clipboard().setImage(image)

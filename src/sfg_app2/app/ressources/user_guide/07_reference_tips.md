@@ -104,8 +104,7 @@ different things in different corners of this app:
 |---|---|
 | Heterodyne "Show errors" (this section) | Empirical 95% CI from per-frame spread, pre-fit — describes measurement reproducibility. |
 | Homodyne's "Measurement error (SEM)" fit weighting | A plain standard error of the mean (`std/√n`, **no** 1.96 factor, despite the similar name) from `average_spectrum()`'s per-wavelength frame statistics — and that std uses the *opposite* convention (`ddof=1`) from the heterodyne CI above. |
-| Fitting tab's parameter-table "Value ± stderr" | Always shown after **Run fit** — `lmfit`'s asymptotic covariance-matrix estimate. Post-fit: describes how uncertain a *fitted parameter* is, unrelated to either measurement-spread quantity above. |
-| "Compute confidence intervals" | `lmfit`'s profile-likelihood method — reports **three** confidence levels by default (≈68.3%/95.4%/99.7%, i.e. 1/2/3-σ), not a single 95% figure. More rigorous and more expensive than the stderr shown by default. |
+| Fitting tab's parameter-table "Value ± stderr" | Always shown after **Run fit** — `lmfit`'s asymptotic covariance-matrix estimate. Post-fit: describes how uncertain a *fitted parameter* is, unrelated to either measurement-spread quantity above. This is the only per-parameter uncertainty this app computes -- there is no separate profile-likelihood/confidence-interval step. |
 | Multi-fit results' trend-plot error bars | The same parameter `stderr` as above, just plotted across a batch of independent fits. |
 
 ## Dockable panels & the View menu

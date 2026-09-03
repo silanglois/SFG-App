@@ -7,6 +7,61 @@ heterodyne data is fit as simultaneous real/imaginary fits of the
 same complex χ⁽²⁾ against measured Real/Imaginary data. The fit mode
 is chosen automatically from the kind of spectrum you load.
 
+> ⚠️ **Experimental:** the Fitting tab is still under active
+> development — results, especially from Batch/Sequential/global
+> (shared-parameter) fits, should be independently sanity-checked
+> rather than relied on as-is.
+
+## The fitting equation
+
+Every model — however many peaks it has — is built from two kinds of
+term, summed *coherently* (as complex numbers, before anything is
+squared):
+
+- **Non-resonant term** — a single complex constant (flat across the
+  whole spectrum):
+
+  <span style="font-style: italic; font-size: 13pt;">χ<sub>NR</sub> = A<sub>NR</sub> e<sup>iφ<sub>NR</sub></sup></span>
+
+- **Resonant term, one per peak *j*.** The only lineshape currently
+  implemented is a Lorentzian:
+
+  <span style="font-style: italic; font-size: 13pt;">χ<sub>j</sub>(ω) = A<sub>j</sub> / (ω − ω<sub>j</sub> + iΓ<sub>j</sub>)</span>
+
+  where Γⱼ is the *half*-width-at-half-max. The Parameters table's
+  **Width** column is the *full* width instead (the more usual quantity
+  to eyeball on a plot), so internally Γⱼ = Width / 2.
+
+These sum to one complex susceptibility:
+
+<span style="font-style: italic; font-size: 13pt;">χ<sub>eff</sub>(ω) = χ<sub>NR</sub> + Σ<sub>j</sub> χ<sub>j</sub>(ω)</span>
+
+which is where **homodyne** and **heterodyne** fitting diverge:
+
+- **Homodyne** only ever measures intensity, so it fits against
+  I(ω) = |χ_eff(ω)|² — the model curve you see is this squared
+  magnitude, and the fit itself works on the intensity residual.
+- **Heterodyne** measures Real(ω) and Imaginary(ω) directly, so it
+  fits Re(χ_eff(ω)) and Im(χ_eff(ω)) simultaneously against them — one
+  joint least-squares problem, both channels sharing the same
+  parameters, rather than two separate fits.
+
+Because the sum happens *before* squaring, cross-terms between peaks
+(and between peaks and the non-resonant background) matter — |χ_a + χ_b|²
+is not |χ_a|² + |χ_b|², which is why peaks can constructively or
+destructively interfere in a homodyne spectrum. It's also why the
+Display dock's per-peak "Individual features" curves (each peak's |χⱼ|²
+in isolation) are a visual aid for locating a peak, not a literal
+decomposition of the total — the real total includes interference terms
+that no single curve captures alone.
+
+| Symbol | Parameters-table name | Meaning |
+|---|---|---|
+| A_NR, φ_NR | Non-resonant → Amplitude, Phase | Non-resonant background amplitude/phase |
+| Aⱼ | Peak *j* → Amplitude | Resonant amplitude (sign gives the peak's phase relative to the background) |
+| ωⱼ | Peak *j* → Center | Resonance position (cm⁻¹) |
+| Γⱼ | Peak *j* → Width, halved | Half-width-at-half-max (the table shows the full width) |
+
 Panels are dockable and rearrangeable; the natural order to work
 through them is:
 
@@ -41,8 +96,9 @@ with a **Remove** action per row.
 
 An editable table with one row per parameter across the non-resonant
 term and every peak — label, value, error, min/max bounds, a
-**fixed** checkbox, and an **expr** field for writing lmfit
-expression constraints between parameters.
+**fixed** checkbox, an **expr** field for writing lmfit expression
+constraints between parameters, and a **shared** checkbox (see
+**Batch fit** below — it has no effect on a single-spectrum "Run fit").
 
 Rows can optionally be tinted by which peak they belong to — enable
 **Preferences → Fitting → Color parameter table by peak** (off by
@@ -76,17 +132,15 @@ and line style.
   1.96× that) — see the error/uncertainty glossary in
   **Reference & Tips** if you want the exact formulas.
 - **Run fit** — runs the optimization; a quality readout summarizes
-  the result.
-- **Compute confidence intervals** — a separate, more expensive step
-  for rigorous parameter uncertainty, using `lmfit`'s profile-likelihood
-  method rather than the covariance-based "Value ± stderr" already
-  shown in the parameter table above. Reports **three** confidence
-  levels at once (≈68.3%/95.4%/99.7%, i.e. 1/2/3-σ), not a single 95%
-  figure — see **Reference & Tips** for how this compares to the
-  other "error"-labeled things in the app.
+  the result (redchi/R²/AIC/BIC and a covariance-based "Value ± stderr"
+  per parameter in the table above — the only uncertainty estimate this
+  app computes; see **Reference & Tips** for what it is and isn't).
 - **Fit templates** — save the current model (lineshapes, peaks,
-  constraints) as a named, reusable preset, and apply saved templates
-  to new spectra later.
+  constraints, fit range, and weighting) as a named, reusable preset,
+  and apply saved templates to new spectra later. **Manage templates...**
+  opens a dedicated dialog to rename, delete, or export/import templates
+  as a portable `.json` file (e.g. to share with a colleague or back up
+  outside the app's own settings folder).
 - **Export fit (CSV with provenance)** — writes the fit result back
   out, including full model/weighting/statistics metadata.
 
@@ -99,6 +153,26 @@ Library and/or load files directly; right-click a row to remove it. All
 spectra in a batch must be the same kind (homodyne or heterodyne) —
 mixed kinds are rejected with a warning. Progress is shown in a
 cancelable dialog.
+
+**Shared parameters:** check a parameter's **shared** box in the
+Parameters table before running a batch fit, and that parameter is
+optimized as one value held in common across every spectrum in the
+batch — a true joint fit, not fit-then-average — while everything else
+stays independent per spectrum as usual. Any shared parameter
+automatically turns the next **Run batch fit** into this joint mode;
+no separate button. The Multi-fit results table's per-row redchi is
+then that spectrum's own diagnostic (shared parameters count as fixed,
+not free, for that row), not the one combined redchi for the whole
+joint fit shown in the status line above the table. Has no effect on
+Sequential fit, whose seeded-chain design is a different thing
+entirely.
+
+**Export batch summary (CSV)** writes one summary CSV covering every
+row (label, status, redchi/R²/AIC/BIC, and every parameter's
+value/stderr), and — in the same export — one additional per-spectrum
+CSV per row, in the same folder, with the exact same full
+model/weighting/statistics provenance header as the single-spectrum
+**Export fit (CSV with provenance)** button.
 
 ## 7. Sequential fit
 

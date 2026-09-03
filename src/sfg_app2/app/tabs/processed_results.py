@@ -13,7 +13,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QListWidgetItem, QFileDialog,
     QMessageBox, QAbstractItemView, QInputDialog, QMenu, QCheckBox,
-    QComboBox, QLabel, QSizePolicy, QFrame,
+    QComboBox, QLabel, QSizePolicy, QFrame, QPushButton,
 )
 
 from sfg_app2.app.ui.ui_processed_results_tab import Ui_Form
@@ -179,6 +179,14 @@ class SpectrumEntry:
         return f"SpectrumEntry({self.label})"
 
 
+def _entry_display_text(entry: SpectrumEntry) -> str:
+    """List-item text for an entry -- appends "(fitted)" when it carries
+    a loaded fit's derived curves, mirroring fitting_tab.py's own
+    _entry_display_text()'s "[heterodyne] " prefix convention for the
+    same kind of "extra fact about this entry" labeling."""
+    return f"{entry.label} (fitted)" if entry.fit_components else entry.label
+
+
 class ProcessedResultsTab(QWidget, DockablePlotPanel):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -315,6 +323,35 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         lw.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         lw.model().rowsMoved.connect(self._refresh_plot)
 
+        # "Check All"/"Check None" toggle the item checkboxes that drive
+        # _checked_entries() (plot visibility) -- inserted between the
+        # existing Add/Sort button row and the list itself.
+        check_row = QHBoxLayout()
+        self._check_all_button = QPushButton("Check All")
+        self._check_none_button = QPushButton("Check None")
+        self._check_all_button.clicked.connect(lambda: self._set_all_checked(True))
+        self._check_none_button.clicked.connect(lambda: self._set_all_checked(False))
+        check_row.addWidget(self._check_all_button)
+        check_row.addWidget(self._check_none_button)
+        self.ui.verticalLayout.insertLayout(1, check_row)
+
+    def _set_all_checked(self, checked: bool):
+        """Sets every spectrum's checkbox (and backing SpectrumEntry.checked)
+        at once, then redraws a single time -- _on_item_check_changed()
+        (which fires per-row and redraws each time) is blocked for the
+        duration so toggling a long list doesn't re-plot N times."""
+        lw = self.ui.spectraList
+        state = Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked
+        lw.blockSignals(True)
+        for i in range(lw.count()):
+            item = lw.item(i)
+            idx = item.data(Qt.ItemDataRole.UserRole)
+            if idx is not None and 0 <= idx < len(self._entries):
+                self._entries[idx].checked = checked
+            item.setCheckState(state)
+        lw.blockSignals(False)
+        self._refresh_plot()
+
     def _setup_colormap_combo(self):
         self.ui.colorMapComboBox.addItem("Default")
         for name in _all_colormaps():
@@ -383,6 +420,16 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
             grid.addWidget(cb, i // 2, i % 2)
             cb.toggled.connect(self._refresh_plot)
         outer.addLayout(grid)
+
+        outer.addSpacing(6)
+        self._hide_data_checkbox = QCheckBox("Hide data")
+        self._hide_data_checkbox.setToolTip(
+            "Hide the raw/measured data series, showing only the "
+            "fit-derived curves selected above."
+        )
+        self._hide_data_checkbox.toggled.connect(self._refresh_plot)
+        outer.addWidget(self._hide_data_checkbox)
+
         outer.addStretch()
         return widget
 
@@ -482,7 +529,20 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
                                 self._make_list_item(len(self._entries) - 1)
                             )
                             continue
-                        self._entries[existing_idx] = SpectrumEntry(spectrum, label, kind=kind)
+                        new_entry = SpectrumEntry(spectrum, label, kind=kind)
+                        self._entries[existing_idx] = new_entry
+                        # same as _on_add_from_file()'s Overwrite branch --
+                        # refresh this row's own text in place (e.g. a
+                        # stale "(fitted)" suffix if the entry being
+                        # replaced no longer carries fit_components),
+                        # found by stored index since widget row order
+                        # can differ from self._entries order after
+                        # drag-reordering.
+                        for row in range(self.ui.spectraList.count()):
+                            item = self.ui.spectraList.item(row)
+                            if item.data(Qt.ItemDataRole.UserRole) == existing_idx:
+                                item.setText(_entry_display_text(new_entry))
+                                break
                         continue
 
                     self._entries.append(SpectrumEntry(spectrum, label, kind=kind))
@@ -555,7 +615,7 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
 
     def _make_list_item(self, index: int) -> QListWidgetItem:
         entry = self._entries[index]
-        item = QListWidgetItem(entry.label)
+        item = QListWidgetItem(_entry_display_text(entry))
         item.setData(Qt.ItemDataRole.UserRole, index)
         item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
         item.setCheckState(Qt.CheckState.Checked if entry.checked else Qt.CheckState.Unchecked)
@@ -702,9 +762,35 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         self.plot_widget.full_clear()
         self._refresh_plot()
 
+    def _update_conditional_dock_state(self, entries: list[SpectrumEntry]):
+        """Grey out (not hide -- keeps the dock layout stable and the
+        panel discoverable) the HD-SFG components / Fit components
+        docks when nothing currently checked would respond to them --
+        their checkboxes are otherwise silently inert for a homodyne-
+        only or fit-free selection. Called from _refresh_plot(), which
+        already runs on every state change that can affect this (check/
+        uncheck, Check All/None, add, remove, sort/reorder)."""
+        has_heterodyne = any(e.kind == "heterodyne" for e in entries)
+        has_fit = any(e.fit_components for e in entries)
+        hd_dock = self._docks.get("hd_components")
+        if hd_dock is not None:
+            hd_dock.setEnabled(has_heterodyne)
+            hd_dock.setToolTip(
+                "" if has_heterodyne else
+                "Enabled when at least one checked spectrum is heterodyne (HD-SFG)."
+            )
+        fit_dock = self._docks.get("fit_components")
+        if fit_dock is not None:
+            fit_dock.setEnabled(has_fit)
+            fit_dock.setToolTip(
+                "" if has_fit else
+                "Enabled when at least one checked spectrum has a loaded fit."
+            )
+
     def _refresh_plot(self):
         self.plot_widget.soft_clear()
         entries = self._checked_entries()
+        self._update_conditional_dock_state(entries)
         if not entries:
             self.plot_widget.canvas.draw_idle()
             return
@@ -735,10 +821,14 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         )
         show_error = self.ui.hdCheckShowError.isChecked()
 
+        hide_data = self._hide_data_checkbox.isChecked()
+
         specs = []   # (entry, component, y_col, err_col, label, style)
         for entry in entries:
             base_label = self._legend_base(entry, legend_field)
-            if entry.kind == "heterodyne":
+            if hide_data:
+                pass   # skip the raw/measured series -- fit curves below are unaffected
+            elif entry.kind == "heterodyne":
                 for component in checked_components:
                     style = entry.style_for(component)
                     if not style.visible:
@@ -914,12 +1004,8 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         """Repopulate list widget from current self._entries order."""
         self.ui.spectraList.blockSignals(True)
         self.ui.spectraList.clear()
-        for i, entry in enumerate(self._entries):
-            item = QListWidgetItem(entry.label)
-            item.setData(Qt.ItemDataRole.UserRole, i)
-            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-            item.setCheckState(Qt.CheckState.Checked if entry.checked else Qt.CheckState.Unchecked)
-            self.ui.spectraList.addItem(item)
+        for i in range(len(self._entries)):
+            self.ui.spectraList.addItem(self._make_list_item(i))
         self.ui.spectraList.blockSignals(False)
 
     # ── Add from file ─────────────────────────────────────────────────────────
@@ -1107,6 +1193,17 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
                         entry = SpectrumEntry(spectrum, label, kind=kind)
                         entry.fit_components = fit_components
                         self._entries[existing_idx] = entry
+                        # the overwritten row's own list-item text (e.g. its
+                        # "(fitted)" suffix) isn't touched by replacing
+                        # self._entries[existing_idx] alone -- find that
+                        # row by its stored index (not by widget row
+                        # number, which can differ after drag-reordering)
+                        # and refresh its text in place.
+                        for row in range(self.ui.spectraList.count()):
+                            item = self.ui.spectraList.item(row)
+                            if item.data(Qt.ItemDataRole.UserRole) == existing_idx:
+                                item.setText(_entry_display_text(entry))
+                                break
                         added += 1
 
             except Exception as e:
