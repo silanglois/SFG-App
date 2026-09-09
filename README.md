@@ -191,15 +191,12 @@ The installer appears in `packaging/installer_output/`. In practice
 this happens automatically: pushing a `vX.Y.Z` tag triggers
 `.github/workflows/release.yml`, which builds the exe, packages both
 the installer and a portable ZIP, and publishes them to a
-[GitHub Release](https://github.com/silanglois/SFG-App/releases) —
-see [ARCHITECTURE.md](ARCHITECTURE.md).
+[GitHub Release](https://github.com/silanglois/SFG-App/releases).
 
 ## Documentation
 
 An in-depth user guide covering every tab and settings dialog is
-built into the app — open it from **Help → User Guide**. For a
-developer-facing overview of the codebase structure, see
-[ARCHITECTURE.md](ARCHITECTURE.md).
+built into the app — open it from **Help → User Guide**.
 
 ## License
 
