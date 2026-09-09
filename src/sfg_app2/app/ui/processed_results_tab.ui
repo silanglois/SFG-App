@@ -51,7 +51,7 @@
          <item>
           <widget class="QPushButton" name="exportSelectedButton">
            <property name="text">
-            <string>Export selected</string>
+            <string>Export checked</string>
            </property>
           </widget>
          </item>

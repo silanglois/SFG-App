@@ -451,7 +451,7 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         self.ui.addSpectraButton.clicked.connect(self._on_add_from_file)
         self.ui.pushButton.clicked.connect(self._on_sort_by_metadata)
         self.ui.annotationsButton.clicked.connect(self._on_edit_annotations)
-        self.ui.exportSelectedButton.clicked.connect(self._on_export_selected)
+        self.ui.exportSelectedButton.clicked.connect(self._on_export_checked)
         self.ui.exportAllButton.clicked.connect(self._on_export_all)
 
         self.ui.spectraList.itemChanged.connect(self._on_item_check_changed)
@@ -1336,8 +1336,8 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
     def _format_heterodyne_provenance(provenance: dict) -> list[str]:
         return provenance_mod.format_heterodyne_provenance(provenance)
 
-    def _on_export_selected(self):
-        self._export_entries(self._selected_entries())
+    def _on_export_checked(self):
+        self._export_entries(self._checked_entries())
 
     def _on_export_all(self):
         self._export_entries(self._ordered_entries())
