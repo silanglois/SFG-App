@@ -1404,6 +1404,7 @@ class FittingTab(QWidget, DockablePlotPanel):
         fit_section = provenance.format_fit_section(
             self._model_spec.to_dict(), weighting, r.redchi, r.r_squared, r.aic, r.bic,
             kind=self._data.kind,
+            param_errors={k: pr.stderr for k, pr in r.param_results.items()},
         )
         try:
             provenance.write_csv_with_provenance(
@@ -2111,6 +2112,7 @@ class FittingTab(QWidget, DockablePlotPanel):
                 fit_section = provenance.format_fit_section(
                     result.spec.to_dict(), weighting, result.redchi, result.r_squared,
                     result.aic, result.bic, kind=entry.kind,
+                    param_errors={k: pr.stderr for k, pr in result.param_results.items()},
                 )
                 out_path = Path(folder) / f"{entry.label}_fit.csv"
                 provenance.write_csv_with_provenance(

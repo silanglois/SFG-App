@@ -491,6 +491,22 @@ def fit_kind_from_provenance_payload(payload: dict | None) -> str | None:
     return payload.get("kind")
 
 
+def describe_local_params(spec: FitModelSpec) -> list[tuple[str, str]]:
+    """(local_key, human_label) pairs for every parameter in `spec`, in
+    the same local-key vocabulary as _local_params()/FitResult.param_results
+    ("nr_amplitude", "p0_center", ...) paired with a display label
+    ("Non-resonant Amplitude", "Peak 1 Center") -- mirrors
+    FittingTab._batch_param_columns()'s labeling, kept here (Qt-free)
+    so any caller, including read-only display dialogs, can build a
+    parameter table without duplicating that private method."""
+    rows = [(f"nr_{name}", f"Non-resonant {name.capitalize()}") for name in spec.nonresonant]
+    for i, peak in enumerate(spec.peaks):
+        ls = get_lineshape(peak.lineshape_key)
+        for p in ls.params:
+            rows.append((f"p{i}_{p.name}", f"Peak {i + 1} {p.display_name}"))
+    return rows
+
+
 # ── Sequential batch fitting ────────────────────────────────────────────────
 # Phase 1 of "batch fitting": each dataset in a series is fit
 # independently (no parameter linking across datasets -- that's a

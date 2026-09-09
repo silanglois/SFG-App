@@ -1302,9 +1302,23 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
 
     def _write_csv_with_provenance(self, entry: SpectrumEntry, out_path: Path):
         """Write a CSV with a commented provenance header, readable by pandas
-        via pd.read_csv(path, comment='#').
+        via pd.read_csv(path, comment='#'). Re-embeds the entry's `# Fit
+        json:` section (if it has one) -- without this, re-exporting a
+        fitted Library entry would silently drop its fit parameters/errors,
+        since write_csv_with_provenance() only ever writes one when
+        explicitly given one.
         """
-        provenance_mod.write_csv_with_provenance(entry.spectrum, entry.kind, entry.label, out_path)
+        fit_section = None
+        payload = provenance_mod.parse_fit_json(getattr(entry.spectrum, "provenance", None) or {})
+        if payload:
+            fit_section = provenance_mod.format_fit_section(
+                payload["model"], payload.get("weighting"), payload.get("redchi"),
+                payload.get("r_squared"), payload.get("aic"), payload.get("bic"),
+                kind=payload.get("kind", entry.kind), param_errors=payload.get("param_errors"),
+            )
+        provenance_mod.write_csv_with_provenance(
+            entry.spectrum, entry.kind, entry.label, out_path, fit_section=fit_section,
+        )
 
     @staticmethod
     def _format_markers(markers) -> str:
@@ -1342,9 +1356,14 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         n = len(selected)
         label = f"{n} spectrum/spectra" if n > 1 else f"\"{selected[0].label}\""
 
+        fitted = [e for e in selected if e.fit_components]
+
         menu = QMenu(self)
         metadata_action = menu.addAction(f"Review / Edit metadata — {label}")
         params_action = menu.addAction(f"View processing parameters — {label}")
+        fit_params_action = None
+        if fitted:
+            fit_params_action = menu.addAction(f"View fit parameters — {label}")
         menu.addSeparator()
         trace_props_action = menu.addAction("Trace properties...")
         menu.addSeparator()
@@ -1356,6 +1375,8 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
             self._on_review_metadata(selected)
         elif action == params_action:
             self._on_view_processing_params(selected)
+        elif fit_params_action is not None and action == fit_params_action:
+            self._on_view_fit_parameters(fitted)
         elif action == trace_props_action:
             self._on_trace_properties(selected)
         elif action == remove_action:
@@ -1414,6 +1435,11 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
     def _on_view_processing_params(self, entries: list[SpectrumEntry]):
         from sfg_app2.app.dialogs.processing_params_dialog import ProcessingParamsDialog
         dialog = ProcessingParamsDialog(entries, parent=self)
+        dialog.exec()
+
+    def _on_view_fit_parameters(self, entries: list[SpectrumEntry]):
+        from sfg_app2.app.dialogs.fit_parameters_dialog import FitParametersDialog
+        dialog = FitParametersDialog(entries, parent=self)
         dialog.exec()
 
 
