@@ -195,8 +195,9 @@ class PolystyreneCalibrationDialog(QDialog):
         self._update_plot()
 
     def _compute_ratio(self):
-        """Despike + background subtract both signal and reference,
-        then compute quartz / polystyrene ratio."""
+        """Background subtract both signal and reference (with
+        per-component despiking, see below), then compute quartz /
+        polystyrene ratio."""
         idx = self._set_combo.currentIndex()
         if idx < 0 or idx >= len(self._matched_sets):
             return
@@ -206,10 +207,18 @@ class PolystyreneCalibrationDialog(QDialog):
             return
 
         try:
-            sig = m.signal.remove_cosmic_rays().average_spectrum()
-            bg = m.background.remove_cosmic_rays().average_spectrum()
-            ref = m.reference.remove_cosmic_rays().average_spectrum()
-            ref_bg = m.reference_background.remove_cosmic_rays().average_spectrum()
+            # Despike params are chosen per-component rather than
+            # uniformly (this call path is disconnected from the visible
+            # despike dock controls entirely, so these are the only
+            # despiking applied here): the sample signal is left
+            # undespiked entirely; the reference keeps the
+            # window=20/threshold=50 already tuned for it; both
+            # backgrounds use a wider, gentler window=150/threshold=10
+            # instead.
+            sig = m.signal.average_spectrum()
+            bg = m.background.remove_cosmic_rays(window=150, threshold_factor=10).average_spectrum()
+            ref = m.reference.remove_cosmic_rays(window=20, threshold_factor=50).average_spectrum()
+            ref_bg = m.reference_background.remove_cosmic_rays(window=150, threshold_factor=10).average_spectrum()
 
             sig_corr = subtract_background(sig, bg)
             ref_corr = subtract_background(ref, ref_bg)
