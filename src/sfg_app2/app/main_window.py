@@ -428,6 +428,20 @@ class MainWindow(QMainWindow):
         AboutDialog(parent=self).exec()
 
     def _on_docs(self):
+        from sfg_app2.app.dialogs.user_guide_dialog import (
+            open_user_guide_site,
+            user_guide_site_index,
+        )
+
+        index = user_guide_site_index()
+        if index is not None:
+            if open_user_guide_site(index):
+                return
+            logger.warning(
+                "Could not open the user guide site (%s) in a browser; "
+                "falling back to the in-app viewer.", index,
+            )
+
         from sfg_app2.app.dialogs.user_guide_dialog import UserGuideDialog
         if self._user_guide_dialog is None:
             self._user_guide_dialog = UserGuideDialog(parent=self)

@@ -14,9 +14,15 @@ CONFIG_DIR = Path(user_config_dir("SFG-App"))
 SETTINGS_FILE = CONFIG_DIR / "plotting_settings.json"
 THEMES_DIR = Path(aquarel.__file__).parent / "themes"
 CUSTOM_STYLES_DIR = CONFIG_DIR / "custom_styles"
+# Styles shipped with the app itself (not user-created, not from aquarel's
+# own package) -- same parents[N]-from-this-file convention as
+# user_guide_dialog.py's _GUIDE_DIR, so it resolves correctly both from
+# source and from a frozen PyInstaller build (ressources/ is bundled
+# verbatim, see packaging/sfg-app.spec).
+BUNDLED_STYLES_DIR = Path(__file__).parents[1] / "ressources" / "styles"
 
 MATPLOTLIB_DEFAULT = "matplotlib_default"
-DEFAULT_STYLE = "ambivalent"
+DEFAULT_STYLE = "science"
 
 
 def custom_styles_dir() -> Path:
@@ -34,17 +40,38 @@ def is_custom_style(name: str) -> bool:
     return (CUSTOM_STYLES_DIR / f"{name}.json").exists()
 
 
+def list_bundled_styles() -> list[str]:
+    """Returns the names (file stems) of every style shipped with the app
+    itself (see BUNDLED_STYLES_DIR) -- mirrors list_custom_styles()."""
+    if not BUNDLED_STYLES_DIR.exists():
+        return []
+    return sorted(p.stem for p in BUNDLED_STYLES_DIR.glob("*.json"))
+
+
+def is_bundled_style(name: str) -> bool:
+    return (BUNDLED_STYLES_DIR / f"{name}.json").exists()
+
+
 def available_styles() -> list[str]:
     """Returns all selectable style names, matplotlib default first, then
-    built-in aquarel themes, then user-created custom styles."""
-    return [MATPLOTLIB_DEFAULT, *sorted(list_themes()), *list_custom_styles()]
+    styles bundled with the app, then built-in aquarel themes, then
+    user-created custom styles."""
+    return [
+        MATPLOTLIB_DEFAULT, *sorted(list_bundled_styles()),
+        *sorted(list_themes()), *list_custom_styles(),
+    ]
 
 
 def _load_theme(name: str) -> Theme:
     # aquarel.load_theme() opens theme files without an explicit encoding,
     # which fails on Windows for themes containing non-ASCII descriptions
     # (e.g. ambivalent's emoji) since the default codepage isn't UTF-8.
-    directory = CUSTOM_STYLES_DIR if is_custom_style(name) else THEMES_DIR
+    if is_custom_style(name):
+        directory = CUSTOM_STYLES_DIR
+    elif is_bundled_style(name):
+        directory = BUNDLED_STYLES_DIR
+    else:
+        directory = THEMES_DIR
     text = (directory / f"{name}.json").read_text(encoding="utf-8")
     return Theme.from_dict(json.loads(text))
 
@@ -92,6 +119,22 @@ def _apply_theme_object(theme: Theme):
         mpl.rcParams.update({"figure.facecolor": bg, "axes.facecolor": bg})
 
 
+def _apply_publication_export_defaults():
+    """Always-on export-fidelity fixes, independent of whichever style is
+    active -- applied last so no style choice (including "Matplotlib
+    default", which resets everything) can undo them. Matplotlib
+    defaults to Type 3 fonts in PDF/PS output and outlines SVG text into
+    paths; many journals reject Type 3 fonts, and outlined text can't be
+    selected/edited/restyled in Illustrator or Inkscape. Type 42
+    (TrueType) fonts and real SVG <text> fix both, with no real downside.
+    """
+    mpl.rcParams.update({
+        "pdf.fonttype": 42,
+        "ps.fonttype": 42,
+        "svg.fonttype": "none",
+    })
+
+
 def apply_rcparams(name: str):
     """Applies a style's rcParams only, without touching the persisted
     'currently active' background used by style_figure(). Used both by
@@ -102,6 +145,7 @@ def apply_rcparams(name: str):
         mpl.rcParams.update(mpl.rcParamsDefault)
     else:
         _apply_theme_object(_load_theme(name))
+    _apply_publication_export_defaults()
 
 
 def apply_style(name: str):

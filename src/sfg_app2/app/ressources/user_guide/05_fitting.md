@@ -2,15 +2,16 @@
 
 The **Fitting** tab fits peaks/lineshapes to a single processed
 spectrum. Homodyne data is fit as
-`|χ_NR·e^(iφ) + Σ resonance_j(ω)|²` against measured intensity;
-heterodyne data is fit as simultaneous real/imaginary fits of the
-same complex χ⁽²⁾ against measured Real/Imaginary data. The fit mode
-is chosen automatically from the kind of spectrum you load.
+$\lvert \chi_{\mathrm{NR}}\,e^{i\varphi} + \sum_j \chi_j(\omega)\rvert^2$
+against measured intensity; heterodyne data is fit as simultaneous
+real/imaginary fits of the same complex χ⁽²⁾ against measured
+Real/Imaginary data. The fit mode is chosen automatically from the
+kind of spectrum you load.
 
-> ⚠️ **Experimental:** the Fitting tab is still under active
-> development — results, especially from Batch/Sequential/global
-> (shared-parameter) fits, should be independently sanity-checked
-> rather than relied on as-is.
+!!! warning "Experimental"
+    The Fitting tab is still under active development — results,
+    especially from Batch/Sequential/global (shared-parameter) fits,
+    should be independently sanity-checked rather than relied on as-is.
 
 ## The fitting equation
 
@@ -21,46 +22,49 @@ squared):
 - **Non-resonant term** — a single complex constant (flat across the
   whole spectrum):
 
-  <span style="font-style: italic; font-size: 13pt;">χ<sub>NR</sub> = A<sub>NR</sub> e<sup>iφ<sub>NR</sub></sup></span>
+    $$\chi_{\mathrm{NR}} = A_{\mathrm{NR}}\,e^{i\varphi_{\mathrm{NR}}}$$
 
 - **Resonant term, one per peak *j*.** The only lineshape currently
   implemented is a Lorentzian:
 
-  <span style="font-style: italic; font-size: 13pt;">χ<sub>j</sub>(ω) = A<sub>j</sub> / (ω − ω<sub>j</sub> + iΓ<sub>j</sub>)</span>
+    $$\chi_j(\omega) = \frac{A_j}{\omega - \omega_j + i\Gamma_j}$$
 
-  where Γⱼ is the *half*-width-at-half-max. The Parameters table's
-  **Width** column is the *full* width instead (the more usual quantity
-  to eyeball on a plot), so internally Γⱼ = Width / 2.
+    where $\Gamma_j$ is the *half*-width-at-half-max. The Parameters
+    table's **Width** column is the *full* width instead (the more usual
+    quantity to eyeball on a plot), so internally $\Gamma_j = \text{Width}/2$.
 
 These sum to one complex susceptibility:
 
-<span style="font-style: italic; font-size: 13pt;">χ<sub>eff</sub>(ω) = χ<sub>NR</sub> + Σ<sub>j</sub> χ<sub>j</sub>(ω)</span>
+$$\chi_{\mathrm{eff}}(\omega) = \chi_{\mathrm{NR}} + \sum_j \chi_j(\omega)$$
 
 which is where **homodyne** and **heterodyne** fitting diverge:
 
 - **Homodyne** only ever measures intensity, so it fits against
-  I(ω) = |χ_eff(ω)|² — the model curve you see is this squared
-  magnitude, and the fit itself works on the intensity residual.
+  $I(\omega) = \lvert\chi_{\mathrm{eff}}(\omega)\rvert^2$ — the model
+  curve you see is this squared magnitude, and the fit itself works on
+  the intensity residual.
 - **Heterodyne** measures Real(ω) and Imaginary(ω) directly, so it
   fits Re(χ_eff(ω)) and Im(χ_eff(ω)) simultaneously against them — one
   joint least-squares problem, both channels sharing the same
   parameters, rather than two separate fits.
 
 Because the sum happens *before* squaring, cross-terms between peaks
-(and between peaks and the non-resonant background) matter — |χ_a + χ_b|²
-is not |χ_a|² + |χ_b|², which is why peaks can constructively or
-destructively interfere in a homodyne spectrum. It's also why the
-Display dock's per-peak "Individual features" curves (each peak's |χⱼ|²
-in isolation) are a visual aid for locating a peak, not a literal
+(and between peaks and the non-resonant background) matter —
+$\lvert\chi_a + \chi_b\rvert^2$ is not
+$\lvert\chi_a\rvert^2 + \lvert\chi_b\rvert^2$, which is why peaks can
+constructively or destructively interfere in a homodyne spectrum. It's
+also why the Display dock's per-peak "Individual features" curves (each
+peak's $\lvert\chi_j\rvert^2$ in isolation) are a visual aid for
+locating a peak, not a literal
 decomposition of the total — the real total includes interference terms
 that no single curve captures alone.
 
 | Symbol | Parameters-table name | Meaning |
 |---|---|---|
-| A_NR, φ_NR | Non-resonant → Amplitude, Phase | Non-resonant background amplitude/phase |
-| Aⱼ | Peak *j* → Amplitude | Resonant amplitude (sign gives the peak's phase relative to the background) |
-| ωⱼ | Peak *j* → Center | Resonance position (cm⁻¹) |
-| Γⱼ | Peak *j* → Width, halved | Half-width-at-half-max (the table shows the full width) |
+| $A_{\mathrm{NR}},\ \varphi_{\mathrm{NR}}$ | Non-resonant → Amplitude, Phase | Non-resonant background amplitude/phase |
+| $A_j$ | Peak *j* → Amplitude | Resonant amplitude (sign gives the peak's phase relative to the background) |
+| $\omega_j$ | Peak *j* → Center | Resonance position (cm⁻¹) |
+| $\Gamma_j$ | Peak *j* → Width, halved | Half-width-at-half-max (the table shows the full width) |
 
 Panels are dockable and rearrangeable; the natural order to work
 through them is:
@@ -89,8 +93,9 @@ lineshapes across peaks. An **Include non-resonant background**
 checkbox is on by default. The peak table lists every current peak
 with a **Remove** action per row.
 
-> Which curves are actually *shown* on the plot is controlled by the
-> **Display** dock below, not this table.
+!!! note
+    Which curves are actually *shown* on the plot is controlled by the
+    **Display** dock below, not this table.
 
 ## 3. Parameters
 

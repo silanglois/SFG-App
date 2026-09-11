@@ -171,8 +171,14 @@ run it):
 
 ```bash
 uv sync --group dev
+uv run mkdocs build
 uv run pyinstaller packaging/sfg-app.spec
 ```
+
+`uv run mkdocs build` generates the HTML user guide into `site/` so
+PyInstaller can bundle it; CI does this automatically. If `site/` is
+missing the build still succeeds and the app falls back to a
+plain-text guide viewer.
 
 The built app appears in `dist/SFG-App/` — copy that whole folder to
 distribute it; `SFG-App.exe` inside it depends on the rest of the
@@ -191,15 +197,40 @@ The installer appears in `packaging/installer_output/`. In practice
 this happens automatically: pushing a `vX.Y.Z` tag triggers
 `.github/workflows/release.yml`, which builds the exe, packages both
 the installer and a portable ZIP, and publishes them to a
-[GitHub Release](https://github.com/silanglois/SFG-App/releases) —
-see [ARCHITECTURE.md](ARCHITECTURE.md).
+[GitHub Release](https://github.com/silanglois/SFG-App/releases).
 
 ## Documentation
 
 An in-depth user guide covering every tab and settings dialog is
-built into the app — open it from **Help → User Guide**. For a
-developer-facing overview of the codebase structure, see
-[ARCHITECTURE.md](ARCHITECTURE.md).
+built into the app — open it from **Help → User Guide**. It opens the
+bundled HTML guide (math, diagrams, search, light/dark) in your
+default browser; if that guide hasn't been built — e.g. running from
+source without `mkdocs build` — the app falls back to a built-in text
+viewer showing the same content.
+
+The Markdown source lives in `src/sfg_app2/app/ressources/user_guide/`:
+
+```bash
+uv run mkdocs serve   # live-reload preview at http://127.0.0.1:8000
+uv run mkdocs build   # regenerate site/ so Help → User Guide picks it up
+```
+
+A few conventions when editing it:
+
+- **Math**: `$...$` / `$$...$$`, typeset offline by a vendored KaTeX —
+  keep it out of `##` headings (it breaks the table-of-contents anchors).
+- **Callouts**: Material admonitions, not blockquotes — e.g.
+  `!!! warning "Experimental"` followed by an indented body, or `!!! note`.
+- **Screencasts**: animated GIF/WebP only (no `<video>` — it won't play
+  from `file://` and isn't in the offline bundle), dropped into
+  `user_guide/assets/`, aiming for ≤ 720 px wide and ≤ 3 MB.
+- **New pages** must be added to `nav:` in `mkdocs.yml`, or
+  `mkdocs build --strict` (and CI) fails.
+- **Vendored assets** (`javascripts/`, `stylesheets/`, including the
+  `assets/icon.svg` copy of the app's own icon) are replaced from their
+  upstream source and rebuilt, never hand-edited — `katex.min.css` in
+  particular must stay byte-for-byte, since its font URLs are relative
+  to it.
 
 ## License
 

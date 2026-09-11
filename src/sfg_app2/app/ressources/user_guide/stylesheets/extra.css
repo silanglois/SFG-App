@@ -1,0 +1,20 @@
+/* Brand tint for page/section titles, echoing the app icon's purple.
+   Dark-mode values reuse Material's own "deep purple" swatch tones -- the
+   dark-mode tint even echoes the icon's own pale-lavender fill color.
+   Everything else (body text, tables, code, admonitions) is left alone. */
+[data-md-color-scheme="default"] {
+  --sfg-h1-color: #4527a0; /* Material deep purple 800 */
+  --sfg-h2-color: #5e35b1; /* Material deep purple 600 */
+}
+[data-md-color-scheme="slate"] {
+  --sfg-h1-color: #b39ddb; /* Material deep purple 200 */
+  --sfg-h2-color: #9575cd; /* Material deep purple 300 */
+}
+
+.md-typeset h1 {
+  color: var(--sfg-h1-color);
+}
+
+.md-typeset h2 {
+  color: var(--sfg-h2-color);
+}

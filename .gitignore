@@ -18,6 +18,9 @@ tests/data/
 # Virtual environments
 .venv
 
+# MkDocs build output (the user guide site; rebuilt via `uv run mkdocs build`)
+/site/
+
 # Others
 temp.ui
 .vscode/settings.json

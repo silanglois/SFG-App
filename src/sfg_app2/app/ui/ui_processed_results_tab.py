@@ -339,7 +339,7 @@ class Ui_Form(object):
         Form.setWindowTitle(QCoreApplication.translate("Form", u"Form", None))
         self.addSpectraButton.setText(QCoreApplication.translate("Form", u"Add spectra from file", None))
         self.pushButton.setText(QCoreApplication.translate("Form", u"Sort by metadata", None))
-        self.exportSelectedButton.setText(QCoreApplication.translate("Form", u"Export selected", None))
+        self.exportSelectedButton.setText(QCoreApplication.translate("Form", u"Export checked", None))
         self.exportAllButton.setText(QCoreApplication.translate("Form", u"Export all", None))
         self.normalizationComboBox.setItemText(0, QCoreApplication.translate("Form", u"Plot \"as is\"", None))
         self.normalizationComboBox.setItemText(1, QCoreApplication.translate("Form", u"Normalize to given wavenumber", None))

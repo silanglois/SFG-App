@@ -3,9 +3,11 @@ from __future__ import annotations
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QTableWidget,
     QTableWidgetItem, QPushButton, QLabel, QDialogButtonBox,
-    QHeaderView,
+    QHeaderView, QCheckBox,
 )
 from PySide6.QtCore import Qt
+
+from sfg_app2.app.dialogs._multi_entry_table import merge_entries_into_wide_rows
 
 
 def _fmt(value) -> str:
@@ -115,6 +117,11 @@ class ProcessingParamsDialog(QDialog):
         self._label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self._label)
 
+        self._combine_check = QCheckBox("Combine all selected into one table")
+        self._combine_check.setEnabled(len(self._entries) > 1)
+        self._combine_check.toggled.connect(self._on_mode_changed)
+        layout.addWidget(self._combine_check)
+
         self._table = QTableWidget(0, 2)
         self._table.setHorizontalHeaderLabels(["Field", "Value"])
         self._table.horizontalHeader().setSectionResizeMode(
@@ -152,26 +159,60 @@ class ProcessingParamsDialog(QDialog):
         self._current = min(len(self._entries) - 1, self._current + 1)
         self._load_current()
 
+    @staticmethod
+    def _rows_for_entry(entry) -> list[tuple[str, str]]:
+        provenance = getattr(entry.spectrum, "provenance", None) or {}
+        if entry.kind == "heterodyne":
+            return _heterodyne_rows(provenance)
+        return _homodyne_rows(provenance)
+
+    def _on_mode_changed(self, combined: bool):
+        self._prev_button.setVisible(not combined)
+        self._counter_label.setVisible(not combined)
+        self._next_button.setVisible(not combined)
+        if combined:
+            self._load_combined()
+        else:
+            self._load_current()
+
+    def _fill_table(self, headers: list[str], rows: list[tuple]):
+        self._table.setColumnCount(len(headers))
+        self._table.setHorizontalHeaderLabels(headers)
+        header = self._table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        # Per-spectrum mode (exactly one value column) stretches it to fill
+        # the dialog, as before; combined mode (several spectra columns)
+        # has no single natural column to stretch, so size each to its
+        # contents and let the table scroll horizontally instead.
+        last_mode = (
+            QHeaderView.ResizeMode.Stretch if len(headers) == 2
+            else QHeaderView.ResizeMode.ResizeToContents
+        )
+        for col in range(1, len(headers)):
+            header.setSectionResizeMode(col, last_mode)
+
+        self._table.setRowCount(0)
+        for row in rows:
+            table_row = self._table.rowCount()
+            self._table.insertRow(table_row)
+            for col, text in enumerate(row):
+                item = QTableWidgetItem(text)
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                self._table.setItem(table_row, col, item)
+
     def _load_current(self):
         entry = self._entries[self._current]
         self._label.setText(f"{entry.label}  ({entry.kind})")
         self._counter_label.setText(f"{self._current + 1} / {len(self._entries)}")
         self._prev_button.setEnabled(self._current > 0)
         self._next_button.setEnabled(self._current < len(self._entries) - 1)
+        self._fill_table(["Field", "Value"], self._rows_for_entry(entry))
 
-        provenance = getattr(entry.spectrum, "provenance", None) or {}
-        if entry.kind == "heterodyne":
-            rows = _heterodyne_rows(provenance)
-        else:
-            rows = _homodyne_rows(provenance)
-
-        self._table.setRowCount(0)
-        for key, value in rows:
-            row = self._table.rowCount()
-            self._table.insertRow(row)
-            key_item = QTableWidgetItem(key)
-            key_item.setFlags(key_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-            value_item = QTableWidgetItem(value)
-            value_item.setFlags(value_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-            self._table.setItem(row, 0, key_item)
-            self._table.setItem(row, 1, value_item)
+    def _load_combined(self):
+        n = len(self._entries)
+        self._label.setText(f"{n} spectrum/spectra (combined)" if n != 1 else self._entries[0].label)
+        headers = ["Field"] + [entry.label for entry in self._entries]
+        merged = merge_entries_into_wide_rows(
+            [self._rows_for_entry(entry) for entry in self._entries]
+        )
+        self._fill_table(headers, merged)

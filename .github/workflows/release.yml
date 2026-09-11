@@ -24,6 +24,9 @@ jobs:
       - name: Install dependencies
         run: uv sync --group dev
 
+      - name: Build user guide site
+        run: uv run mkdocs build --strict
+
       - name: Build executable
         run: uv run pyinstaller packaging/sfg-app.spec
 
