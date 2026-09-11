@@ -17,6 +17,15 @@ _REPO_ROOT = Path(SPECPATH).parent
 _RESSOURCES = _REPO_ROOT / "src" / "sfg_app2" / "app" / "ressources"
 _ICON = Path(SPECPATH) / "icon.ico"
 
+# Built MkDocs user guide (see mkdocs.yml). Optional: a source build without
+# `uv run mkdocs build` still works -- the app then uses the QTextBrowser
+# fallback (user_guide_dialog.UserGuideDialog). CI builds it first.
+_SITE = _REPO_ROOT / "site"
+if not _SITE.is_dir():
+    print("WARNING: site/ not found -- run `uv run mkdocs build` before "
+          "PyInstaller to bundle the HTML user guide. Building without it; "
+          "the app will fall back to the plain-text guide viewer.")
+
 a = Analysis(
     [str(Path(SPECPATH) / "entry_point.py")],
     pathex=[str(_REPO_ROOT / "src")],
@@ -26,6 +35,12 @@ a = Analysis(
         # directory at runtime via Path(__file__)-relative paths -- it
         # has to be bundled explicitly, PyInstaller can't infer it.
         (str(_RESSOURCES), "sfg_app2/app/ressources"),
+        # Built MkDocs Material user guide -> opened in the default browser
+        # from Help -> User Guide (see
+        # user_guide_dialog.user_guide_site_index, which looks for it under
+        # sys._MEIPASS / "user_guide_site"). Guarded so a source build
+        # without `uv run mkdocs build` still succeeds.
+        *([(str(_SITE), "user_guide_site")] if _SITE.is_dir() else []),
         # aquarel ships its themes as *.json package data, not code --
         # PyInstaller's Analysis only auto-detects Python modules, and
         # there's no PyInstaller hook for this (niche) package, so its

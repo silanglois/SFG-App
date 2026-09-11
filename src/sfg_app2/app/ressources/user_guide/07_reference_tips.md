@@ -56,9 +56,11 @@ assumptions about shot noise or detector characteristics are needed —
 it's a direct empirical measure of how reproducible the measurement
 actually was.
 
-Concretely, the half-width shown is `1.96 × std(across frames) / √n` —
+Concretely, the half-width shown is
+$1.96 \times \operatorname{std}(\text{across frames}) / \sqrt{n}$ —
 a 95% confidence interval on the mean, under the normal approximation.
 Two caveats worth knowing:
+
 - It uses a **fixed z = 1.96** rather than a proper small-sample
   Student-t critical value. That's only exactly right as the frame
   count grows large; with only a handful of frames (common in SFG —
@@ -87,8 +89,9 @@ functions of χ, so those two orders of operation genuinely disagree —
 and one of them is measurably wrong: averaging each frame's own
 |χ|² **systematically overestimates** the true intensity (a basic
 statistical fact — for any noisy quantity, the average of the
-squared-magnitudes is always ≥ the squared-magnitude of the average,
-with equality only when there's zero frame-to-frame noise). Averaging
+squared-magnitudes is always at least the squared-magnitude of the
+average, $\langle |\chi|^2 \rangle \ge |\langle \chi \rangle|^2$, with
+equality only when there's zero frame-to-frame noise). Averaging
 each frame's own phase angle directly is also risky, independent of
 that bias — it can distort badly if frames scatter across the ±180°
 seam. SFG-App avoids both problems by always deriving phase and
@@ -103,7 +106,7 @@ different things in different corners of this app:
 | Where | What it actually is |
 |---|---|
 | Heterodyne "Show errors" (this section) | Empirical 95% CI from per-frame spread, pre-fit — describes measurement reproducibility. |
-| Homodyne's "Measurement error (SEM)" fit weighting | A plain standard error of the mean (`std/√n`, **no** 1.96 factor, despite the similar name) from `average_spectrum()`'s per-wavelength frame statistics — and that std uses the *opposite* convention (`ddof=1`) from the heterodyne CI above. |
+| Homodyne's "Measurement error (SEM)" fit weighting | A plain standard error of the mean ($\operatorname{std}/\sqrt{n}$, **no** 1.96 factor, despite the similar name) from `average_spectrum()`'s per-wavelength frame statistics — and that std uses the *opposite* convention (`ddof=1`) from the heterodyne CI above. |
 | Fitting tab's parameter-table "Value ± stderr" | Always shown after **Run fit** — `lmfit`'s asymptotic covariance-matrix estimate. Post-fit: describes how uncertain a *fitted parameter* is, unrelated to either measurement-spread quantity above. This is the only per-parameter uncertainty this app computes -- there is no separate profile-likelihood/confidence-interval step. |
 | Multi-fit results' trend-plot error bars | The same parameter `stderr` as above, just plotted across a batch of independent fits. |
 

@@ -171,8 +171,14 @@ run it):
 
 ```bash
 uv sync --group dev
+uv run mkdocs build
 uv run pyinstaller packaging/sfg-app.spec
 ```
+
+`uv run mkdocs build` generates the HTML user guide into `site/` so
+PyInstaller can bundle it; CI does this automatically. If `site/` is
+missing the build still succeeds and the app falls back to a
+plain-text guide viewer.
 
 The built app appears in `dist/SFG-App/` — copy that whole folder to
 distribute it; `SFG-App.exe` inside it depends on the rest of the
@@ -196,7 +202,18 @@ the installer and a portable ZIP, and publishes them to a
 ## Documentation
 
 An in-depth user guide covering every tab and settings dialog is
-built into the app — open it from **Help → User Guide**.
+built into the app — open it from **Help → User Guide**. It opens the
+bundled HTML guide (math, diagrams, search, light/dark) in your
+default browser; if that guide hasn't been built — e.g. running from
+source without `mkdocs build` — the app falls back to a built-in text
+viewer showing the same content.
+
+To work on the guide, the Markdown lives in
+`src/sfg_app2/app/ressources/user_guide/`. Run `uv run mkdocs serve`
+for a live-reload preview at <http://127.0.0.1:8000>, and
+`uv run mkdocs build` to regenerate `site/` so **Help → User Guide**
+picks up the changes. See [CONTRIBUTING.md](CONTRIBUTING.md) for
+adding screencasts and new pages.
 
 ## License
 
