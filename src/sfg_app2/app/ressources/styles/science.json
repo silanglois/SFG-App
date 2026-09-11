@@ -1,0 +1,41 @@
+{
+  "info": {
+    "name": "science",
+    "description": "SciencePlots' science + no-latex preset, adapted for SFG-App: mathtext (no LaTeX install needed), ticks on all four sides."
+  },
+  "params": {
+    "colors": {
+      "palette": ["#0C5DA5", "#00B945", "#FF9500", "#FF2C00", "#845B97", "#474747", "#9e9e9e"]
+    },
+    "ticks": {
+      "direction": "in",
+      "draw_minor": true,
+      "width_major": 0.5,
+      "width_minor": 0.5,
+      "size_major": 3,
+      "size_minor": 1.5
+    },
+    "axes": {
+      "width": 0.5
+    },
+    "lines": {
+      "width": 1.0
+    },
+    "grid": {
+      "width": 0.5
+    },
+    "fonts": {
+      "family": "serif",
+      "serif": ["STIXGeneral"]
+    }
+  },
+  "overrides": {
+    "xtick.top": true,
+    "ytick.right": true,
+    "legend.frameon": false,
+    "text.usetex": false,
+    "mathtext.fontset": "cm",
+    "axes.formatter.use_mathtext": true
+  },
+  "transforms": {}
+}

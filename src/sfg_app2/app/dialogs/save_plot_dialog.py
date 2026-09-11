@@ -13,6 +13,14 @@ from PySide6.QtWidgets import (
 _PREVIEW_MAX_W = 700
 _PREVIEW_MAX_H = 380
 
+# Figure-width presets offered in _build_export_fields() -- (label, width
+# in inches). 3.5in matches SciencePlots' own single-column figure.figsize
+# convention; 7.0in is double that for a full-width/double-column figure.
+_WIDTH_PRESETS = [
+    ("Single column (3.5 in)", 3.5),
+    ("Double column (7.0 in)", 7.0),
+]
+
 
 class SavePlotDialog(QDialog):
     """Collects export options for a SpectrumPlotWidget's plot, with a
@@ -151,6 +159,24 @@ class SavePlotDialog(QDialog):
 
         orig_w, orig_h = self.figure.get_size_inches()
 
+        self._width_preset_combo = QComboBox()
+        self._width_preset_combo.addItem("Custom", None)
+        for label, width_in in _WIDTH_PRESETS:
+            self._width_preset_combo.addItem(label, width_in)
+        self._width_preset_combo.currentIndexChanged.connect(self._on_width_preset_changed)
+        form.addRow("Figure width preset:", self._width_preset_combo)
+
+        self._trim_check = QCheckBox("Trim whitespace on export")
+        self._trim_check.setChecked(True)
+        self._trim_check.setToolTip(
+            "Crops the exported image to the actual rendered content "
+            "(axis/tick labels and title included, not just the bare "
+            "axes box) via savefig(bbox_inches=\"tight\"). If a Force "
+            "width/height below is also set, that's the pre-crop size -- "
+            "tight cropping can only shrink the final image further."
+        )
+        form.addRow(self._trim_check)
+
         self._width_check = QCheckBox("Force width (in)")
         self._width_spin = QDoubleSpinBox()
         self._width_spin.setRange(0.1, 100.0)
@@ -279,6 +305,29 @@ class SavePlotDialog(QDialog):
 
     def _on_setting_changed(self, *_args):
         self._apply_overrides()
+
+    def _on_width_preset_changed(self, _index: int):
+        """A preset sets both Force width and Force height together,
+        scaling height to preserve the figure's *current* aspect ratio
+        (rather than forcing a fixed height) -- so a preset works
+        sensibly whether the underlying plot is a line plot, a twin-axis
+        plot, or an image heatmap. Reuses the existing Force width/height
+        checkboxes/spinboxes and their already-wired signal chain (live
+        preview geometry, _on_setting_changed) instead of introducing any
+        new plumbing. "Custom" (the default entry) does nothing --
+        editing width/height by hand afterward just leaves the combo on
+        its now-stale preset selection, harmlessly (same one-way
+        relationship Force width/height already have with each other).
+        """
+        width_in = self._width_preset_combo.currentData()
+        if width_in is None:
+            return
+        orig_w, orig_h = self._orig_fig_size
+        height_in = width_in * (orig_h / orig_w) if orig_w > 0 else width_in
+        self._width_check.setChecked(True)
+        self._width_spin.setValue(width_in)
+        self._height_check.setChecked(True)
+        self._height_spin.setValue(height_in)
 
     def _target_size_inches(self) -> tuple[float, float]:
         """The (width, height) in inches export() will actually use --
@@ -430,7 +479,11 @@ class SavePlotDialog(QDialog):
         buf = io.BytesIO()
         try:
             self._apply_overrides(include_size=True)
-            self.figure.savefig(buf, format=fmt, dpi=dpi)
+            savefig_kwargs = {}
+            if self._trim_check.isChecked():
+                savefig_kwargs["bbox_inches"] = "tight"
+                savefig_kwargs["pad_inches"] = 0.05
+            self.figure.savefig(buf, format=fmt, dpi=dpi, **savefig_kwargs)
         finally:
             self._restore_original_state()
             self._resync_figure_size_to_canvas()
