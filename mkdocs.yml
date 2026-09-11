@@ -22,6 +22,11 @@ use_directory_urls: false
 theme:
   name: material
   language: en
+  # Copy of ../../icon.svg (the app's own icon) -- kept in sync manually,
+  # see README.md. Square viewBox, so it scales cleanly at any size Material
+  # renders it (header logo, browser-tab favicon).
+  logo: assets/icon.svg
+  favicon: assets/icon.svg
   # Use the platform font stack -- Material's default pulls Roboto from
   # Google Fonts, which fails (and stalls layout) with no network.
   font: false
@@ -35,18 +40,21 @@ theme:
     - search.suggest
     # Deliberately NOT enabled: navigation.instant / navigation.prefetch
     # (need XHR -> broken under file://); content.action.* (no repo link).
+  # "deep purple" is the closest built-in Material color to the app icon's
+  # own violet family (see stylesheets/extra.css for the matching heading
+  # tint), so the header bar, links, and search highlights read as branded.
   palette:
     - media: "(prefers-color-scheme: light)"
       scheme: default
-      primary: indigo
-      accent: indigo
+      primary: deep purple
+      accent: deep purple
       toggle:
         icon: material/weather-night
         name: Switch to dark mode
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
-      primary: indigo
-      accent: indigo
+      primary: deep purple
+      accent: deep purple
       toggle:
         icon: material/weather-sunny
         name: Switch to light mode
@@ -100,3 +108,4 @@ extra_javascript:
 
 extra_css:
   - stylesheets/katex.min.css
+  - stylesheets/extra.css

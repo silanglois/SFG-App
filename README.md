@@ -208,12 +208,29 @@ default browser; if that guide hasn't been built — e.g. running from
 source without `mkdocs build` — the app falls back to a built-in text
 viewer showing the same content.
 
-To work on the guide, the Markdown lives in
-`src/sfg_app2/app/ressources/user_guide/`. Run `uv run mkdocs serve`
-for a live-reload preview at <http://127.0.0.1:8000>, and
-`uv run mkdocs build` to regenerate `site/` so **Help → User Guide**
-picks up the changes. See [CONTRIBUTING.md](CONTRIBUTING.md) for
-adding screencasts and new pages.
+The Markdown source lives in `src/sfg_app2/app/ressources/user_guide/`:
+
+```bash
+uv run mkdocs serve   # live-reload preview at http://127.0.0.1:8000
+uv run mkdocs build   # regenerate site/ so Help → User Guide picks it up
+```
+
+A few conventions when editing it:
+
+- **Math**: `$...$` / `$$...$$`, typeset offline by a vendored KaTeX —
+  keep it out of `##` headings (it breaks the table-of-contents anchors).
+- **Callouts**: Material admonitions, not blockquotes — e.g.
+  `!!! warning "Experimental"` followed by an indented body, or `!!! note`.
+- **Screencasts**: animated GIF/WebP only (no `<video>` — it won't play
+  from `file://` and isn't in the offline bundle), dropped into
+  `user_guide/assets/`, aiming for ≤ 720 px wide and ≤ 3 MB.
+- **New pages** must be added to `nav:` in `mkdocs.yml`, or
+  `mkdocs build --strict` (and CI) fails.
+- **Vendored assets** (`javascripts/`, `stylesheets/`, including the
+  `assets/icon.svg` copy of the app's own icon) are replaced from their
+  upstream source and rebuilt, never hand-edited — `katex.min.css` in
+  particular must stay byte-for-byte, since its font URLs are relative
+  to it.
 
 ## License
 
