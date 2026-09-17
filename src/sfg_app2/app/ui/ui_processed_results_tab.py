@@ -277,11 +277,11 @@ class Ui_Form(object):
 
         self.horizontalLayout_6.addWidget(self.legendFieldLabel)
 
-        self.legendFieldComboBox = QComboBox(self.labelsTab)
-        self.legendFieldComboBox.setObjectName(u"legendFieldComboBox")
-        self.legendFieldComboBox.setMaximumSize(QSize(200, 16777215))
+        self.legendFieldButton = QPushButton(self.labelsTab)
+        self.legendFieldButton.setObjectName(u"legendFieldButton")
+        self.legendFieldButton.setMaximumSize(QSize(200, 16777215))
 
-        self.horizontalLayout_6.addWidget(self.legendFieldComboBox)
+        self.horizontalLayout_6.addWidget(self.legendFieldButton)
 
         self.horizontalSpacer_6 = QSpacerItem(40, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
 
@@ -357,6 +357,7 @@ class Ui_Form(object):
         self.xAxisLabelLabel.setText(QCoreApplication.translate("Form", u"X axis label:", None))
         self.yAxisLabelLabel.setText(QCoreApplication.translate("Form", u"Y axis label:", None))
         self.legendFieldLabel.setText(QCoreApplication.translate("Form", u"Legend:", None))
+        self.legendFieldButton.setText(QCoreApplication.translate("Form", u"Filename", None))
         self.annotationsButton.setText(QCoreApplication.translate("Form", u"Annotations...", None))
         self.visualizationParamsTabWidget.setTabText(self.visualizationParamsTabWidget.indexOf(self.labelsTab), QCoreApplication.translate("Form", u"Labels, legend && annotations", None))
     # retranslateUi

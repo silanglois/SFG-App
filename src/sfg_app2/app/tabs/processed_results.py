@@ -22,6 +22,7 @@ from sfg_app2.app.widgets.dockable_panels import DockablePlotPanel
 from sfg_app2.processing.processed_spectrum import ProcessedSpectrum
 from sfg_app2.app.utils.loading_indicator import show_loading
 from sfg_app2.app.utils.phase_wrap import wrap_phase_for_plot
+from sfg_app2.app.utils.plotting_settings import PlottingSettings
 from sfg_app2.app.utils.app_logging import LOG_FILE
 from sfg_app2.processing import provenance as provenance_mod
 from sfg_app2.processing import fitting as fitting_mod
@@ -84,6 +85,17 @@ _HD_LEGEND_LABEL = {
     "Real": "Re($\\chi^{(2)}$)",
     "Phase": "Phase",
     "|χ⁽²⁾|² (Homodyne)": r"$|\chi^{(2)}|^2$",
+}
+
+
+# fit-derived column name -> the HD component display name (matching
+# _HD_COMPONENT_COLUMN's keys) it's derived from -- heterodyne only, used
+# to match a fit curve's color to its corresponding data component's
+# color when that component is currently checked (see _assign_spec_colors)
+_FIT_TO_HD_COMPONENT = {
+    "Fit (real)": "Real",
+    "Fit (imaginary)": "Imaginary",
+    "Fit (homodyne)": "|χ⁽²⁾|² (Homodyne)",
 }
 
 
@@ -188,10 +200,15 @@ def _entry_display_text(entry: SpectrumEntry) -> str:
 
 
 class ProcessedResultsTab(QWidget, DockablePlotPanel):
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, plotting_settings: PlottingSettings | None = None):
         super().__init__(parent)
         self.ui = Ui_Form()
         self.ui.setupUi(self)
+
+        # Shared with MainWindow when available, so a marker-size change in
+        # Plotting Settings takes effect on the next replot -- falls back to
+        # a standalone instance (its own on-disk load) for tests/ad-hoc use.
+        self._plotting_settings = plotting_settings or PlottingSettings()
 
         self._entries: list[SpectrumEntry] = []
         self._annotations: list[PlotAnnotation] = []
@@ -201,7 +218,7 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         self._setup_colormap_combo()
         self._setup_normalization()
         self._setup_hd_component_checkboxes()
-        self._refresh_legend_field_options()
+        self._setup_legend_fields()
         self._connect_signals()
 
     # ── Setup ─────────────────────────────────────────────────────────────────
@@ -291,7 +308,7 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         self.ui.horizontalLayout_8.removeItem(self.ui.horizontalSpacer_3)
 
         for widget in (self.ui.xAxisLabelEdit, self.ui.yAxisLabelEdit,
-                       self.ui.legendFieldComboBox, self.ui.annotationsButton):
+                       self.ui.legendFieldButton, self.ui.annotationsButton):
             expand(widget)
         self.ui.horizontalLayout_2.removeItem(self.ui.horizontalSpacer_4)
         self.ui.horizontalLayout_5.removeItem(self.ui.horizontalSpacer_5)
@@ -430,6 +447,20 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         self._hide_data_checkbox.toggled.connect(self._refresh_plot)
         outer.addWidget(self._hide_data_checkbox)
 
+        # Only meaningful when there's a fit to distinguish the measured
+        # data from -- lives in this panel (not Labels/legend) so it's
+        # only available while this panel itself is enabled (see
+        # _update_conditional_dock_state()'s fit_dock.setEnabled(has_fit)).
+        self._markers_checkbox = QCheckBox("Show data as markers")
+        self._markers_checkbox.setToolTip(
+            "Render the raw/measured data series as markers instead of a "
+            "line, so it's visually distinguishable from a fit curve drawn "
+            "over it. Only affects the measured data — fit-derived curves "
+            "always stay lines."
+        )
+        self._markers_checkbox.toggled.connect(self._refresh_plot)
+        outer.addWidget(self._markers_checkbox)
+
         outer.addStretch()
         return widget
 
@@ -471,7 +502,7 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
             cb.toggled.connect(self._refresh_plot)
         self.ui.hdCheckShowError.toggled.connect(self._refresh_plot)
         self._phase_range_combo.currentIndexChanged.connect(self._refresh_plot)
-        self.ui.legendFieldComboBox.currentIndexChanged.connect(self._refresh_plot)
+        self.ui.legendFieldButton.clicked.connect(self._on_edit_legend_fields)
         self.ui.xAxisLabelEdit.editingFinished.connect(self._refresh_plot)
         self.ui.yAxisLabelEdit.editingFinished.connect(self._refresh_plot)
         self.plot_widget.xRangeEdited.connect(self._refresh_plot)
@@ -558,7 +589,6 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         finally:
             loading.close()
 
-        self._refresh_legend_field_options()
         self._refresh_plot()
 
         if failed:
@@ -720,21 +750,75 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         positions = np.linspace(start, stop, n)
         return [cmap(p) for p in positions]
 
+    def _assign_spec_colors(self, specs) -> list:
+        """One color per spec (`specs`' own order/length) -- data traces
+        keep today's positional color-cycling (now scoped to just data
+        specs, so a fit's peak count no longer perturbs other entries'
+        data colors as a side effect), while a fit-derived curve (Fit
+        total/real/imaginary, peaks) reuses its own entry's matching
+        data-trace color, so a fit visually matches the data it was fit
+        against. Falls back to that entry's first data color (peaks, or
+        a heterodyne component that isn't currently checked), then --
+        only if the entry has no visible data at all (e.g. "Hide data")
+        -- a fresh positional color, same as today's fit-only behavior.
+        """
+        data_indices = [i for i, s in enumerate(specs) if not s[6]]
+        data_colors = self._get_colors(len(data_indices))
+        result = [None] * len(specs)
+        data_color_by_key = {}
+        entry_fallback_color = {}
+        for idx, color in zip(data_indices, data_colors):
+            entry, component = specs[idx][0], specs[idx][1]
+            key = component if component is not None else AMPLITUDE_COMPONENT
+            data_color_by_key[(entry, key)] = color
+            entry_fallback_color.setdefault(entry, color)
+            result[idx] = color
+
+        orphans = []
+        for i, spec in enumerate(specs):
+            if not spec[6]:
+                continue   # already colored above
+            entry, y_col = spec[0], spec[2]
+            matched_key = (_FIT_TO_HD_COMPONENT.get(y_col)
+                           if entry.kind == "heterodyne" else AMPLITUDE_COMPONENT)
+            color = data_color_by_key.get((entry, matched_key)) if matched_key else None
+            if color is None:
+                color = entry_fallback_color.get(entry)
+            if color is None:
+                orphans.append(i)
+            else:
+                result[i] = color
+        if orphans:
+            for i, color in zip(orphans, self._get_colors(len(orphans))):
+                result[i] = color
+        return result
+
     # ── Plot ──────────────────────────────────────────────────────────────────
 
-    def _legend_base(self, entry: SpectrumEntry, legend_field: str) -> str:
-        if legend_field in ("Filename", "None"):
+    def _legend_base(self, entry: SpectrumEntry, legend_fields: list[str]) -> str:
+        if legend_fields == ["None"]:
             return entry.label
-        value = entry.spectrum.metadata.get(legend_field)
-        return str(value) if value not in (None, "") else entry.label
+        parts = []
+        for field in legend_fields:
+            if field == "Filename":
+                parts.append(entry.label)
+            else:
+                value = entry.spectrum.metadata.get(field)
+                parts.append(str(value) if value not in (None, "") else entry.label)
+        return " - ".join(parts)
 
     def _ylabel_for(self, hd_components: list[str], has_amplitude_line: bool) -> str:
         if hd_components:
             return (_HD_YLABEL.get(hd_components[0], "Amplitude (a.u.)")
                     if len(set(hd_components)) == 1 else "Amplitude (a.u.)")
         if has_amplitude_line:
-            return ("Intensity (counts)" if self.ui.normalizationComboBox.currentIndex() == 0
-                     else "Normalized Intensity (a.u.)")
+            # Every entry reaching the Spectra Library has already been
+            # through the full pipeline (despike -> background subtract ->
+            # normalize -> upconvert) -- it's reference-normalized,
+            # dimensionless, never raw camera counts. normalizationComboBox
+            # is a separate in-tab *display* rescaling knob (_normalize_
+            # factor()) and has no bearing on this.
+            return "Normalized Intensity (a.u.)"
         return ""
 
     def _draw_annotations(self):
@@ -798,7 +882,7 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         offset_step = self.ui.offsetSpectraSpinner.value()
         checked_components = self._checked_hd_components()
         checked_fit_concepts = self._checked_fit_concepts()
-        legend_field = self.ui.legendFieldComboBox.currentText()
+        legend_fields = self._legend_fields
 
         # determine x column — use Wavenumber if available, else Wavelength
         first_data = entries[0].spectrum.data
@@ -820,12 +904,13 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
             and checked_components[0] in ("Imaginary", "Real", "Phase")
         )
         show_error = self.ui.hdCheckShowError.isChecked()
+        markers_mode = self._markers_checkbox.isChecked()
 
         hide_data = self._hide_data_checkbox.isChecked()
 
-        specs = []   # (entry, component, y_col, err_col, label, style)
+        specs = []   # (entry, component, y_col, err_col, label, style, is_fit)
         for entry in entries:
-            base_label = self._legend_base(entry, legend_field)
+            base_label = self._legend_base(entry, legend_fields)
             if hide_data:
                 pass   # skip the raw/measured series -- fit curves below are unaffected
             elif entry.kind == "heterodyne":
@@ -843,11 +928,11 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
                         label = f"{base_label} ({_HD_LEGEND_LABEL[component]})"
                     else:
                         label = base_label
-                    specs.append((entry, component, y_col, err_col, style.label or label, style))
+                    specs.append((entry, component, y_col, err_col, style.label or label, style, False))
             else:
                 style = entry.style_for(AMPLITUDE_COMPONENT)
                 if style.visible:
-                    specs.append((entry, None, "Intensity", None, style.label or base_label, style))
+                    specs.append((entry, None, "Intensity", None, style.label or base_label, style, False))
 
             # Reloaded fit's derived curves (fit total/real/imaginary, each
             # peak) -- per-entry and variable in count, so independent of
@@ -860,13 +945,13 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
                 style = entry.style_for(column_name)
                 if not style.visible:
                     continue
-                specs.append((entry, None, column_name, None, style.label or f"{base_label} ({display_label})", style))
+                specs.append((entry, None, column_name, None, style.label or f"{base_label} ({display_label})", style, True))
 
-        colors = self._get_colors(len(specs))
+        colors = self._assign_spec_colors(specs)
         primary_hd, secondary_hd = [], []
         primary_amp, secondary_amp = False, False
 
-        for i, (entry, component, y_col, err_col, label, style) in enumerate(specs):
+        for i, (entry, component, y_col, err_col, label, style, is_fit) in enumerate(specs):
             try:
                 if entry.kind == "heterodyne":
                     # already one row per wavenumber point — bypass .frame(),
@@ -893,15 +978,24 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
                 color = style.color or colors[i]
                 target_ax = self.plot_widget.secondary_axis() if is_secondary else self.plot_widget.ax
 
-                plot_kwargs = dict(color=color, linestyle=style.linestyle, label=label)
-                if style.marker is not None:
-                    plot_kwargs["marker"] = style.marker
-                if style.markersize is not None:
-                    plot_kwargs["markersize"] = style.markersize
-                if style.linewidth is not None:
-                    plot_kwargs["linewidth"] = style.linewidth
-                if style.alpha is not None:
-                    plot_kwargs["alpha"] = style.alpha
+                if markers_mode and not is_fit and style.is_default():
+                    # Global "show as markers" view -- only overrides traces
+                    # still on their default style; anything customized via
+                    # Trace Properties keeps its own explicit line/marker.
+                    plot_kwargs = dict(
+                        color=color, linestyle="None", marker="o",
+                        markersize=self._plotting_settings.marker_size, label=label,
+                    )
+                else:
+                    plot_kwargs = dict(color=color, linestyle=style.linestyle, label=label)
+                    if style.marker is not None:
+                        plot_kwargs["marker"] = style.marker
+                    if style.markersize is not None:
+                        plot_kwargs["markersize"] = style.markersize
+                    if style.linewidth is not None:
+                        plot_kwargs["linewidth"] = style.linewidth
+                    if style.alpha is not None:
+                        plot_kwargs["alpha"] = style.alpha
                 target_ax.plot(x, y_offset, **plot_kwargs)
 
                 if show_error and entry.kind == "heterodyne" and err_col in data.columns:
@@ -930,7 +1024,7 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         if self.plot_widget.ax2 is not None:
             h2, l2 = self.plot_widget.ax2.get_legend_handles_labels()
             handles, labels = handles + h2, labels + l2
-        if len(handles) > 1 and legend_field != "None":
+        if len(handles) > 1 and legend_fields != ["None"]:
             self.plot_widget.ax.legend(handles, labels, fontsize=8)
 
         primary_ylabel = self._ylabel_for(primary_hd, primary_amp)
@@ -958,15 +1052,23 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
             all_keys.update(e.spectrum.metadata.keys())
         return sorted(all_keys)
 
-    def _refresh_legend_field_options(self):
-        combo = self.ui.legendFieldComboBox
-        current = combo.currentText()
-        combo.blockSignals(True)
-        combo.clear()
-        combo.addItems(["Filename", "None"] + self._all_metadata_keys())
-        idx = combo.findText(current)
-        combo.setCurrentIndex(idx if idx >= 0 else 0)
-        combo.blockSignals(False)
+    def _setup_legend_fields(self):
+        self._legend_fields: list[str] = ["Filename"]
+        self._update_legend_button_text()
+
+    def _on_edit_legend_fields(self):
+        """Opens LegendFieldsDialog to pick what the legend is built from
+        -- Filename/None (each exclusive of everything else) or an
+        ordered combination of metadata fields."""
+        from sfg_app2.app.dialogs.legend_fields_dialog import LegendFieldsDialog
+        dialog = LegendFieldsDialog(self._legend_fields, self._all_metadata_keys(), parent=self)
+        if dialog.exec():
+            self._legend_fields = dialog.result_fields()
+            self._update_legend_button_text()
+            self._refresh_plot()
+
+    def _update_legend_button_text(self):
+        self.ui.legendFieldButton.setText(" - ".join(self._legend_fields))
 
     # ── Sort by metadata ──────────────────────────────────────────────────────
 
@@ -1212,7 +1314,6 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         loading.close()
 
         if added:
-            self._refresh_legend_field_options()
             self._refresh_plot()
 
         msg_parts = []
@@ -1457,6 +1558,5 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         labels_to_remove = {e.label for e in entries}
         self._entries = [e for e in self._entries if e.label not in labels_to_remove]
         self._rebuild_list()
-        self._refresh_legend_field_options()
         self._refresh_plot()
         logger.info("Removed %d spectrum/spectra from results.", n)

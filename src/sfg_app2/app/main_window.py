@@ -75,7 +75,7 @@ class MainWindow(QMainWindow):
         self._replace_tab(1, self.process_review_tab, "Process / Review")
         self.process_review_tab.processing_complete.connect(self._on_processing_complete)
 
-        self.processed_results_tab = ProcessedResultsTab()
+        self.processed_results_tab = ProcessedResultsTab(plotting_settings=self.plotting_settings)
         self.processed_results_tab.restore_dock_state(self.dock_layout_settings.get("results"))
         self._replace_tab(2, self.processed_results_tab, "Spectra Library")
 
