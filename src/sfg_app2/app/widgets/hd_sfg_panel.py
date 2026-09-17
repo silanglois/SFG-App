@@ -1098,7 +1098,7 @@ class HDSFGPanel(QWidget, DockablePlotPanel):
                                      alpha=0.7, label="Reference iFFT (imag)")
         self.plot_widget.ax.axhline(0, color="gray", linewidth=0.5)
         self.plot_widget.set_labels(
-            xlabel="Wavenumber (cm$^{-1}$)", ylabel="Amplitude (a.u.)",
+            xlabel="Wavenumber (cm$^{-1}$)", ylabel="Amplitude, real & imaginary (a.u.)",
             title="iFFT result (frequency domain)"
         )
 
@@ -1216,7 +1216,7 @@ class HDSFGPanel(QWidget, DockablePlotPanel):
 
         self.plot_widget.set_labels(
             xlabel="Wavenumber (cm$^{-1}$)",
-            ylabel=r"$\chi^{(2)}$ (a.u.)",
+            ylabel=r"$\chi^{(2)}$: Re / Im (a.u.)",
             title="Normalized HD-SFG result"
         )
 
