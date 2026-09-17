@@ -78,11 +78,6 @@ class Ui_Form(object):
         self.leftPanelWidget.setObjectName(u"leftPanelWidget")
         self.verticalLayout = QVBoxLayout(self.leftPanelWidget)
         self.verticalLayout.setObjectName(u"verticalLayout")
-        self.reviewReferencesButton = QPushButton(self.leftPanelWidget)
-        self.reviewReferencesButton.setObjectName(u"reviewReferencesButton")
-
-        self.verticalLayout.addWidget(self.reviewReferencesButton)
-
         self.label_2 = QLabel(self.leftPanelWidget)
         self.label_2.setObjectName(u"label_2")
         font = QFont()
@@ -141,7 +136,6 @@ class Ui_Form(object):
         self.label.setText(QCoreApplication.translate("Form", u"Up-conversion wavelength:", None))
         self.upconversionSpinBox.setSuffix(QCoreApplication.translate("Form", u" nm", None))
         self.calibrateButton.setText(QCoreApplication.translate("Form", u"\u25b6 Calibrate with polystyrene...", None))
-        self.reviewReferencesButton.setText(QCoreApplication.translate("Form", u"Review references", None))
         self.label_2.setText(QCoreApplication.translate("Form", u"Matched Sets", None))
         self.label_3.setText(QCoreApplication.translate("Form", u"View:", None))
         self.singleViewRadio.setText(QCoreApplication.translate("Form", u"Single", None))

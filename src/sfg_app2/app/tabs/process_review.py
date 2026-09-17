@@ -71,7 +71,6 @@ class ProcessReviewTab(QWidget):
         self.ui.singleViewRadio.toggled.connect(self._on_view_changed)
         self.ui.upconversionSpinBox.valueChanged.connect(self._on_upconversion_changed)
         self.ui.calibrateButton.clicked.connect(self._on_calibrate)
-        self.ui.reviewReferencesButton.clicked.connect(self._on_review_references)
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -192,16 +191,3 @@ class ProcessReviewTab(QWidget):
             return
         if dialog.exec():
             self.ui.upconversionSpinBox.setValue(dialog.result_wavelength)
-
-    # ── Reference review ──────────────────────────────────────────────────────
-
-    def _on_review_references(self):
-        if not self._matched_sets:
-            QMessageBox.information(self, "No data", "No matched sets loaded.")
-            return
-        from sfg_app2.app.dialogs.reference_review_dialog import ReferenceReviewDialog
-        dialog = ReferenceReviewDialog(
-            matched_sets=self._matched_sets,
-            parent=self,
-        )
-        dialog.exec()
