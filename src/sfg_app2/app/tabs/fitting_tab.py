@@ -1867,6 +1867,7 @@ class FittingTab(QWidget, DockablePlotPanel):
         self._multifit_param_combo.currentIndexChanged.connect(lambda _i: self._update_multifit_plot())
         view_row.addWidget(self._multifit_param_combo, stretch=1)
         layout.addLayout(view_row)
+        self._multifit_view_combo.setCurrentIndex(1)   # default to Overlay; triggers _on_multifit_view_changed
 
         export_btn = QPushButton("Export batch summary (CSV)")
         export_btn.clicked.connect(self._on_export_batch_summary)
@@ -1874,7 +1875,8 @@ class FittingTab(QWidget, DockablePlotPanel):
         return widget
 
     def _on_multifit_view_changed(self, _index: int):
-        self._multifit_param_combo.setEnabled(self._multifit_view_combo.currentData() == "trend")
+        is_trend = self._multifit_view_combo.currentData() == "trend"
+        self._multifit_param_combo.setEnabled(is_trend)
         self._update_multifit_plot()
 
     def _update_multifit_row(self, row: int):
@@ -2003,9 +2005,9 @@ class FittingTab(QWidget, DockablePlotPanel):
         ax.set_xlabel("Spectrum")
 
     def _draw_multifit_overlay(self, ax):
-        # Heterodyne rows show the real-part comparison only, as a
-        # simplification -- enough to eyeball fit quality across a
-        # series without doubling the number of curves drawn here.
+        # Heterodyne rows show the |chi_eff|^2-derived intensity, same
+        # quantity homodyne rows fit directly against -- one consistent
+        # "Total" view across a mixed-kind batch.
         max_legend = 8
         for i, (entry, dataset, result) in enumerate(self._batch_rows):
             if result is None:
@@ -2013,16 +2015,15 @@ class FittingTab(QWidget, DockablePlotPanel):
             omega = dataset.omega
             label = entry.label if i < max_legend else None
             if dataset.kind == "heterodyne":
-                data_y = dataset.real
-                fit_y = evaluate_chi(omega, result.spec).real
+                data_y = dataset.real ** 2 + dataset.imag ** 2
             else:
                 data_y = dataset.intensity
-                fit_y = evaluate_homodyne(omega, result.spec)
+            fit_y = evaluate_homodyne(omega, result.spec)
             data_line, = ax.plot(omega, data_y, marker=".", markersize=2, linestyle="none", alpha=0.5)
             fit_line, = ax.plot(omega, fit_y, label=label)
             data_line.set_color(fit_line.get_color())
         ax.set_xlabel("Wavenumber (cm$^{-1}$)")
-        ax.set_ylabel("Intensity / χ_eff (real part, a.u.)")
+        ax.set_ylabel("Intensity (a.u.)")
         if ax.get_legend_handles_labels()[0]:
             ax.legend(fontsize=7)
 
@@ -2201,7 +2202,10 @@ class FittingTab(QWidget, DockablePlotPanel):
             return "Residual (a.u.)"
         if keys and keys <= {"fit_real", "fit_imag", "data_real", "data_imag"}:
             return "χ_eff (a.u.)"
-        return "Intensity (counts)"
+        # Homodyne data reaching the Fitting tab has already been through
+        # the full pipeline (despike -> background subtract -> normalize ->
+        # upconvert) -- it's reference-normalized, not raw camera counts.
+        return "Intensity (a.u.)"
 
     def _update_preview(self):
         if self._data is None:
