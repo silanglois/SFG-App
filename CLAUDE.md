@@ -56,10 +56,28 @@ import Qt.
   `pd.read_csv(path, comment='#')`) with the full processing-parameter
   trail, plus a `# Fit json:` section when a fit is attached — this is
   what makes export → reload a lossless round trip.
-- `TraceStyle` (per-curve color/linestyle/marker/etc., shared by the
-  Spectra Library and Fitting tabs via `TraceStyleDialog`) uses `None`
-  fields to mean "use the active plotting style's automatic default",
-  not "unset" — don't treat `None` as a missing value to backfill.
+- `TraceStyle` (per-curve color/linestyle/marker/etc., used by the
+  Spectra Library via `TraceStyleDialog` — the Fitting tab has its own
+  separate per-series styling) uses `None` fields to mean "use the
+  active plotting style's automatic default", not "unset" — don't treat
+  `None` as a missing value to backfill. It lives in
+  `app/tabs/trace_style.py` rather than in the tab, so the dialogs that
+  edit it don't import the tab module back. To ask whether the user
+  actually customized a trace use `is_customized(style, component)`, not
+  `TraceStyle.is_default()`: the latter compares against the bare
+  dataclass default, so an untouched Phase trace (which defaults to the
+  secondary axis) reads as customized.
+- A Spectra Library trace can be hidden by the entry's checkbox, a
+  global component panel, "Hide data", or its own `TraceStyle.visible`.
+  `resolve_visibility()` classifies which, so an empty plot can say
+  what emptied it — add new suppression paths there rather than
+  filtering traces out silently.
+- In the spectra list, the tick box (plotted, exported) and the
+  selection highlight (context-menu target) are independent row states;
+  `_checked_entries()` and `_selected_entries()` are not interchangeable.
+- `SpectrumPlotWidget.soft_clear()` removes lines, collections, the
+  legend **and texts**. Anything a redraw re-adds must be cleared there
+  or it stacks invisible duplicates on every refresh.
 - `.ui` files under `app/ui/` are Qt Designer sources; their `ui_*.py`
   counterparts are regenerated **by hand**, not by an automated build
   step. Editing one without the other leaves them silently out of sync.

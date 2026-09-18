@@ -259,6 +259,82 @@ def test_override_badge_appears_and_resets(load_entries, make_homodyne_entry):
     assert len(_lines(tab)) == 1
 
 
+# ── Checked vs selected ───────────────────────────────────────────────────
+
+def _fake_menu(label_sink):
+    """Stand-in for QMenu that records the action labels offered and
+    dismisses itself, so the context menu can be exercised headlessly."""
+    class _Action:
+        def setEnabled(self, _enabled): pass
+
+    class _Menu:
+        def __init__(self, *_a, **_k): pass
+        def addAction(self, text):
+            label_sink.append(text)
+            return _Action()
+        def addSeparator(self): pass
+        def exec(self, *_a, **_k): return None
+
+    return _Menu
+
+
+def test_export_button_counts_plotted_spectra(load_entries, make_homodyne_entry):
+    """The button must name the checked set, not the selected one -- they
+    are different states on the same row."""
+    tab = load_entries(
+        make_homodyne_entry(label="a", checked=True),
+        make_homodyne_entry(label="b", checked=True),
+        make_homodyne_entry(label="c", checked=False),
+    )
+    assert tab.ui.exportSelectedButton.text() == "Export plotted (2)"
+    assert tab.ui.exportSelectedButton.isEnabled()
+
+
+def test_export_button_disabled_when_nothing_is_plotted(load_entries, make_homodyne_entry):
+    tab = load_entries(make_homodyne_entry(checked=False))
+    assert tab.ui.exportSelectedButton.text() == "Export plotted (0)"
+    assert not tab.ui.exportSelectedButton.isEnabled()
+
+
+def test_right_click_targets_the_clicked_row(load_entries, make_homodyne_entry, monkeypatch):
+    """Right-clicking an unselected spectrum must act on that spectrum,
+    not on whichever rows happen to be highlighted."""
+    tab = load_entries(
+        make_homodyne_entry(label="a"),
+        make_homodyne_entry(label="b"),
+    )
+    lw = tab.ui.spectraList
+    lw.item(0).setSelected(True)
+
+    captured = []
+    monkeypatch.setattr(
+        "sfg_app2.app.tabs.processed_results.QMenu", _fake_menu(captured),
+    )
+    tab._on_context_menu(lw.visualItemRect(lw.item(1)).center())
+
+    assert [e.label for e in tab._selected_entries()] == ["b"]
+    assert any('"b"' in text for text in captured)
+
+
+def test_right_click_inside_a_multi_selection_keeps_it(load_entries, make_homodyne_entry, monkeypatch):
+    """...but right-clicking a row that IS selected must not collapse an
+    intentional multi-selection down to one."""
+    tab = load_entries(
+        make_homodyne_entry(label="a"),
+        make_homodyne_entry(label="b"),
+    )
+    lw = tab.ui.spectraList
+    lw.item(0).setSelected(True)
+    lw.item(1).setSelected(True)
+
+    monkeypatch.setattr(
+        "sfg_app2.app.tabs.processed_results.QMenu", _fake_menu([]),
+    )
+    tab._on_context_menu(lw.visualItemRect(lw.item(1)).center())
+
+    assert {e.label for e in tab._selected_entries()} == {"a", "b"}
+
+
 def test_reset_restores_a_trace_hidden_by_an_override(load_entries, make_homodyne_entry):
     entry = make_homodyne_entry()
     tab = load_entries(entry)

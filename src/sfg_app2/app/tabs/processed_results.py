@@ -337,6 +337,10 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         check_row.addWidget(self._check_none_button)
         self.ui.verticalLayout.insertLayout(1, check_row)
 
+        # _refresh_plot keeps this current; set it now so the button never
+        # shows the stale Designer text before the first draw.
+        self._update_export_button_text(0)
+
     def _set_all_checked(self, checked: bool):
         """Sets every spectrum's checkbox (and backing SpectrumEntry.checked)
         at once, then redraws a single time -- _on_item_check_changed()
@@ -875,6 +879,7 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         self.plot_widget.soft_clear()
         entries = self._checked_entries()
         self._update_conditional_dock_state(entries)
+        self._update_export_button_text(len(entries))
         if not entries:
             self.plot_widget.canvas.draw_idle()
             return
@@ -888,6 +893,17 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         self._draw_annotations()
         self._decorate_axes(entries, axis_usage)
         self.plot_widget.sync_x_range()
+
+    def _update_export_button_text(self, checked_count: int):
+        """Name what the export actually covers.
+
+        The button said "Export checked" against an objectName of
+        exportSelectedButton, in a list where checked and selected are
+        different things -- the live count makes which one it means
+        unambiguous.
+        """
+        self.ui.exportSelectedButton.setText(f"Export plotted ({checked_count})")
+        self.ui.exportSelectedButton.setEnabled(checked_count > 0)
 
     def _explain_empty_plot(self, entries: list[SpectrumEntry]):
         """Say why checked spectra produced no lines.
@@ -1523,6 +1539,15 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         item = self.ui.spectraList.itemAt(pos)
         if item is None:
             return
+
+        # Act on the row actually clicked unless it's part of the current
+        # selection (file-manager convention) -- otherwise right-clicking
+        # one spectrum silently operates on whichever others happen to be
+        # highlighted.
+        if not item.isSelected():
+            self.ui.spectraList.clearSelection()
+            item.setSelected(True)
+            self.ui.spectraList.setCurrentItem(item)
 
         selected = self._selected_entries()
         if not selected:
