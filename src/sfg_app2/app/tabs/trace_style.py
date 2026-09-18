@@ -7,6 +7,7 @@ the tab imports the dialogs in turn.
 """
 from __future__ import annotations
 from dataclasses import dataclass
+from enum import Enum
 
 
 # key used for the (sole) plotted line of a homodyne entry in
@@ -61,6 +62,56 @@ def _default_trace_style(component: str) -> TraceStyle:
         axis=_DEFAULT_AXIS_BY_COMPONENT.get(component, "primary"),
         visible=True,
     )
+
+
+def is_customized(style: TraceStyle, component: str) -> bool:
+    """Whether the user actually changed this trace's style.
+
+    Not the same as `style.is_default()`, which compares against the bare
+    dataclass default: a component whose automatic default differs from
+    it (Phase, which starts on the secondary axis) would read as
+    customized when untouched. Nor is it `component in entry.styles` --
+    style_for() materializes an entry on first read, and the trace
+    properties dialog writes every row it displayed whether or not it
+    changed.
+    """
+    return style != _default_trace_style(component)
+
+
+class HiddenReason(Enum):
+    """Why a candidate trace isn't on the plot.
+
+    Ordered by which explanation is most useful to show first when
+    several apply at once.
+    """
+    HIDE_DATA = "the \"Hide data\" option, in the Data display panel"
+    HD_COMPONENT_UNCHECKED = "no HD-SFG components being selected, in the HD-SFG components panel"
+    FIT_COMPONENT_UNCHECKED = "no fit components being selected, in the Fit components panel"
+    TRACE_OVERRIDE = "per-trace visibility overrides (right-click a spectrum to reset them)"
+
+
+def resolve_visibility(
+    *, style: TraceStyle, component: str | None, is_fit: bool,
+    hide_data: bool, component_checked: bool,
+) -> HiddenReason | None:
+    """None when the trace should be drawn, else why it was suppressed.
+
+    `component_checked` is the relevant global panel's answer for this
+    trace -- the HD component panel for a heterodyne component, the fit
+    component panel for a fit curve, and always True for a homodyne
+    amplitude line, which no panel gates.
+    """
+    if is_fit:
+        if not component_checked:
+            return HiddenReason.FIT_COMPONENT_UNCHECKED
+    else:
+        if hide_data:
+            return HiddenReason.HIDE_DATA
+        if not component_checked:
+            return HiddenReason.HD_COMPONENT_UNCHECKED
+    if not style.visible:
+        return HiddenReason.TRACE_OVERRIDE
+    return None
 
 
 @dataclass

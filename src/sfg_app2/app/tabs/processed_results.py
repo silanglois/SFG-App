@@ -2,6 +2,7 @@ from __future__ import annotations
 import logging
 import csv
 import re
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -27,9 +28,9 @@ from sfg_app2.app.utils.plotting_settings import PlottingSettings
 # from here; they live in trace_style.py so those dialogs don't have to
 # import this tab module back.
 from sfg_app2.app.tabs.trace_style import (   # noqa: F401
-    AMPLITUDE_COMPONENT, PlotAnnotation, TraceStyle,
+    AMPLITUDE_COMPONENT, HiddenReason, PlotAnnotation, TraceStyle,
     _DEFAULT_AXIS_BY_COMPONENT, _LINESTYLE_CHOICES, _MARKER_CHOICES,
-    _default_trace_style,
+    _default_trace_style, is_customized, resolve_visibility,
 )
 from sfg_app2.app.utils.app_logging import LOG_FILE
 from sfg_app2.processing import provenance as provenance_mod
@@ -132,12 +133,24 @@ class SpectrumEntry:
         return f"SpectrumEntry({self.label})"
 
 
+def _customized_components(entry: SpectrumEntry) -> list[str]:
+    """Components this entry carries a real style override for."""
+    return [
+        component for component, style in entry.styles.items()
+        if is_customized(style, component)
+    ]
+
+
 def _entry_display_text(entry: SpectrumEntry) -> str:
     """List-item text for an entry -- appends "(fitted)" when it carries
     a loaded fit's derived curves, mirroring fitting_tab.py's own
     _entry_display_text()'s "[heterodyne] " prefix convention for the
-    same kind of "extra fact about this entry" labeling."""
-    return f"{entry.label} (fitted)" if entry.fit_components else entry.label
+    same kind of "extra fact about this entry" labeling. A "◆" marks
+    per-trace style overrides, which are otherwise invisible until you
+    open the trace properties dialog -- and which can hide a line on
+    their own."""
+    text = f"{entry.label} (fitted)" if entry.fit_components else entry.label
+    return f"{text} ◆" if _customized_components(entry) else text
 
 
 @dataclass
@@ -182,6 +195,9 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         self._entries: list[SpectrumEntry] = []
         self._annotations: list[PlotAnnotation] = []
 
+        # before _setup_plot(), which reparents the Data display tab into
+        # its dock -- the checkbox rides along with it
+        self._setup_data_display_controls()
         self._setup_plot()
         self._setup_list()
         self._setup_colormap_combo()
@@ -353,6 +369,22 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         self.ui.doubleSpinBox.setValue(2900.0)
         self.ui.doubleSpinBox.setSuffix(" cm⁻¹")
 
+    def _setup_data_display_controls(self):
+        """"Hide data" belongs with the other data-display options.
+
+        It used to live in the Fit components panel, which
+        _update_conditional_dock_state greys out when no checked spectrum
+        carries a fit -- so ticking it and then unchecking that spectrum
+        left an empty plot whose cause was disabled and unreachable.
+        """
+        self._hide_data_checkbox = QCheckBox("Hide data")
+        self._hide_data_checkbox.setToolTip(
+            "Hide the raw/measured data series, showing only the "
+            "fit-derived curves selected in the Fit components panel."
+        )
+        self._hide_data_checkbox.toggled.connect(self._refresh_plot)
+        self.ui.verticalLayout_2.addWidget(self._hide_data_checkbox)
+
     def _setup_hd_component_checkboxes(self):
         self._hd_checkboxes = {
             "Imaginary": self.ui.hdCheckImaginary,
@@ -408,14 +440,6 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         outer.addLayout(grid)
 
         outer.addSpacing(6)
-        self._hide_data_checkbox = QCheckBox("Hide data")
-        self._hide_data_checkbox.setToolTip(
-            "Hide the raw/measured data series, showing only the "
-            "fit-derived curves selected above."
-        )
-        self._hide_data_checkbox.toggled.connect(self._refresh_plot)
-        outer.addWidget(self._hide_data_checkbox)
-
         # Only meaningful when there's a fit to distinguish the measured
         # data from -- lives in this panel (not Labels/legend) so it's
         # only available while this panel itself is enabled (see
@@ -618,6 +642,13 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         item.setData(Qt.ItemDataRole.UserRole, index)
         item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
         item.setCheckState(Qt.CheckState.Checked if entry.checked else Qt.CheckState.Unchecked)
+        overridden = _customized_components(entry)
+        if overridden:
+            item.setToolTip(
+                "Trace properties overridden for: "
+                + ", ".join(sorted(overridden))
+                + "\nRight-click to reset them."
+            )
         return item
 
     def _ordered_entries(self) -> list[SpectrumEntry]:
@@ -849,10 +880,38 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
             return
 
         specs = self._build_plot_specs(entries)
+        if not specs:
+            self._explain_empty_plot(entries)
+            self.plot_widget.canvas.draw_idle()
+            return
         axis_usage = self._draw_specs(specs)
         self._draw_annotations()
         self._decorate_axes(entries, axis_usage)
         self.plot_widget.sync_x_range()
+
+    def _explain_empty_plot(self, entries: list[SpectrumEntry]):
+        """Say why checked spectra produced no lines.
+
+        Without this the tab's four independent ways to hide a trace all
+        fail the same way -- a blank plot -- leaving the user to guess
+        which panel to go looking in.
+        """
+        count = sum(self._hidden_tally.values())
+        if not self._hidden_tally:
+            message = f"{len(entries)} spectrum/spectra checked, but nothing to plot."
+        else:
+            # Enum declaration order doubles as "most useful explanation
+            # first" when several reasons apply at once.
+            reason = min(
+                self._hidden_tally,
+                key=lambda r: (-self._hidden_tally[r], list(HiddenReason).index(r)),
+            )
+            traces = "trace" if count == 1 else "traces"
+            message = f"{count} {traces} hidden by {reason.value}."
+        self.plot_widget.ax.text(
+            0.5, 0.5, message, transform=self.plot_widget.ax.transAxes,
+            ha="center", va="center", fontsize=9, wrap=True, color="#666666",
+        )
 
     def _build_plot_specs(self, entries: list[SpectrumEntry]) -> list[PlotSpec]:
         """Flatten the checked entries into one PlotSpec per line to draw,
@@ -874,15 +933,23 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
             and checked_components[0] in ("Imaginary", "Real", "Phase")
         )
 
+        # Every candidate line is classified rather than filtered out
+        # silently, so an empty plot can say which control emptied it.
+        self._hidden_tally = Counter()
         specs: list[PlotSpec] = []
         for entry in entries:
             base_label = self._legend_base(entry, self._legend_fields)
-            if hide_data:
-                pass   # skip the raw/measured series -- fit curves below are unaffected
-            elif entry.kind == "heterodyne":
-                for component in checked_components:
+
+            if entry.kind == "heterodyne":
+                for component in _HD_COMPONENT_COLUMN:
                     style = entry.style_for(component)
-                    if not style.visible:
+                    reason = resolve_visibility(
+                        style=style, component=component, is_fit=False,
+                        hide_data=hide_data,
+                        component_checked=component in checked_components,
+                    )
+                    if reason is not None:
+                        self._hidden_tally[reason] += 1
                         continue
                     if single_entry:
                         label = _HD_LEGEND_LABEL[component]
@@ -900,7 +967,14 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
                     ))
             else:
                 style = entry.style_for(AMPLITUDE_COMPONENT)
-                if style.visible:
+                # No panel gates a homodyne entry's single line.
+                reason = resolve_visibility(
+                    style=style, component=AMPLITUDE_COMPONENT, is_fit=False,
+                    hide_data=hide_data, component_checked=True,
+                )
+                if reason is not None:
+                    self._hidden_tally[reason] += 1
+                else:
                     specs.append(PlotSpec(
                         entry=entry, component=None, y_col="Intensity", err_col=None,
                         label=style.label or base_label, style=style, is_fit=False,
@@ -912,10 +986,16 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
             # components" panel (default unchecked), then by the per-entry
             # Trace Properties visibility override (default visible).
             for column_name, display_label in entry.fit_components:
-                if self._fit_component_concept(column_name) not in checked_fit_concepts:
-                    continue
                 style = entry.style_for(column_name)
-                if not style.visible:
+                reason = resolve_visibility(
+                    style=style, component=column_name, is_fit=True,
+                    hide_data=hide_data,
+                    component_checked=(
+                        self._fit_component_concept(column_name) in checked_fit_concepts
+                    ),
+                )
+                if reason is not None:
+                    self._hidden_tally[reason] += 1
                     continue
                 specs.append(PlotSpec(
                     entry=entry, component=None, y_col=column_name, err_col=None,
@@ -1461,6 +1541,12 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
             fit_params_action = menu.addAction(f"View fit parameters — {label}")
         menu.addSeparator()
         trace_props_action = menu.addAction("Trace properties...")
+        reset_styles_action = menu.addAction(f"Reset trace overrides — {label}")
+        # A per-trace override can hide a line on its own, so there has to
+        # be a way out that doesn't mean hunting through the dialog.
+        reset_styles_action.setEnabled(
+            any(_customized_components(entry) for entry in selected)
+        )
         menu.addSeparator()
         remove_action = menu.addAction(f"Remove {label}")
 
@@ -1474,8 +1560,16 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
             self._on_view_fit_parameters(fitted)
         elif action == trace_props_action:
             self._on_trace_properties(selected)
+        elif action == reset_styles_action:
+            self._on_reset_trace_styles(selected)
         elif action == remove_action:
             self._on_remove(selected)
+
+    def _on_reset_trace_styles(self, entries: list[SpectrumEntry]):
+        for entry in entries:
+            entry.styles.clear()
+        self._rebuild_list()
+        self._refresh_plot()
 
     def _on_edit_annotations(self):
         from sfg_app2.app.dialogs.plot_annotations_dialog import PlotAnnotationsDialog

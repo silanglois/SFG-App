@@ -161,3 +161,110 @@ def test_offset_is_per_spectrum_not_per_line(load_entries, make_heterodyne_entry
 def test_homodyne_ylabel_is_arbitrary_units(load_entries, make_homodyne_entry):
     tab = load_entries(make_homodyne_entry())
     assert tab.plot_widget.ax.get_ylabel() == "Normalized Intensity (a.u.)"
+
+
+# ── Empty-plot explanation ────────────────────────────────────────────────
+
+def _explanation(tab):
+    texts = [t.get_text() for t in tab.plot_widget.ax.texts]
+    return texts[0] if texts else None
+
+
+def test_empty_plot_names_hide_data_as_the_cause(load_entries, make_homodyne_entry):
+    tab = load_entries(make_homodyne_entry())
+    tab._hide_data_checkbox.setChecked(True)
+
+    assert _lines(tab) == []
+    assert "Hide data" in _explanation(tab)
+    assert "Data display" in _explanation(tab)
+
+
+def test_empty_plot_names_trace_overrides_as_the_cause(load_entries, make_homodyne_entry):
+    entry = make_homodyne_entry()
+    tab = load_entries(entry)
+    entry.style_for(AMPLITUDE_COMPONENT).visible = False
+    tab._refresh_plot()
+
+    assert _lines(tab) == []
+    assert "per-trace" in _explanation(tab)
+
+
+def test_empty_plot_message_is_pluralized(load_entries, make_homodyne_entry):
+    """"1 trace(s)" reads as placeholder text in a message whose whole
+    purpose is to be plain."""
+    tab = load_entries(make_homodyne_entry())
+    tab._hide_data_checkbox.setChecked(True)
+    assert "1 trace hidden" in _explanation(tab)
+
+    tab._entries.append(make_homodyne_entry(label="second"))
+    tab._rebuild_list()
+    tab._refresh_plot()
+    assert "2 traces hidden" in _explanation(tab)
+
+
+def test_explanation_does_not_accumulate_across_redraws(load_entries, make_homodyne_entry):
+    """soft_clear() must drop text artists.
+
+    It removed lines, collections and the legend but not texts, so every
+    redraw stacked another copy of the explanation -- and, since
+    _draw_annotations re-adds them too, of every text annotation.
+    """
+    tab = load_entries(make_homodyne_entry())
+    tab._hide_data_checkbox.setChecked(True)
+    assert len(tab.plot_widget.ax.texts) == 1
+
+    for _ in range(3):
+        tab._refresh_plot()
+    assert len(tab.plot_widget.ax.texts) == 1
+
+
+def test_no_explanation_while_something_is_plotted(load_entries, make_homodyne_entry):
+    tab = load_entries(make_homodyne_entry())
+    assert len(_lines(tab)) == 1
+    assert _explanation(tab) is None
+
+
+# ── Per-trace override badge and reset ────────────────────────────────────
+
+def _row_text(tab, row=0):
+    return tab.ui.spectraList.item(row).text()
+
+
+def test_untouched_entry_carries_no_override_badge(load_entries, make_heterodyne_entry):
+    """Reading a style must not look like customizing it.
+
+    style_for() materializes a TraceStyle on first read, and Phase's
+    automatic default differs from the bare dataclass default -- both
+    would fool a naive "has overrides" check.
+    """
+    tab = load_entries(make_heterodyne_entry(label="het"))
+    for component in ("Real", "Imaginary", "Phase"):
+        tab._entries[0].style_for(component)
+    tab._rebuild_list()
+
+    assert "◆" not in _row_text(tab)
+
+
+def test_override_badge_appears_and_resets(load_entries, make_homodyne_entry):
+    entry = make_homodyne_entry(label="sample")
+    tab = load_entries(entry)
+    assert "◆" not in _row_text(tab)
+
+    entry.style_for(AMPLITUDE_COMPONENT).color = "#ff0000"
+    tab._rebuild_list()
+    assert "◆" in _row_text(tab)
+
+    tab._on_reset_trace_styles([entry])
+    assert "◆" not in _row_text(tab)
+    assert len(_lines(tab)) == 1
+
+
+def test_reset_restores_a_trace_hidden_by_an_override(load_entries, make_homodyne_entry):
+    entry = make_homodyne_entry()
+    tab = load_entries(entry)
+    entry.style_for(AMPLITUDE_COMPONENT).visible = False
+    tab._refresh_plot()
+    assert _lines(tab) == []
+
+    tab._on_reset_trace_styles([entry])
+    assert len(_lines(tab)) == 1
