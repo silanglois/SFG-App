@@ -501,22 +501,22 @@ class FittingTab(QWidget, DockablePlotPanel):
         entry = self._results_entries[idx]
         self._load_from_processed_spectrum(entry.spectrum, entry.label, kind=entry.kind)
 
-    def _confirm_abandon_paused_sequential_run(self) -> bool:
-        """True if it's OK to proceed loading a different spectrum. Checked
-        BEFORE self._data is reassigned (in each load entry point, not
-        inside _on_data_loaded()) -- by the time _on_data_loaded() runs,
-        self._data already points at the new spectrum, too late to
-        cleanly decline. If a Sequential run is currently paused at a
-        checkpoint, loading something else abandons it -- silent
-        abandonment is the wrong default since the failure mode (losing
-        an in-progress retry) is exactly the kind of thing that goes
-        unnoticed until export time."""
+    def _confirm_abandon_paused_sequential_run(self, action: str = "Loading a different spectrum") -> bool:
+        """True if it's OK to proceed with something that abandons a
+        paused Sequential run. Checked BEFORE self._data is reassigned
+        (in each load entry point, not inside _on_data_loaded()) -- by
+        the time _on_data_loaded() runs, self._data already points at the
+        new spectrum, too late to cleanly decline. Silent abandonment is
+        the wrong default since the failure mode (losing an in-progress
+        retry) is exactly the kind of thing that goes unnoticed until
+        export time. `action` names the caller's own operation, since a
+        batch run abandons a paused run just as a load does."""
         if self._sequential_run is not None and self._sequential_run.get("paused"):
             reply = QMessageBox.question(
                 self, "Sequential run paused",
-                "A sequential run is paused for review — loading a different "
-                "spectrum abandons it; any in-progress retry is lost and the "
-                "run cannot resume. Continue anyway?",
+                f"A sequential run is paused for review — {action.lower()} "
+                "abandons it; any in-progress retry is lost and the run "
+                "cannot resume. Continue anyway?",
             )
             if reply != QMessageBox.StandardButton.Yes:
                 return False
@@ -1531,6 +1531,12 @@ class FittingTab(QWidget, DockablePlotPanel):
         return dialog, iter_cb
 
     def _on_run_batch_fit(self):
+        # A paused sequential run still owns _batch_rows and keeps
+        # appending into it at each checkpoint -- starting a batch run
+        # without abandoning it first interleaves two runs' rows in one
+        # table.
+        if not self._confirm_abandon_paused_sequential_run("Running a batch fit"):
+            return
         entries = self._all_batch_entries()
         if len(entries) < 2:
             return
