@@ -41,3 +41,6 @@ dev = [
 [tool.pytest.ini_options]
 qt_api = "pyside6"
 testpaths = ["tests"]
+markers = [
+    "slow: spins up a Jupyter kernel; deselect with -m 'not slow'",
+]
