@@ -181,10 +181,10 @@ class ProcessReviewTab(QWidget):
         if path.suffix.lower() != ".ipynb":
             path = path.with_suffix(".ipynb")
 
+        loading = show_loading(self, "Building notebook...")
         try:
-            with show_loading(self, "Building notebook..."):
-                payload = self._notebook_payload(matched, idx)
-                notebook_export.write_notebook(notebook_processing.build(payload), path)
+            payload = self._notebook_payload(matched, idx)
+            notebook_export.write_notebook(notebook_processing.build(payload), path)
         except notebook_export.ProcessingSourceUnavailable as e:
             logger.error("Notebook export unavailable: %s", e)
             QMessageBox.warning(
@@ -197,6 +197,8 @@ class ProcessReviewTab(QWidget):
             logger.error("Notebook export failed: %s", e, exc_info=True)
             QMessageBox.warning(self, "Couldn't export notebook", str(e))
             return
+        finally:
+            loading.close()
 
         size_kb = path.stat().st_size / 1024
         QMessageBox.information(

@@ -164,6 +164,71 @@ def test_notebook_installs_nothing(load_entries, make_homodyne_entry):
     assert "pip install" not in code
 
 
+# ── The export handlers ───────────────────────────────────────────────────
+# Driving the real slots, not just the builders: the first version of
+# this feature used show_loading() as a context manager (it isn't one,
+# it returns a dialog the caller must close), which crashed on the very
+# first click while every builder-level test still passed.
+
+@pytest.fixture
+def silent_dialogs(monkeypatch, tmp_path):
+    """Stub the file picker and the confirmation popup."""
+    from PySide6.QtWidgets import QFileDialog, QMessageBox
+
+    target = tmp_path / "exported.ipynb"
+    monkeypatch.setattr(
+        QFileDialog, "getSaveFileName",
+        staticmethod(lambda *a, **k: (str(target), "Jupyter Notebook (*.ipynb)")),
+    )
+    monkeypatch.setattr(QMessageBox, "information", staticmethod(lambda *a, **k: None))
+    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: None))
+    return target
+
+
+def test_plotting_export_handler_writes_a_notebook(load_entries, make_homodyne_entry,
+                                                   silent_dialogs):
+    tab = load_entries(make_homodyne_entry())
+    tab._on_export_notebook()
+
+    assert silent_dialogs.exists(), "handler ran but wrote nothing"
+    assert json.loads(silent_dialogs.read_text(encoding="utf-8"))["nbformat"] == 4
+
+
+def test_plotting_export_handler_refuses_an_empty_selection(load_entries,
+                                                            make_homodyne_entry,
+                                                            silent_dialogs):
+    tab = load_entries(make_homodyne_entry(checked=False))
+    tab._on_export_notebook()
+    assert not silent_dialogs.exists()
+
+
+def test_processing_export_handler_writes_a_notebook(qtbot, raw_matched_files,
+                                                     silent_dialogs):
+    from sfg_app2.app.tabs.process_review import ProcessReviewTab
+    from sfg_app2.processing.data_file import DataFile
+    from sfg_app2.processing.matcher import MatchedSet
+
+    folder, roles = raw_matched_files()
+    matched = MatchedSet(
+        signal=DataFile(folder / roles["signal"]),
+        background=DataFile(folder / roles["background"]),
+        reference=DataFile(folder / roles["reference"]),
+        reference_background=DataFile(folder / roles["reference_background"]),
+        spectrum_type="homodyne",
+    )
+    tab = ProcessReviewTab()
+    qtbot.addWidget(tab)
+    tab.set_matched_sets([matched])
+
+    tab._on_export_processing_notebook(matched, 0)
+
+    assert silent_dialogs.exists(), "handler ran but wrote nothing"
+    nb = json.loads(silent_dialogs.read_text(encoding="utf-8"))
+    assert nb["nbformat"] == 4
+    assert any("step_despike" in "".join(c["source"]) or "remove_cosmic_rays" in "".join(c["source"])
+               for c in nb["cells"])
+
+
 # ── Processing source bundle ──────────────────────────────────────────────
 
 def test_bundle_is_deterministic():

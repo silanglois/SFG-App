@@ -1625,15 +1625,17 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         if path.suffix.lower() != ".ipynb":
             path = path.with_suffix(".ipynb")
 
+        loading = show_loading(self, "Building notebook...")
         try:
-            with show_loading(self, "Building notebook..."):
-                payload = self._notebook_payload(entries)
-                payload["output_name"] = path.stem
-                notebook_export.write_notebook(notebook_plotting.build(payload), path)
+            payload = self._notebook_payload(entries)
+            payload["output_name"] = path.stem
+            notebook_export.write_notebook(notebook_plotting.build(payload), path)
         except Exception as e:
             logger.error("Notebook export failed: %s", e, exc_info=True)
             QMessageBox.warning(self, "Couldn't export notebook", str(e))
             return
+        finally:
+            loading.close()
 
         size_kb = path.stat().st_size / 1024
         QMessageBox.information(
