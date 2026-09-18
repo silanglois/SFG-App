@@ -1,4 +1,5 @@
 from __future__ import annotations
+import io
 import json
 from datetime import datetime
 from pathlib import Path
@@ -203,12 +204,13 @@ def parse_fit_json(provenance: dict) -> dict | None:
         return None
 
 
-def write_csv_with_provenance(spectrum, kind: str, label: str, out_path: Path,
-                               fit_section: list[str] | None = None):
-    """Write a CSV with a commented provenance header, readable by pandas
-    via pd.read_csv(path, comment='#'). `kind` is "homodyne" or
-    "heterodyne". `fit_section` (from format_fit_section()) is appended
-    after sample metadata, if given.
+def csv_with_provenance_text(spectrum, kind: str, label: str,
+                              fit_section: list[str] | None = None) -> str:
+    """The exact text write_csv_with_provenance() would write.
+
+    Split out so callers that need the bytes rather than a file (the
+    notebook export embeds them) don't have to round-trip through a
+    temporary file.
     """
     provenance = getattr(spectrum, "provenance", None) or \
         build_provenance_from_history(spectrum)
@@ -246,10 +248,23 @@ def write_csv_with_provenance(spectrum, kind: str, label: str, out_path: Path,
 
     header_lines.append("#")
 
+    buffer = io.StringIO()
+    for line in header_lines:
+        buffer.write(line + "\n")
+    spectrum.data.to_csv(buffer, index=False)
+    return buffer.getvalue()
+
+
+def write_csv_with_provenance(spectrum, kind: str, label: str, out_path: Path,
+                               fit_section: list[str] | None = None):
+    """Write a CSV with a commented provenance header, readable by pandas
+    via pd.read_csv(path, comment='#'). `kind` is "homodyne" or
+    "heterodyne". `fit_section` (from format_fit_section()) is appended
+    after sample metadata, if given.
+    """
+    text = csv_with_provenance_text(spectrum, kind, label, fit_section)
     with open(out_path, "w", newline="", encoding="utf-8") as f:
-        for line in header_lines:
-            f.write(line + "\n")
-        spectrum.data.to_csv(f, index=False)
+        f.write(text)
 
 
 def parse_export_header(path: Path) -> tuple[list[str], dict, dict]:
