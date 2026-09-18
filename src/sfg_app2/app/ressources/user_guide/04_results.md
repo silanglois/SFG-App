@@ -57,13 +57,40 @@ regions of interest in a figure.
 
 ## Exporting
 
-- **Export selected** / **Export all** write CSV files with a
+- **Export plotted** / **Export all** write CSV files with a
   `#`-comment provenance header — for fit-derived curves, this
   includes the model specification, weighting, and fit statistics as
-  well.
+  well. "Export plotted" covers the ticked spectra, and its label
+  shows how many that is.
 - Each panel's plot can be saved via a **WYSIWYG export dialog**
   (PNG/TIFF/SVG) with a live preview that matches exactly what will
   be written to disk.
+
+## Export to a notebook
+
+**Export notebook…** writes a Jupyter notebook that reproduces the
+current figure, for when you want full control over a plot the app's
+controls don't reach.
+
+It is completely self-contained. The ticked spectra are embedded in the
+notebook itself, the active plotting style travels with it, and it
+installs nothing — so it runs as-is on
+[Google Colab](https://colab.research.google.com) with no files to
+upload. Each trace is written out as its own `plot()` call with the
+colour and label already filled in, so you can edit any single line
+without unpicking the rest. Form fields at the top control
+normalization, offsets, the phase range and the output format.
+
+If a spectrum carries a fit, its curves are plotted alongside the data
+and its parameters are printed with their uncertainties.
+
+!!! tip "Processing notebooks"
+    The Process / Review tab has a matching export: right-click a
+    matched set and choose **Export processing notebook…** to get a
+    step-by-step walkthrough of that set's homodyne or heterodyne
+    pipeline, with your current parameters pre-filled. It embeds the
+    four raw files *and* the processing code, and its last cell writes
+    a CSV you can load straight back into this tab.
 
 Continue to **Fitting** to fit peaks/lineshapes to a spectrum from
 this list.

@@ -89,5 +89,28 @@ click Process yourself after every small tweak. Purely visual toggles
 (checkboxes, the step selector) redraw almost immediately (~50ms)
 without reprocessing.
 
+## Export to a notebook
+
+Right-click a matched set and choose **Export processing notebook…** to
+write a Jupyter notebook that walks the HD-SFG pipeline one stage at a
+time — despike, average and interpolate, background subtraction and
+edge taper, FFT filter, normalization — plotting each intermediate
+result, with your current parameters pre-filled as editable form
+fields. It is the clearest way to see what the FFT window or the edge
+taper is actually doing.
+
+The notebook is completely self-contained: the four raw files *and* the
+processing code are embedded, so it runs on
+[Google Colab](https://colab.research.google.com) with nothing to upload
+and nothing to install. Its last cell writes a CSV with the usual
+provenance header, which loads straight back into the **Spectra
+Library** via *Add spectra from file*.
+
+!!! note "Background offset"
+    The offset is fitted from the markers you place against *this* set's
+    averaged background, so the notebook receives the resolved number
+    rather than the marker positions — the markers alone wouldn't
+    reproduce it elsewhere.
+
 Continue to **Spectra Library** to view, compare, and export what you've
 processed.

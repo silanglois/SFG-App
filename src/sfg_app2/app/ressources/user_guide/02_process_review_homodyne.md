@@ -75,5 +75,23 @@ In **Compare** mode, parameter changes apply to every selected set at
 once — except the background offset, which is always a single global
 value shared across all sets.
 
+## Export to a notebook
+
+Right-click a matched set and choose **Export processing notebook…** to
+write a Jupyter notebook that walks its pipeline one stage at a time —
+despike, average, background subtraction, normalization, upconversion —
+plotting the intermediate result at each, with your current parameters
+pre-filled as editable form fields.
+
+The notebook is completely self-contained: the four raw files *and* the
+processing code are embedded, so it runs on
+[Google Colab](https://colab.research.google.com) with nothing to upload
+and nothing to install. Its last cell writes a CSV with the usual
+provenance header, which loads straight back into the **Spectra
+Library** via *Add spectra from file*.
+
+This is the way to see exactly what a parameter does, or to hand someone
+a complete, runnable record of how a spectrum was processed.
+
 Continue to **Spectra Library** once you've sent a spectrum through, or to
 **Settings & Preferences** to adjust matching/plotting defaults.
