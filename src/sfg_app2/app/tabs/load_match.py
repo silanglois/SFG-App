@@ -461,19 +461,6 @@ class LoadMatchTab(QWidget):
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
-    def _get_active_patterns(self) -> list[list[str]]:
-        try:
-            main = self.window()
-            if hasattr(main, "pattern_manager"):
-                return main.pattern_manager.active_patterns
-        except Exception:
-            pass
-        return [
-            ["sample", "polarization", "center_wavelength", "acquisition_time", "timestamp", "date"],
-            ["sample", "concentration", "potential", "polarization",
-             "center_wavelength", "acquisition_time", "timestamp", "date"],
-        ]
-
     def _report_merge_result(self, added: list, skipped: list):
         if skipped and added:
             QMessageBox.information(
