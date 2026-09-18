@@ -13,8 +13,11 @@ from __future__ import annotations
 
 import base64
 import gzip
+import io
 import json
+import sys
 import warnings
+import zipfile
 from pathlib import Path
 
 import matplotlib as mpl
@@ -117,6 +120,79 @@ def as_literal(value) -> str:
         inner = ", ".join(as_literal(v) for v in value)
         return "[" + inner + "]"
     return repr(value)
+
+
+# ── Processing source bundle ──────────────────────────────────────────────
+
+# Excluded from the bundle: fitting.py is the only lmfit user and no
+# processing notebook fits; the image/SPE readers feed the image viewer,
+# not the MatchedSet pipeline.
+_BUNDLE_EXCLUDE = {"fitting.py", "spe_file.py", "image_file.py"}
+
+
+class ProcessingSourceUnavailable(RuntimeError):
+    """The processing sources needed for a notebook bundle are missing.
+
+    Most likely a frozen build whose spec didn't ship them as data --
+    PyInstaller compiles modules into its archive, so `processing/*.py`
+    isn't readable from disk unless it's bundled explicitly. Raised
+    rather than silently emitting an empty zip, which would only fail
+    later, inside the user's notebook.
+    """
+
+
+def processing_source_dir() -> Path:
+    """Where `sfg_app2/processing`'s .py sources can be read from.
+
+    Mirrors the frozen/source split user_guide_dialog.py uses for the
+    bundled docs.
+    """
+    if getattr(sys, "frozen", False):
+        bundled = Path(getattr(sys, "_MEIPASS", "")) / "sfg_app2" / "processing_src"
+        if bundled.is_dir():
+            return bundled
+    return Path(__file__).parents[2] / "processing"
+
+
+def build_source_bundle() -> str:
+    """The processing package as one base64 zip, for the notebook to
+    unpack onto sys.path.
+
+    Deterministic -- sorted entries, fixed timestamps -- so re-exporting
+    unchanged inputs produces an unchanged notebook. This is what makes
+    the processing notebook work on Colab at all: the project requires
+    Python >= 3.14 and depends on PySide6, so `pip install git+...`
+    would fail there, while `processing/` itself needs nothing beyond
+    numpy/pandas/scipy.
+    """
+    source_dir = processing_source_dir()
+    files = sorted(
+        p for p in source_dir.rglob("*.py")
+        if p.name not in _BUNDLE_EXCLUDE and "__pycache__" not in p.parts
+    )
+    if not files:
+        raise ProcessingSourceUnavailable(
+            f"No processing sources under {source_dir}. In a frozen build the "
+            "spec must ship src/sfg_app2/processing as data at "
+            "sfg_app2/processing_src."
+        )
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        # Namespace root: processing/ has no __init__.py, and sfg_app2's is
+        # empty, so an empty file is enough to make the import work.
+        archive.writestr(_fixed_info("sfg_app2/__init__.py"), "")
+        for path in files:
+            arcname = "sfg_app2/processing/" + path.relative_to(source_dir).as_posix()
+            archive.writestr(_fixed_info(arcname), path.read_bytes())
+    return base64.b64encode(buffer.getvalue()).decode("ascii")
+
+
+def _fixed_info(arcname: str) -> zipfile.ZipInfo:
+    info = zipfile.ZipInfo(arcname, date_time=(1980, 1, 1, 0, 0, 0))
+    info.compress_type = zipfile.ZIP_DEFLATED
+    info.external_attr = 0o644 << 16
+    return info
 
 
 # ── Style capture ─────────────────────────────────────────────────────────

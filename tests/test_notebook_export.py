@@ -159,8 +159,44 @@ def test_notebook_installs_nothing(load_entries, make_homodyne_entry):
     is preinstalled on Colab."""
     tab = load_entries(make_homodyne_entry())
     nb = notebook_plotting.build(_payload(tab, tab._checked_entries()))
-    sources = "".join("".join(c["source"]) for c in nb["cells"])
-    assert "pip install" not in sources
+    code = "".join("".join(c["source"]) for c in nb["cells"]
+                   if c["cell_type"] == "code")
+    assert "pip install" not in code
+
+
+# ── Processing source bundle ──────────────────────────────────────────────
+
+def test_bundle_is_deterministic():
+    """Re-exporting unchanged inputs must produce an unchanged notebook,
+    so zip entry order and timestamps have to be pinned."""
+    assert notebook_export.build_source_bundle() == notebook_export.build_source_bundle()
+
+
+def test_bundle_carries_the_pipeline_but_not_the_fitting_code():
+    import base64
+    import io
+    import zipfile
+
+    names = zipfile.ZipFile(
+        io.BytesIO(base64.b64decode(notebook_export.build_source_bundle()))
+    ).namelist()
+
+    assert "sfg_app2/__init__.py" in names, "namespace root needed for the import to work"
+    assert any(n.endswith("processing/data_file.py") for n in names)
+    assert any(n.endswith("hd_sfg/steps.py") for n in names)
+    # lmfit isn't on Colab and no processing notebook fits.
+    assert not any("fitting.py" in n for n in names)
+
+
+def test_missing_sources_raise_rather_than_shipping_an_empty_bundle(monkeypatch, tmp_path):
+    """The frozen build is the case that bites: PyInstaller compiles
+    modules into its archive, so the .py sources are unreadable unless
+    the spec ships them. That must fail loudly here, not later inside
+    the user's notebook.
+    """
+    monkeypatch.setattr(notebook_export, "processing_source_dir", lambda: tmp_path / "gone")
+    with pytest.raises(notebook_export.ProcessingSourceUnavailable):
+        notebook_export.build_source_bundle()
 
 
 # ── The one that matters ──────────────────────────────────────────────────
@@ -204,3 +240,110 @@ def test_generated_notebook_runs_end_to_end(load_entries, make_homodyne_entry,
                if "image/png" in o.get("data", {})]
     assert figures, "notebook ran but rendered no figure"
     assert (tmp_path / "figure.png").exists(), "save cell wrote nothing"
+
+
+def _run_notebook(path, workdir):
+    """Execute a notebook in `workdir`, returning it with outputs."""
+    nbformat = pytest.importorskip("nbformat")
+    nbclient = pytest.importorskip("nbclient")
+
+    nb = nbformat.read(path, as_version=4)
+    nbclient.NotebookClient(
+        nb, timeout=300, kernel_name="python3",
+        resources={"metadata": {"path": str(workdir)}},
+    ).execute()
+    errors = [o for cell in nb.cells for o in cell.get("outputs", [])
+              if o.get("output_type") == "error"]
+    assert not errors, f"{errors[0].get('ename')}: {errors[0].get('evalue')}"
+    return nb
+
+
+def _processing_payload(kind, folder, roles, **config):
+    base = {"label": "sample_ssp", "upconversion_wavelength": 1030.7}
+    return {
+        "kind": kind,
+        "label": "sample_ssp",
+        "roles": roles,
+        "raw_files": {name: (folder / name).read_text(encoding="utf-8")
+                      for name in roles.values()},
+        "config": {**base, **config},
+        "style_rcparams": notebook_export.capture_rcparams("science"),
+    }
+
+
+@pytest.mark.slow
+def test_homodyne_processing_notebook_runs_end_to_end(raw_matched_files, tmp_path):
+    """Generate a homodyne processing notebook and execute it.
+
+    This is what proves the embedded package actually imports and the
+    pipeline calls are spelled correctly -- a generated notebook that
+    only parses would hide both.
+    """
+    from sfg_app2.app.utils import notebook_processing
+
+    folder, roles = raw_matched_files(fringes=False)
+    payload = _processing_payload(
+        "homodyne", folder, roles, despike_window=5, despike_threshold=3.0, bg_offset=None,
+    )
+    path = tmp_path / "homodyne.ipynb"
+    notebook_export.write_notebook(notebook_processing.build(payload), path)
+
+    nb = _run_notebook(path, tmp_path)
+
+    figures = [o for cell in nb.cells for o in cell.get("outputs", [])
+               if "image/png" in o.get("data", {})]
+    assert len(figures) >= 4, "every pipeline stage should plot its own result"
+
+    out = tmp_path / "sample_ssp.csv"
+    assert out.exists(), "export cell wrote nothing"
+
+    # The export must be loadable by the app, which is the whole point of
+    # writing a provenance header rather than a plain CSV.
+    from sfg_app2.processing import provenance
+    df = provenance.load_csv_skip_comments(out)
+    _, prov, _ = provenance.parse_export_header(out)
+    assert "Wavenumber" in df.columns and len(df) > 0
+    assert "normalize" in prov["history_list"]
+    assert "upconvert" in " ".join(prov["history_list"])
+
+
+@pytest.mark.slow
+def test_heterodyne_processing_notebook_runs_end_to_end(raw_matched_files, tmp_path):
+    from sfg_app2.app.utils import notebook_processing
+
+    folder, roles = raw_matched_files(fringes=True)
+    payload = _processing_payload(
+        "heterodyne", folder, roles,
+        despike_window=50, despike_threshold=10.0,
+        bg_smoothing_window=0, bg_smoothing_order=3, bg_offset=None,
+        edge_left=15, edge_right=15, window_type=3,
+        fft_start=30, fft_end=110, hg_left=10, hg_right=10,
+        phase_correction_deg=0.0,
+    )
+    path = tmp_path / "heterodyne.ipynb"
+    notebook_export.write_notebook(notebook_processing.build(payload), path)
+
+    nb = _run_notebook(path, tmp_path)
+
+    figures = [o for cell in nb.cells for o in cell.get("outputs", [])
+               if "image/png" in o.get("data", {})]
+    assert len(figures) >= 3
+    assert (tmp_path / "sample_ssp.csv").exists()
+
+
+@pytest.mark.slow
+def test_processing_notebook_needs_no_network_or_install(raw_matched_files, tmp_path):
+    """The embedded package is the whole reason this works on Colab:
+    the project requires Python >= 3.14 and pulls in PySide6, so
+    `pip install git+...` would fail there."""
+    from sfg_app2.app.utils import notebook_processing
+
+    folder, roles = raw_matched_files()
+    payload = _processing_payload("homodyne", folder, roles,
+                                  despike_window=5, despike_threshold=3.0)
+    nb = notebook_processing.build(payload)
+    # Code only -- the prose says "no pip install", which would match.
+    code = "".join("".join(c["source"]) for c in nb["cells"]
+                   if c["cell_type"] == "code")
+    assert "pip install" not in code
+    assert "git+" not in code

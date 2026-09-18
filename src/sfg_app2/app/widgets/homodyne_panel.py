@@ -707,6 +707,27 @@ class HomodynePanel(QWidget, DockablePlotPanel):
 
         return None
 
+    def notebook_config(self, upconversion_wavelength: float,
+                         idx: int | None = None) -> dict:
+        """Current parameters as plain scalars, for the notebook export.
+
+        The signal offset is emitted *resolved* rather than as marker
+        positions: the app fits it against this set's own averaged
+        background, so the markers wouldn't reproduce it elsewhere. A
+        polynomial offset has no scalar form, so it's dropped -- the
+        notebook's form field takes a constant.
+        """
+        if idx is None:
+            idx = self._selected_indices[0] if self._selected_indices else 0
+        despike = self._get_despike_cfg(idx, "signal")
+        sig_offset, _ref_offset = self._current_offsets(idx)
+        return {
+            "despike_window": despike.get("window", 5),
+            "despike_threshold": despike.get("threshold", 3.0),
+            "bg_offset": sig_offset if isinstance(sig_offset, (int, float)) else None,
+            "upconversion_wavelength": self._upconversion_wl() or upconversion_wavelength,
+        }
+
     def _build_provenance(self, idx: int, wl: float) -> dict:
         """Snapshot of the parameters actually used to produce the
         'normalized' result for this set — attached to the final

@@ -1427,6 +1427,38 @@ class HDSFGPanel(QWidget, DockablePlotPanel):
             exclude_frames          = self._exclude_frames.get(self._matched_index, {}),
         )
 
+    def notebook_config(self, upconversion_wavelength: float) -> dict:
+        """Current parameters as plain scalars, for the notebook export.
+
+        bg_offset is emitted *resolved*: the panel fits it from marker
+        positions against the averaged background (see _run_from_step),
+        so the markers alone would mean nothing in a notebook.
+        """
+        config = self._current_config()
+        despike = self._get_despike_params("signal")
+        # The offset is fit from plot markers against the averaged
+        # background, so only a already-computed numeric result is
+        # meaningful outside the app; markers alone aren't portable.
+        cached = self._cache.get(self._matched_index, {}) if hasattr(self, "_cache") else {}
+        averaged = cached.get("averaged")
+        resolved_offset = self._fit_bg_offset(averaged) if averaged is not None else None
+        return {
+            "upconversion_wavelength": config.upconversion_wavelength or upconversion_wavelength,
+            "despike_window": despike.window,
+            "despike_threshold": despike.threshold,
+            "bg_smoothing_window": config.bg_smoothing_window,
+            "bg_smoothing_order": config.bg_smoothing_order,
+            "bg_offset": resolved_offset if isinstance(resolved_offset, (int, float)) else None,
+            "edge_left": config.edge_left,
+            "edge_right": config.edge_right,
+            "window_type": config.window_type,
+            "fft_start": config.fft_start,
+            "fft_end": config.fft_end,
+            "hg_left": config.hg_left,
+            "hg_right": config.hg_right,
+            "phase_correction_deg": config.phase_correction_deg,
+        }
+
     def _current_step(self) -> str:
         for step, rb in self._step_radios.items():
             if rb.isChecked():

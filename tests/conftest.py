@@ -131,6 +131,47 @@ def make_fitted_entry(make_homodyne_entry):
 
 
 @pytest.fixture
+def raw_matched_files(tmp_path):
+    """Four raw CSVs on disk in the instrument's long format.
+
+    Detected wavelengths are chosen so that, after upconversion at
+    1030.7 nm, they land on the C-H stretch region (~2800-3000 cm^-1) --
+    a nonsense range would send the pipeline negative and make any
+    resulting plot meaningless. `fringes` adds the interference the
+    heterodyne FFT step expects to isolate.
+    """
+    def _make(fringes: bool = False):
+        rng = np.random.default_rng(0)
+        wl = np.linspace(787.27, 799.86, 512)     # nm -> ~3000..2800 cm^-1
+        folder = tmp_path / ("raw_het" if fringes else "raw_homo")
+        folder.mkdir(exist_ok=True)
+
+        def write(name, scale, peak_nm=None):
+            frames = []
+            for frame in (1, 2):
+                y = np.full_like(wl, float(scale))
+                if peak_nm is not None:
+                    y = y * (1 + 0.4 * np.exp(-0.5 * ((wl - peak_nm) / 0.6) ** 2))
+                if fringes:
+                    # interferometric cross-term the FFT filter picks out
+                    y = y * (1 + 0.3 * np.cos(2 * np.pi * (wl - wl[0]) / 0.35))
+                y = y + rng.normal(0, 0.01 * scale, wl.size)
+                frames.append(pd.DataFrame({"Frame": frame, "Wavelength": wl, "Intensity": y}))
+            pd.concat(frames).to_csv(folder / name, index=False)
+            return name
+
+        roles = {
+            "signal": write("sample_ssp_sfg.csv", 1000, peak_nm=793.5),
+            "background": write("sample_ssp_sfg_bg.csv", 50),
+            "reference": write("quartz_ssp_sfg.csv", 2000),
+            "reference_background": write("quartz_ssp_sfg_bg.csv", 60),
+        }
+        return folder, roles
+
+    return _make
+
+
+@pytest.fixture
 def results_tab(qtbot):
     """A constructed Spectra Library tab, registered with qtbot so Qt
     tears it down deterministically."""
