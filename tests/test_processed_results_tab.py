@@ -127,11 +127,6 @@ def test_offset_separates_two_spectra(load_entries, make_homodyne_entry):
     assert offset[1] - offset[0] == pytest.approx(10.0)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Known bug: _refresh_plot offsets by flat line index, not by entry. "
-           "Remove this marker with the fix.",
-)
 def test_offset_is_per_spectrum_not_per_line(load_entries, make_heterodyne_entry):
     """Two HD components of the SAME spectrum share one offset slot.
 

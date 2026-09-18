@@ -948,6 +948,13 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
                 specs.append((entry, None, column_name, None, style.label or f"{base_label} ({display_label})", style, True))
 
         colors = self._assign_spec_colors(specs)
+        # Offset is per *spectrum*, not per plotted line: every component
+        # and fit curve of one entry shares its entry's slot, so enabling
+        # a second HD component doesn't widen the spacing or push a fit
+        # curve away from the data it was fit against.
+        offset_slots = {}
+        for spec in specs:
+            offset_slots.setdefault(spec[0], len(offset_slots))
         primary_hd, secondary_hd = [], []
         primary_amp, secondary_amp = False, False
 
@@ -973,7 +980,7 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
                 # normalization is scoped to the primary axis — a secondary
                 # axis is meant to show a trace in its own native units
                 factor = 1.0 if is_secondary else self._normalize_factor(x, raw_y)
-                y_offset = raw_y * factor + i * offset_step
+                y_offset = raw_y * factor + offset_slots[entry] * offset_step
 
                 color = style.color or colors[i]
                 target_ax = self.plot_widget.secondary_axis() if is_secondary else self.plot_widget.ax
