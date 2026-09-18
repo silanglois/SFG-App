@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (
     QLabel, QWidget, QMenu, QDoubleSpinBox,
 )
 
-from sfg_app2.app.tabs.processed_results import (
+from sfg_app2.app.tabs.trace_style import (
     TraceStyle, _LINESTYLE_CHOICES, _MARKER_CHOICES, _default_trace_style,
 )
 

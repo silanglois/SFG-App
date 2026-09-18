@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (
     QStackedWidget, QWidget,
 )
 
-from sfg_app2.app.tabs.processed_results import PlotAnnotation, _LINESTYLE_CHOICES
+from sfg_app2.app.tabs.trace_style import PlotAnnotation, _LINESTYLE_CHOICES
 
 _LINESTYLE_NAMES = [name for name, _ in _LINESTYLE_CHOICES]
 _LINESTYLE_BY_NAME = dict(_LINESTYLE_CHOICES)
