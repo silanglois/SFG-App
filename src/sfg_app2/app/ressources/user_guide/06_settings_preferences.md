@@ -78,6 +78,31 @@ styles).
   for that peak in the Display dock, if anything; otherwise it falls
   back to a stable, automatically-assigned color.
 
+## Export / Import settings
+
+**Export settings...** writes your whole configuration to a single
+`.zip` you can hand to someone else — or keep as a backup before
+changing a machine. You choose what goes in; only settings you've
+actually saved are offered:
+
+- filename metadata patterns
+- auto-matching profiles
+- fit templates
+- plotting settings and any custom styles you've made
+- filename colour-coding
+- file import options
+- the calibration reference
+- fitting display settings and appearance
+
+**Import settings...** restores them. Two things to know: each part
+you select is **replaced completely**, not merged with what you have
+now; and several settings are read once at startup, so restart the app
+afterwards for everything to take effect.
+
+Window and dock layouts are deliberately *not* included — they're
+geometry for one particular screen, so carrying them to another
+machine does more harm than good.
+
 ## Appearance (Light / Dark / System)
 
 A submenu with three mutually exclusive options controlling the

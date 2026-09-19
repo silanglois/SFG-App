@@ -81,6 +81,13 @@ import Qt.
 - `.ui` files under `app/ui/` are Qt Designer sources; their `ui_*.py`
   counterparts are regenerated **by hand**, not by an automated build
   step. Editing one without the other leaves them silently out of sync.
+- A new persisted setting must be added in **three** places, not one:
+  its own `app/utils/*_settings.py` store, the `_SETTINGS_PATH_ATTRS`
+  list in `tests/conftest.py` (or the suite writes to the real user
+  config — this has already clobbered one), and `settings_bundle.PARTS`
+  (or it silently won't travel when someone exports their setup).
+  `settings_bundle` resolves each store's path at call time precisely so
+  the conftest monkeypatching reaches it.
 - Calibration (`processing/calibration.py`) is a scan over candidate
   upconversion wavelengths scored against a reference; the reference is
   anything with `sample(wavenumber) -> values`, so it is not tied to

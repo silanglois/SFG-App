@@ -176,6 +176,18 @@ class MainWindow(QMainWindow):
         )
         fitting_menu.addAction(self._fitting_color_by_peak_action)
 
+        # Whole-configuration transfer, so a working setup can be handed
+        # to someone else rather than re-created by hand. Applies across
+        # every submenu above, so it sits after them rather than inside
+        # any one of them.
+        menu.addSeparator()
+        self._export_settings_action = QAction("Export settings...", self)
+        self._export_settings_action.triggered.connect(self._on_export_settings)
+        menu.addAction(self._export_settings_action)
+        self._import_settings_action = QAction("Import settings...", self)
+        self._import_settings_action.triggered.connect(self._on_import_settings)
+        menu.addAction(self._import_settings_action)
+
     def _on_toggle_fitting_peak_coloring(self, checked: bool):
         self.fitting_display_settings.color_parameter_table_by_peak = checked
         if not self.fitting_display_settings.save():
@@ -430,6 +442,64 @@ class MainWindow(QMainWindow):
         if dialog.exec():
             self.load_match_tab.refresh_color_coding()
             self.statusBar().showMessage("Filename color-coding settings updated.")
+
+    def _on_export_settings(self):
+        from sfg_app2.app.dialogs.settings_bundle_dialog import SettingsBundleDialog
+        from sfg_app2.app.utils import settings_bundle
+
+        chooser = SettingsBundleDialog("export", parent=self)
+        if not chooser.exec():
+            return
+        keys = chooser.selected_keys()
+        if not keys:
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export settings", "sfg-app-settings.zip", "Settings bundle (*.zip)")
+        if not path:
+            return
+        if not path.lower().endswith(".zip"):
+            path += ".zip"
+        try:
+            written = settings_bundle.export_bundle(path, keys)
+        except Exception as e:
+            logger.error("Settings export failed: %s", e, exc_info=True)
+            QMessageBox.warning(self, "Couldn't export settings", str(e))
+            return
+        self.statusBar().showMessage(f"Exported {len(written)} settings part(s).")
+
+    def _on_import_settings(self):
+        from sfg_app2.app.dialogs.settings_bundle_dialog import SettingsBundleDialog
+        from sfg_app2.app.utils import settings_bundle
+
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Import settings", "", "Settings bundle (*.zip)")
+        if not path:
+            return
+        try:
+            manifest = settings_bundle.read_manifest(path)
+        except ValueError as e:
+            QMessageBox.warning(self, "Couldn't read that bundle", str(e))
+            return
+
+        chooser = SettingsBundleDialog("import", manifest.get("parts", []), parent=self)
+        if not chooser.exec():
+            return
+        keys = chooser.selected_keys()
+        if not keys:
+            return
+        try:
+            restored = settings_bundle.import_bundle(path, keys)
+        except Exception as e:
+            logger.error("Settings import failed: %s", e, exc_info=True)
+            QMessageBox.warning(self, "Couldn't import settings", str(e))
+            return
+
+        QMessageBox.information(
+            self, "Settings imported",
+            f"Restored {len(restored)} settings part(s).\n\n"
+            "Restart the app for all of them to take effect — several are "
+            "read once at startup.",
+        )
 
     def _on_set_file_format(self, sample_path=None):
         """Import options, optionally opened against a file that failed
