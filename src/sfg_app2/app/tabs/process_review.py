@@ -279,21 +279,19 @@ class ProcessReviewTab(QWidget):
     # ── Calibration ───────────────────────────────────────────────────────────
 
     def _on_calibrate(self):
-        from sfg_app2.app.dialogs.polystyrene_calibration_dialog import (
-            PolystyreneCalibrationDialog
-        )
+        from sfg_app2.app.dialogs.calibration_dialog import CalibrationDialog
+
         if not self._matched_sets:
             QMessageBox.information(self, "No data", "Load and match files first.")
             return
-        try:
-            dialog = PolystyreneCalibrationDialog(
-                matched_sets=self._matched_sets,
-                initial_wavelength=self.ui.upconversionSpinBox.value(),
-                parent=self,
-            )
-        except ImportError:
-            # PolystyreneCalibrationDialog._check_refractiveindex() already
-            # showed the "missing dependency" message before re-raising.
-            return
+        # No dependency check up front any more: a missing
+        # 'refractiveindex' only rules out tabulated materials, and the
+        # dialog's other two reference modes work without it.
+        dialog = CalibrationDialog(
+            matched_sets=self._matched_sets,
+            initial_wavelength=self.ui.upconversionSpinBox.value(),
+            settings=getattr(self.window(), "calibration_settings", None),
+            parent=self,
+        )
         if dialog.exec():
             self.ui.upconversionSpinBox.setValue(dialog.result_wavelength)

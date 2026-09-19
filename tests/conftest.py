@@ -25,6 +25,7 @@ from sfg_app2.processing.processed_spectrum import ProcessedSpectrum
 # to be replaced directly. (module, [attribute names]) pairs:
 _SETTINGS_PATH_ATTRS = [
     ("appearance_settings", ["CONFIG_DIR", "SETTINGS_FILE"]),
+    ("calibration_settings", ["CONFIG_DIR", "SETTINGS_FILE"]),
     ("color_coding_settings", ["CONFIG_DIR", "SETTINGS_FILE"]),
     ("dock_layout_settings", ["CONFIG_DIR", "SETTINGS_FILE"]),
     ("file_format_settings", ["CONFIG_DIR", "SETTINGS_FILE"]),

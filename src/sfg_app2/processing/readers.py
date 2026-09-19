@@ -297,6 +297,26 @@ def read_spectrum(path: str | Path, options: ReadOptions | None = None) -> pd.Da
                                   or f"{path.name}: no reader could parse this file.")
 
 
+def read_raw_table(path: str | Path, options: ReadOptions | None = None) -> pd.DataFrame:
+    """A file's table as-is, without reshaping to the canonical columns.
+
+    For text that isn't a spectrum but deserves the same tolerance of
+    separators, decimal marks and encodings -- a reference curve, say.
+    """
+    options = options or ReadOptions()
+    errors = []
+    for sep in _candidate_separators(options):
+        try:
+            table = _read_table(Path(path), options, sep)
+        except UnrecognizedFormatError as e:
+            errors.append(str(e))
+            continue
+        if len(table.columns) > 1 or options.delimiter:
+            return table
+    raise UnrecognizedFormatError(
+        errors[0] if errors else f"{Path(path).name}: could not be parsed.")
+
+
 def peek_columns(path: str | Path, options: ReadOptions | None = None) -> list[str]:
     """The file's own column headers, for offering a mapping.
 

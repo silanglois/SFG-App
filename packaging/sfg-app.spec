@@ -57,9 +57,9 @@ a = Analysis(
     ],
     hiddenimports=[
         # Only ever imported lazily inside a function
-        # (polystyrene_calibration_dialog.py::_check_refractiveindex),
-        # so PyInstaller's static import analysis can miss it even
-        # though it's a hard pyproject.toml dependency.
+        # (calibration.MaterialReference._material), so PyInstaller's
+        # static import analysis can miss it even though it's a hard
+        # pyproject.toml dependency.
         "refractiveindex",
     ],
     hookspath=[],

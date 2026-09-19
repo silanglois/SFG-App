@@ -21,17 +21,29 @@ applies to whichever set(s) you have selected.
 
 ## Before processing: calibration and reference review
 
-- **▶ Calibrate with polystyrene...** opens a dialog that plots the
-  measured polystyrene SFG ratio against its known reference optical
-  properties so you can visually align them by adjusting the
+- **▶ Calibrate...** opens a dialog that plots your measured SFG ratio
+  against a known reference so you can align the two by adjusting the
   up-conversion wavelength spinbox; clicking OK writes the result back
   into the main up-conversion spinbox. The plot's own x-min/x-max
   controls set which wavenumber range is compared (defaulting to
   2750-3150 cm⁻¹, the usual CH-stretch region) — widen or shift it if
   your reference features fall elsewhere, or click Reset to see the
   whole measured spectrum. An **Auto-detect** button scans for the
-  wavelength that best aligns the two curves over whatever range is
-  currently shown, as a starting point you can still fine-tune by eye.
+  wavelength that best matches, as a starting point you can still
+  fine-tune by eye.
+
+    The **Reference** row picks what to calibrate against:
+
+    | Reference | Use it when |
+    |---|---|
+    | **Tabulated material** (default: polystyrene) | The material's optical constants are in the refractiveindex.info database. Enter any shelf / book / page to use a different one. |
+    | **Curve from file** | You have the reference absorption as data — a two-column CSV of wavenumber and value. |
+    | **Known line positions** | You only know where the peaks *should* be. Type the literature wavenumbers, and the scan lines your measured peaks up with them. |
+
+    The last two need no reference database at all, so calibration
+    still works in a build without the `refractiveindex` package.
+    Whichever you choose is remembered, so a list of line positions or
+    a reference file only has to be entered once.
 - **Review references** plots every reference and its background
   together, with per-curve visibility checkboxes, as a sanity check
   before you trust them in processing.

@@ -81,6 +81,14 @@ import Qt.
 - `.ui` files under `app/ui/` are Qt Designer sources; their `ui_*.py`
   counterparts are regenerated **by hand**, not by an automated build
   step. Editing one without the other leaves them silently out of sync.
+- Calibration (`processing/calibration.py`) is a scan over candidate
+  upconversion wavelengths scored against a reference; the reference is
+  anything with `sample(wavenumber) -> values`, so it is not tied to
+  polystyrene or to `refractiveindex` (which is why the line-position
+  mode works without that package at all). Note the two scans score in
+  opposite directions: the curve scan returns a correlation (higher is
+  better, empty answer `-inf`), the line scan an RMS error (lower is
+  better, empty answer `+inf`).
 - **Readers normalize; the pipeline never does.** `Frame`/`Wavelength`/
   `Intensity` appear well over a hundred times across ~14 modules and
   are the pipeline's internal data contract. Support for a file that

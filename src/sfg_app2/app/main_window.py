@@ -11,6 +11,7 @@ from sfg_app2.app.utils.plotting_settings import PlottingSettings
 from sfg_app2.app.utils.matching_settings import MatchingProfileManager
 from sfg_app2.app.utils.color_coding_settings import ColorCodingSettings
 from sfg_app2.app.utils.dock_layout_settings import DockLayoutSettings
+from sfg_app2.app.utils.calibration_settings import CalibrationSettings
 from sfg_app2.app.utils.file_format_settings import FileFormatSettings
 from sfg_app2.app.utils.appearance_settings import AppearanceSettings, THEMES
 from sfg_app2.app.utils.fitting_display_settings import FittingDisplaySettings
@@ -35,6 +36,7 @@ class MainWindow(QMainWindow):
         self.plotting_settings.apply_current()
         self.color_coding_settings = ColorCodingSettings()
         self.file_format_settings = FileFormatSettings()
+        self.calibration_settings = CalibrationSettings()
         self.appearance_settings = AppearanceSettings()
         self.dock_layout_settings = DockLayoutSettings()
         self.fitting_display_settings = FittingDisplaySettings()

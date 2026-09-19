@@ -73,7 +73,7 @@
       <item>
        <widget class="QPushButton" name="calibrateButton">
         <property name="text">
-         <string>▶ Calibrate with polystyrene...</string>
+         <string>▶ Calibrate...</string>
         </property>
        </widget>
       </item>

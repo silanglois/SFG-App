@@ -135,7 +135,7 @@ class Ui_Form(object):
         Form.setWindowTitle(QCoreApplication.translate("Form", u"Form", None))
         self.label.setText(QCoreApplication.translate("Form", u"Up-conversion wavelength:", None))
         self.upconversionSpinBox.setSuffix(QCoreApplication.translate("Form", u" nm", None))
-        self.calibrateButton.setText(QCoreApplication.translate("Form", u"\u25b6 Calibrate with polystyrene...", None))
+        self.calibrateButton.setText(QCoreApplication.translate("Form", u"\u25b6 Calibrate...", None))
         self.label_2.setText(QCoreApplication.translate("Form", u"Matched Sets", None))
         self.label_3.setText(QCoreApplication.translate("Form", u"View:", None))
         self.singleViewRadio.setText(QCoreApplication.translate("Form", u"Single", None))
