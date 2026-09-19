@@ -73,6 +73,7 @@ def load_datafiles(
     role_mode: str = "suffix",
     role_values: set[str] = None,
     role_field: str | None = None,
+    read_options=None,
 ) -> list:
     if role_values is None:
         role_values = DEFAULT_ROLE_SUFFIXES
@@ -95,7 +96,8 @@ def load_datafiles(
 
         try:
             files.append(DataFile(path, filename_fields=fields,
-                                  metadata=extra_metadata, parse_stem=clean_stem))
+                                  metadata=extra_metadata, parse_stem=clean_stem,
+                                  read_options=read_options))
         except UnrecognizedFormatError as e:
             logger.warning("Skipping %s: %s", path.name, e)
             skipped.append(path.name)

@@ -11,12 +11,16 @@ import pandas as pd
 from sfg_app2.processing.despike import remove_outliers_movmedian
 from .spectrum_data import SpectrumDataMixin
 from .processed_spectrum import ProcessedSpectrum
+from .readers import (
+    CANONICAL_COLUMNS, ReadOptions, UnrecognizedFormatError, read_spectrum,
+)
 
 logger = logging.getLogger(__name__)
 
-
-class UnrecognizedFormatError(ValueError):
-    """Raised when a file matches neither the long nor wide spectrum format."""
+# Re-exported: this was defined here historically and is caught by name
+# all over the app and the tests. It now lives with the readers, since
+# that's what raises it.
+__all__ = ["DataFile", "FilenamePattern", "UnrecognizedFormatError"]
 
 
 @dataclass
@@ -120,12 +124,13 @@ class FilenamePattern:
 class DataFile(SpectrumDataMixin):
     """A single SFG spectroscopy data file: raw frame data + metadata.
 
-    Expects a CSV with columns: Frame, Wavelength, Intensity.
-    Metadata is parsed best-effort from the filename and can be
-    supplemented or corrected manually.
+    Holds Frame/Wavelength/Intensity — the canonical columns every
+    reader in `readers.py` normalises to, whatever the file itself
+    called them. Metadata is parsed best-effort from the filename and
+    can be supplemented or corrected manually.
     """
 
-    REQUIRED_COLUMNS = ("Frame", "Wavelength", "Intensity")
+    REQUIRED_COLUMNS = CANONICAL_COLUMNS
 
     def __init__(
         self,
@@ -133,9 +138,10 @@ class DataFile(SpectrumDataMixin):
         filename_fields: Optional[list[str]] = None,
         metadata: Optional[dict] = None,
         parse_stem: Optional[str] = None,
+        read_options: Optional[ReadOptions] = None,
     ):
         self.path = Path(path)
-        self._raw_df = self._load_csv(self.path)
+        self._raw_df = read_spectrum(self.path, read_options)
         # `parse_stem` is the stem a pattern is matched against, which the
         # loader passes already stripped of its role token ("..._bg"). The
         # same text has to be used for choosing a pattern and for applying
@@ -169,67 +175,6 @@ class DataFile(SpectrumDataMixin):
         self._parsed_metadata = self._parse_filename_metadata(
             self.path, pattern, self._parse_stem)
         self.metadata = {**self._parsed_metadata, **self._manual_metadata}
-
-    # ---- loading ----------------------------------------------------
-    @staticmethod
-    def _load_csv(path: Path) -> pd.DataFrame:
-        try:
-            raw = pd.read_csv(path)
-        except (pd.errors.ParserError, pd.errors.EmptyDataError, UnicodeDecodeError) as e:
-            raise UnrecognizedFormatError(
-                f"{path.name}: could not be parsed as CSV ({e})"
-            ) from e
-
-        # Case 1: already long format
-        missing_long = set(DataFile.REQUIRED_COLUMNS) - set(raw.columns)
-        if not missing_long:
-            return raw
-
-        # Case 2: wide format — Wavelength + one column per frame
-        if "Wavelength" not in raw.columns:
-            raise UnrecognizedFormatError(
-                f"{path.name}: columns don't match long format (missing "
-                f"{missing_long}) or wide format (no 'Wavelength' column). "
-                f"Found: {list(raw.columns)}"
-            )
-
-        df = raw.copy()
-
-        first_row = df.iloc[0]
-        if pd.to_numeric(first_row, errors="coerce").isna().any():
-            df = df.iloc[1:].reset_index(drop=True)
-
-        df = df.apply(pd.to_numeric, errors="coerce")
-
-        frame_cols = [c for c in df.columns if c != "Wavelength"]
-        if not frame_cols:
-            raise UnrecognizedFormatError(
-                f"{path.name}: wide format detected but no frame columns "
-                f"found alongside 'Wavelength'."
-            )
-
-        long_df = df.melt(
-            id_vars="Wavelength",
-            value_vars=frame_cols,
-            var_name="Frame",
-            value_name="Intensity",
-        )
-        long_df["Frame"] = pd.to_numeric(long_df["Frame"], errors="coerce")
-        if long_df["Frame"].isna().any():
-            raise UnrecognizedFormatError(
-                f"{path.name}: wide format frame column headers aren't "
-                f"all numeric: {frame_cols}"
-            )
-        long_df["Frame"] = long_df["Frame"].astype(int)
-        long_df = long_df.dropna(subset=["Intensity"]).reset_index(drop=True)
-
-        if long_df.empty:
-            raise UnrecognizedFormatError(
-                f"{path.name}: no usable numeric data found after parsing "
-                f"as wide format."
-            )
-
-        return long_df[["Frame", "Wavelength", "Intensity"]]
 
 
     # ---- batch loading -------------------------------------------------

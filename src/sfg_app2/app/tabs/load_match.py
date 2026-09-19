@@ -102,7 +102,8 @@ class LoadMatchTab(QWidget):
             loading = show_loading(self, "Loading files from folder...")
             try:
                 new_files = load_datafiles(
-                    folder, patterns=self._get_active_patterns(), **self._role_kwargs()
+                    folder, patterns=self._get_active_patterns(),
+                    read_options=self._read_options(), **self._role_kwargs()
                 )
             finally:
                 loading.close()
@@ -126,6 +127,14 @@ class LoadMatchTab(QWidget):
             self._on_table_changed()
             self._report_merge_result(added, skipped)
             self._set_buttons_enabled(files_loaded=bool(self._files), matched=False)
+
+            # A folder of data files that yielded nothing is far more
+            # likely one wrong import setting than a folder of junk.
+            if not new_files:
+                candidates = sorted(folder.glob("*.csv"))
+                if candidates and self._offer_import_options(
+                        candidates[0], "No files in this folder could be read."):
+                    self.load_from_folder(folder)
         except Exception as e:
             QMessageBox.critical(self, "Load Error", str(e))
             logger.error("Failed to load files: %s", e)
@@ -158,6 +167,7 @@ class LoadMatchTab(QWidget):
 
         role_kwargs = self._role_kwargs()
         newly_loaded = []
+        unreadable: list[tuple[Path, str]] = []
         loading = show_loading(self, "Loading files...")
         try:
             for path_str in paths:
@@ -171,9 +181,11 @@ class LoadMatchTab(QWidget):
                     extra_metadata = {"role": "background", "role_token": role_token} if matched else {}
                     newly_loaded.append(DataFile(path, filename_fields=fields,
                                                  metadata=extra_metadata,
-                                                 parse_stem=clean_stem))
+                                                 parse_stem=clean_stem,
+                                                 read_options=self._read_options()))
                 except UnrecognizedFormatError as e:
                     logger.warning("Skipping %s: %s", path.name, e)
+                    unreadable.append((path, str(e)))
                 except Exception as e:
                     logger.warning("Could not load %s: %s — skipping.", path.name, e)
         finally:
@@ -184,6 +196,14 @@ class LoadMatchTab(QWidget):
         self._refresh_file_list()
         self._report_merge_result(added, skipped)
         self._set_buttons_enabled(files_loaded=bool(self._files), matched=False)
+
+        # Everything failed to parse: almost always one wrong import
+        # setting rather than N bad files, so offer to fix it and retry
+        # instead of leaving the user with a silent empty list.
+        if unreadable and not newly_loaded:
+            path, reason = unreadable[0]
+            if self._offer_import_options(path, reason):
+                self.load_individual_files(paths)
 
     def _merge_files(self, new_files: list) -> tuple[list, list]:
         existing = {f.path.resolve() for f in self._files}
@@ -274,6 +294,33 @@ class LoadMatchTab(QWidget):
         # enable start processing if at least one row has a signal
         has_rows = self.match_table._table_model.rowCount() > 0
         self._set_buttons_enabled(files_loaded=bool(self._files), matched=has_rows)
+
+    def _read_options(self):
+        """The user's configured import options, or the defaults (which
+        read an ordinary CSV exactly as this app always did)."""
+        from sfg_app2.processing.readers import ReadOptions
+
+        main = self.window()
+        settings = getattr(main, "file_format_settings", None)
+        return settings.options if settings is not None else ReadOptions()
+
+    def _offer_import_options(self, path: Path, reason: str) -> bool:
+        """A file wouldn't parse. Offer the import-options dialog against
+        that very file rather than just logging a skip -- the mapping is
+        only fixable if you can see which file broke and why.
+        """
+        main = self.window()
+        if not hasattr(main, "_on_set_file_format"):
+            return False
+        answer = QMessageBox.question(
+            self, "Couldn't read this file",
+            f"{path.name} couldn't be read:\n\n{reason}\n\n"
+            "Open import options to tell the app how this file is laid out?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return False
+        return bool(main._on_set_file_format(sample_path=path))
 
     def _get_active_patterns(self) -> list[list[str]] | None:
         """Returns active patterns if the toggle is on, None otherwise.

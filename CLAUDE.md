@@ -81,6 +81,14 @@ import Qt.
 - `.ui` files under `app/ui/` are Qt Designer sources; their `ui_*.py`
   counterparts are regenerated **by hand**, not by an automated build
   step. Editing one without the other leaves them silently out of sync.
+- **Readers normalize; the pipeline never does.** `Frame`/`Wavelength`/
+  `Intensity` appear well over a hundred times across ~14 modules and
+  are the pipeline's internal data contract. Support for a file that
+  names its columns differently belongs in a `processing/readers.py`
+  reader (registered like a lineshape), which must return exactly those
+  three canonical columns. Never push a column-name mapping downstream
+  of the loader — that is the difference between a one-file change and
+  a fourteen-file one.
 - Lineshapes are a registry (`processing/fitting.py`'s
   `register_lineshape`/`LineshapeSpec`), and the Fitting tab builds its
   combo and parameter table from the spec — a new lineshape needs no UI

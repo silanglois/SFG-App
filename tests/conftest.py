@@ -27,6 +27,7 @@ _SETTINGS_PATH_ATTRS = [
     ("appearance_settings", ["CONFIG_DIR", "SETTINGS_FILE"]),
     ("color_coding_settings", ["CONFIG_DIR", "SETTINGS_FILE"]),
     ("dock_layout_settings", ["CONFIG_DIR", "SETTINGS_FILE"]),
+    ("file_format_settings", ["CONFIG_DIR", "SETTINGS_FILE"]),
     ("fitting_display_settings", ["CONFIG_DIR", "SETTINGS_FILE"]),
     ("fit_template_manager", ["CONFIG_DIR", "TEMPLATES_FILE"]),
     ("matching_settings", ["CONFIG_DIR", "SETTINGS_FILE"]),
