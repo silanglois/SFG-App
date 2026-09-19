@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import csv
 import logging
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
@@ -49,6 +50,11 @@ class ReadOptions:
     # canonical name -> the column actually in the file. Only needed when
     # the file's own headers don't already match.
     columns: dict[str, str] = field(default_factory=dict)
+    # Wide files only: which columns hold frames. Needed when a wide file
+    # carries something that isn't a frame alongside them (a dark
+    # reference, a timestamp), since otherwise every non-wavelength
+    # column is taken to be one.
+    frame_columns: list[str] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, data: dict | None) -> "ReadOptions":
@@ -59,12 +65,14 @@ class ReadOptions:
             encoding=data.get("encoding") or "utf-8",
             skiprows=int(data.get("skiprows") or 0),
             columns=dict(data.get("columns") or {}),
+            frame_columns=list(data.get("frame_columns") or []),
         )
 
     def to_dict(self) -> dict:
         return {"delimiter": self.delimiter, "decimal": self.decimal,
                 "encoding": self.encoding, "skiprows": self.skiprows,
-                "columns": dict(self.columns)}
+                "columns": dict(self.columns),
+                "frame_columns": list(self.frame_columns)}
 
 
 @dataclass
@@ -143,7 +151,27 @@ def _apply_column_mapping(raw: pd.DataFrame, options: ReadOptions,
     return raw.rename(columns=renames)
 
 
-def _to_canonical(raw: pd.DataFrame, path: Path) -> pd.DataFrame:
+def _frame_number(header: object) -> int | None:
+    """The frame a wide-format column header denotes.
+
+    Plain numbers are the classic case, but exports label frames
+    "Frame 1", "scan1", "S1" just as often; the first run of digits is
+    what identifies those. A header with no digits at all is *not*
+    guessed at by position -- a wide file can carry a dark reference or
+    a timestamp column alongside its frames, and silently importing
+    that as frame 1 would be worse than saying so.
+    """
+    text = str(header).strip()
+    try:
+        return int(float(text))
+    except ValueError:
+        pass
+    digits = re.search(r"\d+", text)
+    return int(digits.group()) if digits else None
+
+
+def _to_canonical(raw: pd.DataFrame, path: Path,
+                  frame_columns: list[str] | None = None) -> pd.DataFrame:
     """Long as-is, or wide (Wavelength + one column per frame) melted."""
     missing_long = set(CANONICAL_COLUMNS) - set(raw.columns)
     if not missing_long:
@@ -174,11 +202,30 @@ def _to_canonical(raw: pd.DataFrame, path: Path) -> pd.DataFrame:
 
     df = df.apply(pd.to_numeric, errors="coerce")
 
-    frame_cols = [c for c in df.columns if c != "Wavelength"]
+    if frame_columns:
+        missing = [c for c in frame_columns if c not in df.columns]
+        if missing:
+            raise UnrecognizedFormatError(
+                f"{path.name}: frame column(s) {missing} aren't in the file. "
+                f"Found: {[c for c in raw.columns]}"
+            )
+        frame_cols = list(frame_columns)
+    else:
+        frame_cols = [c for c in df.columns if c != "Wavelength"]
     if not frame_cols:
         raise UnrecognizedFormatError(
             f"{path.name}: wide format detected but no frame columns "
             f"found alongside 'Wavelength'."
+        )
+
+    numbers = {c: _frame_number(c) for c in frame_cols}
+    unnamed = [c for c, n in numbers.items() if n is None]
+    if unnamed:
+        raise UnrecognizedFormatError(
+            f"{path.name}: can't tell which frame these column(s) are: "
+            f"{unnamed}. Frame columns need a number in their header "
+            f"(\"1\", \"Frame 1\", \"S1\"). If they aren't frames at all, "
+            f"name the ones that are in the import options."
         )
 
     long_df = df.melt(
@@ -187,13 +234,7 @@ def _to_canonical(raw: pd.DataFrame, path: Path) -> pd.DataFrame:
         var_name="Frame",
         value_name="Intensity",
     )
-    long_df["Frame"] = pd.to_numeric(long_df["Frame"], errors="coerce")
-    if long_df["Frame"].isna().any():
-        raise UnrecognizedFormatError(
-            f"{path.name}: wide format frame column headers aren't "
-            f"all numeric: {frame_cols}"
-        )
-    long_df["Frame"] = long_df["Frame"].astype(int)
+    long_df["Frame"] = long_df["Frame"].map(numbers).astype(int)
     long_df = long_df.dropna(subset=["Intensity"]).reset_index(drop=True)
 
     if long_df.empty:
@@ -211,7 +252,7 @@ def _read_delimited(path: Path, options: ReadOptions) -> pd.DataFrame:
         try:
             raw = _read_table(path, options, sep)
             raw = _apply_column_mapping(raw, options, path)
-            return _to_canonical(raw, path)
+            return _to_canonical(raw, path, options.frame_columns)
         except UnrecognizedFormatError as e:
             errors.append(str(e))
     # Report the first failure: that's the one against the separator the

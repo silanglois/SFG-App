@@ -4,8 +4,8 @@ from pathlib import Path
 
 from PySide6.QtWidgets import (
     QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout,
-    QGroupBox, QHBoxLayout, QLabel, QPlainTextEdit, QPushButton, QSpinBox,
-    QVBoxLayout,
+    QGroupBox, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit, QPushButton,
+    QSpinBox, QVBoxLayout,
 )
 
 from sfg_app2.processing.readers import (
@@ -122,6 +122,17 @@ class FileFormatDialog(QDialog):
             self._column_combos[canonical] = combo
             form.addRow(f"{canonical}:", combo)
         self._initial_columns = dict(options.columns)
+
+        self._frame_columns = QLineEdit(", ".join(options.frame_columns))
+        self._frame_columns.setPlaceholderText("all other columns")
+        self._frame_columns.setToolTip(
+            "Only for files that put each frame in its own column. Frame "
+            "numbers are read from the headers (\"1\", \"Frame 1\", \"S1\"), "
+            "so this is only needed when such a file also carries a column "
+            "that isn't a frame — a dark reference, say."
+        )
+        self._frame_columns.textChanged.connect(self._update_preview)
+        form.addRow("Frame columns:", self._frame_columns)
         return group
 
     def _build_preview_group(self) -> QGroupBox:
@@ -156,6 +167,8 @@ class FileFormatDialog(QDialog):
             encoding=self._encoding.currentText().strip() or "utf-8",
             skiprows=self._skiprows.value(),
             columns=columns,
+            frame_columns=[c.strip() for c in self._frame_columns.text().split(",")
+                           if c.strip()],
         )
 
     def _on_format_changed(self):

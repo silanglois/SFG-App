@@ -58,6 +58,60 @@ def test_wide_format_still_melts_to_long(write):
     assert list(df.columns) == list(CANONICAL_COLUMNS)
 
 
+# ── Wide format: frames as columns rather than a Frame column ─────────────
+
+def _wide(headers, sep=","):
+    rows = [sep.join(["Wavelength", *headers])]
+    for wl in WAVELENGTHS:
+        rows.append(sep.join([f"{wl:.3f}"]
+                             + [f"{wl * (i + 2):.3f}" for i in range(len(headers))]))
+    return "\n".join(rows) + "\n"
+
+
+@pytest.mark.parametrize("headers, expected", [
+    (("1", "2"), {1, 2}),
+    (("Frame 1", "Frame 2"), {1, 2}),       # the labels exports actually use
+    (("scan1", "scan2"), {1, 2}),
+    (("S1", "S2"), {1, 2}),
+    (("3", "7"), {3, 7}),                   # numbering need not be 1..N
+])
+def test_frame_columns_are_identified_from_their_headers(write, headers, expected):
+    df = read_spectrum(write("wide.csv", _wide(headers)))
+    assert set(df["Frame"]) == expected
+    assert len(df) == len(WAVELENGTHS) * len(headers)
+
+
+def test_a_column_that_is_not_a_frame_is_refused_rather_than_guessed(write):
+    """A wide file can carry a dark reference or a timestamp beside its
+    frames. Numbering that by position would silently import it as real
+    data, which is worse than refusing."""
+    with pytest.raises(UnrecognizedFormatError, match="Dark"):
+        read_spectrum(write("wide.csv", _wide(("1", "2", "Dark"))))
+
+
+def test_naming_the_frame_columns_resolves_the_ambiguity(write):
+    df = read_spectrum(write("wide.csv", _wide(("1", "2", "Dark"))),
+                       ReadOptions(frame_columns=["1", "2"]))
+    assert set(df["Frame"]) == {1, 2}
+
+
+def test_a_mistyped_frame_column_says_what_is_actually_there(write):
+    with pytest.raises(UnrecognizedFormatError, match="aren't in the file"):
+        read_spectrum(write("wide.csv", _wide(("1", "2"))),
+                      ReadOptions(frame_columns=["nope"]))
+
+
+def test_wide_format_composes_with_the_other_options(write):
+    """Frames-as-columns and a mapped wavelength column and a separator
+    all at once -- each is handled in a different place, so their
+    interaction is worth pinning."""
+    text = _wide(("Frame 1", "Frame 2"), sep=";").replace("Wavelength", "lambda (nm)")
+    df = read_spectrum(write("wide.csv", text), ReadOptions(
+        delimiter=";", columns={"Wavelength": "lambda (nm)"}))
+    assert set(df["Frame"]) == {1, 2}
+    assert list(df.columns) == list(CANONICAL_COLUMNS)
+
+
 # ── New: separators, decimals, preambles, encodings ───────────────────────
 
 @pytest.mark.parametrize("sep", [";", "\t", "|"])
@@ -215,6 +269,34 @@ def test_a_realistic_awkward_instrument_export(write):
         columns={"Wavelength": "wavelength (nm)", "Intensity": "counts"}))
     assert list(df.columns) == list(CANONICAL_COLUMNS)
     assert df["Wavelength"].iloc[0] == pytest.approx(WAVELENGTHS[0], abs=1e-3)
+
+
+# ── The dialog ────────────────────────────────────────────────────────────
+# Constructing it at all is most of the value: a NameError in a dialog
+# nobody instantiates in tests is invisible until a user opens it, which
+# is exactly how a crash shipped here once before.
+
+def test_the_import_dialog_builds_and_round_trips_its_options(qtbot, write):
+    from sfg_app2.app.dialogs.file_format_dialog import FileFormatDialog
+
+    options = ReadOptions(delimiter=";", decimal=",", encoding="latin-1",
+                          skiprows=2, columns={"Wavelength": "wl"},
+                          frame_columns=["a", "b"])
+    dialog = FileFormatDialog(options, sample_path=write("s.csv", _long_frame()))
+    qtbot.addWidget(dialog)
+    assert dialog.options().to_dict() == options.to_dict()
+
+
+def test_the_dialog_preview_explains_a_file_it_cannot_read(qtbot, write):
+    from sfg_app2.app.dialogs.file_format_dialog import FileFormatDialog
+
+    path = write("wide.csv", _wide(("1", "2", "Dark")))
+    dialog = FileFormatDialog(ReadOptions(), sample_path=path)
+    qtbot.addWidget(dialog)
+    assert "Dark" in dialog._preview.toPlainText()
+
+    dialog._frame_columns.setText("1, 2")
+    assert "2 frame(s)" in dialog._preview.toPlainText()
 
 
 def test_unreadable_files_still_raise_the_error_callers_catch(write):
