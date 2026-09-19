@@ -5,11 +5,26 @@ from pathlib import Path
 from platformdirs import user_config_dir
 
 from sfg_app2.app.utils.preset_tree import iter_leaves, find_node, new_leaf
+from sfg_app2.processing.data_file import FilenamePattern
 
 logger = logging.getLogger(__name__)
 
+
 CONFIG_DIR = Path(user_config_dir("SFG-App"))
 PATTERNS_FILE = CONFIG_DIR / "patterns.json"
+
+
+def _as_pattern(leaf: dict) -> FilenamePattern:
+    pattern = FilenamePattern.coerce(leaf.get("data") or {})
+    pattern.name = leaf.get("name", "")
+    return pattern
+
+
+def positional_length(leaf: dict) -> int | None:
+    """Token count a positional pattern claims, or None for a regex one
+    (which isn't selected by token count, so it can't conflict)."""
+    pattern = _as_pattern(leaf)
+    return None if pattern.mode == "regex" else len(pattern.fields)
 
 DEFAULT_TREE = [
     new_leaf(
@@ -31,10 +46,15 @@ class PatternManager:
     """Load, save, and validate metadata patterns from persistent config.
 
     Patterns are organized as a tree (folders + leaves, see
-    `preset_tree.py`) so they can be grouped into sub-categories. Each
-    leaf's payload (`leaf["data"]`) holds `{"fields": [...]}`; `leaf["active"]`
-    marks it as one of possibly-several simultaneously active patterns
-    (auto-selected by filename part count — see `active_patterns`).
+    `preset_tree.py`) so they can be grouped into sub-categories.
+    `leaf["active"]` marks it as one of possibly-several simultaneously
+    active patterns (auto-selected per filename — see `active_patterns`).
+
+    A leaf's payload (`leaf["data"]`) is whatever
+    `FilenamePattern.coerce()` accepts. The historical `{"fields": [...]}`
+    still means exactly what it always did — positional parsing on "_" —
+    so stored patterns need no migration; richer leaves add
+    `"delimiter"`, `"mode": "regex"` and `"regex"`.
     """
 
     def __init__(self):
@@ -81,13 +101,13 @@ class PatternManager:
     @property
     def all_patterns(self) -> list[dict]:
         """Flattened leaves, regardless of folder — each `{"id", "name",
-        "active", "data": {"fields": [...]}}`."""
+        "active", "data": {...}}`."""
         return list(iter_leaves(self._tree))
 
     @property
-    def active_patterns(self) -> list[list[str]]:
-        """Returns active field lists — ready to pass to load_datafiles(patterns=...)."""
-        return [p["data"]["fields"] for p in self.all_patterns if p.get("active")]
+    def active_patterns(self) -> list[FilenamePattern]:
+        """Active patterns — ready to pass to load_datafiles(patterns=...)."""
+        return [_as_pattern(p) for p in self.all_patterns if p.get("active")]
 
     def set_active(self, leaf_id: str, active: bool) -> str | None:
         """Activate/deactivate a pattern. Returns a warning message if a
@@ -96,11 +116,17 @@ class PatternManager:
         target = find_node(self._tree, leaf_id)
         if target is None:
             return None
-        target_len = len(target["data"]["fields"])
+        target_len = positional_length(target)
+        if target_len is None:
+            # Regex patterns are chosen by inspecting the filename, not
+            # by token count, so they can never collide this way.
+            target["active"] = active
+            return None
 
         if active:
             for p in self.all_patterns:
-                if p["id"] != leaf_id and p.get("active") and len(p["data"]["fields"]) == target_len:
+                if (p["id"] != leaf_id and p.get("active")
+                        and positional_length(p) == target_len):
                     return (
                         f"Pattern \"{p['name']}\" is already active with "
                         f"{target_len} fields. Activating this will replace it."
@@ -114,11 +140,13 @@ class PatternManager:
         target = find_node(self._tree, leaf_id)
         if target is None:
             return
-        target_len = len(target["data"]["fields"])
+        target_len = positional_length(target)
         for p in self.all_patterns:
-            if p["id"] != leaf_id and p.get("active") and len(p["data"]["fields"]) == target_len:
+            if (p["id"] != leaf_id and p.get("active")
+                    and target_len is not None and positional_length(p) == target_len):
                 p["active"] = False
         target["active"] = True
 
     def active_lengths(self) -> list[int]:
-        return sorted(len(p["data"]["fields"]) for p in self.all_patterns if p.get("active"))
+        lengths = (positional_length(p) for p in self.all_patterns if p.get("active"))
+        return sorted(n for n in lengths if n is not None)

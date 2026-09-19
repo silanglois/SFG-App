@@ -415,7 +415,7 @@ class MainWindow(QMainWindow):
             fields = sorted({
                 field
                 for pattern in self.pattern_manager.active_patterns
-                for field in pattern
+                for field in pattern.field_names()
             })
 
         dialog = ColorCodingSettingsDialog(self.color_coding_settings, fields, parent=self)

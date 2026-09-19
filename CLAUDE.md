@@ -81,6 +81,24 @@ import Qt.
 - `.ui` files under `app/ui/` are Qt Designer sources; their `ui_*.py`
   counterparts are regenerated **by hand**, not by an automated build
   step. Editing one without the other leaves them silently out of sync.
+- Lineshapes are a registry (`processing/fitting.py`'s
+  `register_lineshape`/`LineshapeSpec`), and the Fitting tab builds its
+  combo and parameter table from the spec — a new lineshape needs no UI
+  changes. Anything loading a *saved* fit must tolerate a
+  `lineshape_key` this build doesn't have:
+  `fit_model_spec_from_provenance_payload()` returns `None` for those
+  rather than letting `get_lineshape()` raise out of a later redraw.
+- A metadata pattern leaf (`patterns.json`) is anything
+  `FilenamePattern.coerce()` accepts. The historical `{"fields": [...]}`
+  must keep meaning positional-split-on-`_` forever — stored patterns
+  are never migrated. Pattern *selection* and *extraction* must both see
+  the same role-stripped stem (`DataFile(parse_stem=...)`), or an
+  anchored regex matches during selection and then fails during
+  extraction.
+- `DataFile` keeps `_parsed_metadata` and `_manual_metadata` apart, with
+  `metadata` as the merged view: re-parsing the filename under a new
+  pattern must not discard hand-edited values or the loader's detected
+  role. Edit through `set_manual_metadata()`, not `metadata[...] = `.
 
 ## Working conventions
 

@@ -154,7 +154,7 @@ class LoadMatchTab(QWidget):
 
     def load_individual_files(self, paths: list[str]):
         from sfg_app2.processing.data_file import DataFile
-        from sfg_app2.processing.utils import resolve_role
+        from sfg_app2.processing.utils import resolve_role, select_pattern
 
         role_kwargs = self._role_kwargs()
         newly_loaded = []
@@ -167,11 +167,11 @@ class LoadMatchTab(QWidget):
                     clean_stem, matched, role_token = resolve_role(
                         path.stem, role_kwargs["role_mode"], role_kwargs["role_values"]
                     )
-                    n_parts = len(clean_stem.split("_"))
-                    pattern_map = {len(p): p for p in patterns} if patterns else {}
-                    fields = pattern_map.get(n_parts) if pattern_map else None
+                    fields = select_pattern(clean_stem, patterns) if patterns else None
                     extra_metadata = {"role": "background", "role_token": role_token} if matched else {}
-                    newly_loaded.append(DataFile(path, filename_fields=fields, metadata=extra_metadata))
+                    newly_loaded.append(DataFile(path, filename_fields=fields,
+                                                 metadata=extra_metadata,
+                                                 parse_stem=clean_stem))
                 except UnrecognizedFormatError as e:
                     logger.warning("Skipping %s: %s", path.name, e)
                 except Exception as e:
@@ -298,19 +298,19 @@ class LoadMatchTab(QWidget):
         """Re-parse filename metadata for all loaded files using current
         toggle state and active patterns. Manual metadata always wins.
         """
-        from sfg_app2.processing.utils import resolve_role
+        from sfg_app2.processing.utils import resolve_role, select_pattern
 
         role_kwargs = self._role_kwargs()
         patterns = self._get_active_patterns()
-        pattern_map = {len(p): p for p in patterns} if patterns else {}
 
         for f in self._files:
             clean_stem, _, _ = resolve_role(
                 f.path.stem, role_kwargs["role_mode"], role_kwargs["role_values"]
             )
-            n_parts = len(clean_stem.split("_"))
-            fields = pattern_map.get(n_parts) if pattern_map else None
-            f.reparse_filename_metadata(fields)
+            # Same selection rule the loader uses, so re-parsing can't
+            # disagree with what the initial load produced.
+            fields = select_pattern(clean_stem, patterns) if patterns else None
+            f.reparse_filename_metadata(fields, parse_stem=clean_stem)
 
         logger.info(
             "Re-parsed metadata for %d files (patterns %s).",
