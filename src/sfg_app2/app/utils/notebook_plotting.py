@@ -7,8 +7,9 @@ their colours and labels already resolved, so any line can be edited
 directly instead of through a helper.
 
 It installs nothing -- numpy/pandas/matplotlib are preinstalled on
-Colab, the spectra are embedded, and the app's aquarel style travels as
-a literal rcParams dict.
+Colab, the spectra are embedded, and the figure uses matplotlib's
+default style rather than the app's -- only the resolved trace
+colours/styles travel across, as literal values per `ax.plot()` call.
 
 The input is a plain dict (see `PlotPayload` in the docstring of
 `build`), not app objects, so this module stays Qt-free.
@@ -17,7 +18,6 @@ from __future__ import annotations
 
 from .notebook_export import (
     as_literal, code_cell, encode_text, markdown_cell, notebook,
-    rcparams_snippet,
 )
 
 # wrap_phase_for_plot is ~40 lines of pure numpy; the notebook needs the
@@ -178,47 +178,64 @@ def _trace_block(trace: dict, payload: dict) -> str:
     return "\n".join(lines)
 
 
-def _plot_cell(payload: dict) -> str:
+def _setup_cell(payload: dict) -> str:
+    """The axes every trace cell below draws onto — runs once."""
+    traces = payload["traces"]
+    lines = [
+        "# SETUP — the axes every trace cell below draws onto.",
+        "fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT), dpi=DPI)",
+    ]
+    if any(t["secondary"] for t in traces):
+        lines.append("ax2 = ax.twinx()   # Phase is on its own scale (degrees)")
+    lines += [
+        "# Closed right away so Colab doesn't render an empty figure here --",
+        "# ax/ax2 stay fully usable, this only stops the auto-display that",
+        "# would otherwise fire again after every cell below. The finished",
+        "# figure is shown once, explicitly, by the DECORATE cell at the end.",
+        "plt.close(fig)",
+    ]
+    return "\n".join(lines)
+
+
+def _trace_cell(trace: dict, payload: dict) -> str:
+    """One editable cell per plotted spectrum — restyle, or delete, freely."""
+    return "# TRACE — edit color/style/label here, or drop this cell to remove the line.\n" + \
+        _trace_block(trace, payload)
+
+
+def _decorate_cell(payload: dict) -> str:
+    """Axis labels, limits and legend — runs after every trace cell above."""
     traces = payload["traces"]
     needs_secondary = any(t["secondary"] for t in traces)
 
-    head = [
-        "fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT), dpi=DPI)",
-    ]
-    if needs_secondary:
-        head.append("ax2 = ax.twinx()   # Phase is on its own scale (degrees)")
-    head.append("")
-
-    body = [_trace_block(t, payload) for t in traces]
-
-    tail = ["", f"ax.set_xlabel({as_literal(payload['x_label'])})",
-            f"ax.set_ylabel({as_literal(payload['y_label'])})"]
+    lines = ["# DECORATE — labels, limits and legend for the figure as a whole.",
+              f"ax.set_xlabel({as_literal(payload['x_label'])})",
+              f"ax.set_ylabel({as_literal(payload['y_label'])})"]
     if needs_secondary and payload.get("y_label2"):
-        tail.append(f"ax2.set_ylabel({as_literal(payload['y_label2'])})")
+        lines.append(f"ax2.set_ylabel({as_literal(payload['y_label2'])})")
     if payload.get("title"):
-        tail.append(f"ax.set_title({as_literal(payload['title'])})")
-    tail += [
+        lines.append(f"ax.set_title({as_literal(payload['title'])})")
+    lines += [
         "if X_MIN != X_MAX:",
         "    ax.set_xlim(min(X_MIN, X_MAX), max(X_MIN, X_MAX))",
         "if INVERT_X:",
         "    ax.invert_xaxis()",
-        "ax.minorticks_on()   # the app's style draws minor ticks",
     ]
     if needs_secondary:
-        tail += [
+        lines += [
             "handles, labels = ax.get_legend_handles_labels()",
             "h2, l2 = ax2.get_legend_handles_labels()",
             "handles, labels = handles + h2, labels + l2",
         ]
     else:
-        tail.append("handles, labels = ax.get_legend_handles_labels()")
-    tail += [
+        lines.append("handles, labels = ax.get_legend_handles_labels()")
+    lines += [
         "if len(handles) > 1:",
         "    ax.legend(handles, labels, fontsize=8)",
         "fig.tight_layout()",
-        "plt.show()",
+        "display(fig)   # fig was closed in SETUP; this renders it, once.",
     ]
-    return "\n".join(head + body + tail)
+    return "\n".join(lines)
 
 
 def _fit_cell(payload: dict) -> str:
@@ -249,12 +266,12 @@ else:
 def build(payload: dict) -> dict:
     """Assemble the notebook.
 
-    `payload` keys: title, style_rcparams, x_label, y_label, y_label2,
-    normalization {mode,target}, offset_step, x_range, invert_x,
-    phase_wrap_0_360, show_error, figsize, dpi, output_name,
-    output_format, entries [{label, kind, csv}], traces [{entry, column,
-    err_column, legend, color, linestyle, marker, markersize, linewidth,
-    alpha, secondary, is_fit, is_phase, offset_slot}].
+    `payload` keys: title, x_label, y_label, y_label2, normalization
+    {mode,target}, offset_step, x_range, invert_x, phase_wrap_0_360,
+    show_error, figsize, dpi, output_name, output_format, entries
+    [{label, kind, csv}], traces [{entry, column, err_column, legend,
+    color, linestyle, marker, markersize, linewidth, alpha, secondary,
+    is_fit, is_phase, offset_slot}].
     """
     n = len(payload["entries"])
     has_fits = any(t.get("is_fit") for t in payload["traces"])
@@ -266,10 +283,11 @@ def build(payload: dict) -> dict:
 Exported from SFG-App. Everything needed is embedded — this runs on a
 fresh Colab runtime with no local files and installs nothing.
 
-The traces below are written out one `ax.plot()` at a time with their
-colours and labels already resolved, so edit them directly. The form
-fields control normalization, offsets and output; re-run the plot cell
-after changing them.
+The figure is built as one **setup** cell, one **trace** cell per
+plotted spectrum (colours and labels already resolved — edit, duplicate,
+or delete any of them), and one **decorate** cell for axis labels/limits/
+legend. The form fields control normalization, offsets and output;
+re-run the trace and decorate cells after changing them.
 """.strip()),
 
         code_cell("""
@@ -277,9 +295,8 @@ import base64, gzip, io, json
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from cycler import cycler
-
-""" + rcparams_snippet(payload["style_rcparams"])),
+from IPython.display import display
+""".strip()),
 
         code_cell(_params_cell(payload)),
 
@@ -290,8 +307,11 @@ from cycler import cycler
                       "figure depends on, so it reproduces exactly."),
         code_cell(_PHASE_HELPER.strip() + "\n\n\n" + _NORM_HELPER.strip()),
 
-        markdown_cell("## The figure\n\nOne block per trace — edit freely."),
-        code_cell(_plot_cell(payload)),
+        markdown_cell("## The figure\n\nOne cell per trace below — edit, "
+                      "duplicate, or delete any of them freely."),
+        code_cell(_setup_cell(payload)),
+        *[code_cell(_trace_cell(t, payload)) for t in payload["traces"]],
+        code_cell(_decorate_cell(payload)),
     ]
 
     if has_fits:

@@ -134,8 +134,6 @@ class ProcessReviewTab(QWidget):
         the same bytes the app did -- including whichever of the two CSV
         layouts the instrument wrote.
         """
-        from sfg_app2.app.utils import notebook_export
-
         kind = "heterodyne" if matched.spectrum_type == "heterodyne" else "homodyne"
         roles, raw_files = {}, {}
         for role in ("signal", "background", "reference", "reference_background"):
@@ -160,10 +158,6 @@ class ProcessReviewTab(QWidget):
             "roles": roles,
             "raw_files": raw_files,
             "config": {**config, "label": label},
-            "style_rcparams": notebook_export.capture_rcparams(
-                self.window().plotting_settings.style
-                if hasattr(self.window(), "plotting_settings") else "science"
-            ),
         }
 
     def _on_export_processing_notebook(self, matched, idx: int):

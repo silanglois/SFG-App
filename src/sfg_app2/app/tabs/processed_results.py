@@ -1581,7 +1581,6 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
 
         return {
             "title": f"{len(entries)} spectrum/spectra",
-            "style_rcparams": notebook_export.capture_rcparams(self._plotting_settings.style),
             "x_label": custom_x or x_label,
             "y_label": custom_y or primary_ylabel,
             "y_label2": secondary_ylabel or None,
@@ -1591,7 +1590,7 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
             },
             "offset_step": self.ui.offsetSpectraSpinner.value(),
             "x_range": self.plot_widget.get_x_range(),
-            "invert_x": bool(x_is_wavenumber),
+            "invert_x": False,
             "phase_wrap_0_360": self._phase_range_combo.currentData() == "0to360",
             "show_error": self.ui.hdCheckShowError.isChecked(),
             "figsize": tuple(self.plot_widget.figure.get_size_inches()),

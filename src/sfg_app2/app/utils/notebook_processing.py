@@ -42,7 +42,6 @@ for _name, _blob in _RAW_FILES.items():
 
 import numpy as np
 import matplotlib.pyplot as plt
-from cycler import cycler
 
 print("ready:", ", ".join(sorted(os.listdir("data"))))
 '''
@@ -125,6 +124,9 @@ def _homodyne_cells(payload: dict) -> list[dict]:
                       "Four raw files: the sample signal and its background, "
                       "and a reference and its background."),
         code_cell("""
+# COMPUTE — replace this cell to change how the raw files are loaded;
+# the cells below only need `signal`, `background`, `reference` and
+# `reference_bg` to stay DataFile objects.
 from sfg_app2.processing.data_file import DataFile
 from sfg_app2.processing.matcher import MatchedSet
 from sfg_app2.processing.baseline import subtract_background
@@ -140,10 +142,23 @@ matched = MatchedSet(signal=signal, background=background,
                      spectrum_type="homodyne")
 print("complete set:", matched.is_complete(),
       "|", signal.n_frames, "frames")
+""".strip()),
+        code_cell("""
+# PLOT — safe to restyle without touching the cell above.
+fig, axes = plt.subplots(1, 2, figsize=(9, 4))
+signal.plot(ax=axes[0])
+axes[0].set_title("Signal")
+background.plot(ax=axes[1])
+axes[1].set_title("Background")
+fig.suptitle("Sample (raw)")
+plt.show()
 
-fig, ax = plt.subplots()
-signal.plot(ax=ax)
-ax.set_title("Raw signal — one line per frame")
+fig, axes = plt.subplots(1, 2, figsize=(9, 4))
+reference.plot(ax=axes[0])
+axes[0].set_title("Reference")
+reference_bg.plot(ax=axes[1])
+axes[1].set_title("Reference background")
+fig.suptitle("Reference (raw)")
 plt.show()
 """.strip()),
 
@@ -151,42 +166,84 @@ plt.show()
                       "ray hits, which are single-pixel spikes far above the "
                       "local noise."),
         code_cell("""
+# COMPUTE — replace this cell to change despiking; the cell below only
+# needs `despiked` to stay a dict of DataFile keyed the same way.
 despiked = {name: f.remove_cosmic_rays(window=DESPIKE_WINDOW,
                                        threshold_factor=DESPIKE_THRESHOLD)
             for name, f in [("signal", signal), ("background", background),
                             ("reference", reference), ("reference_bg", reference_bg)]}
+""".strip()),
+        code_cell("""
+# PLOT — safe to restyle without touching the cell above.
+fig, axes = plt.subplots(1, 2, figsize=(9, 4))
+signal.plot(ax=axes[0], frame_id=1, label="raw", alpha=0.6)
+despiked["signal"].plot(ax=axes[0], frame_id=1, label="despiked")
+axes[0].legend()
+axes[0].set_title("Signal")
+background.plot(ax=axes[1], frame_id=1, label="raw", alpha=0.6)
+despiked["background"].plot(ax=axes[1], frame_id=1, label="despiked")
+axes[1].legend()
+axes[1].set_title("Background")
+fig.suptitle("Sample")
+plt.show()
 
-fig, ax = plt.subplots()
-signal.plot(ax=ax, frame_id=1, label="raw", alpha=0.6)
-despiked["signal"].plot(ax=ax, frame_id=1, label="despiked")
-ax.set_title("Frame 1 — raw vs despiked")
-ax.legend()
+fig, axes = plt.subplots(1, 2, figsize=(9, 4))
+reference.plot(ax=axes[0], frame_id=1, label="raw", alpha=0.6)
+despiked["reference"].plot(ax=axes[0], frame_id=1, label="despiked")
+axes[0].legend()
+axes[0].set_title("Reference")
+reference_bg.plot(ax=axes[1], frame_id=1, label="raw", alpha=0.6)
+despiked["reference_bg"].plot(ax=axes[1], frame_id=1, label="despiked")
+axes[1].legend()
+axes[1].set_title("Reference background")
+fig.suptitle("Reference")
 plt.show()
 """.strip()),
 
         markdown_cell("## 3. Average frames"),
         code_cell("""
+# COMPUTE — replace this cell to change how frames are combined; the
+# cell below only needs `averaged` to stay a dict of DataFile.
 averaged = {name: f.average_spectrum() for name, f in despiked.items()}
-
+""".strip()),
+        code_cell("""
+# PLOT — safe to restyle without touching the cell above.
 fig, ax = plt.subplots()
 averaged["signal"].plot(ax=ax, label="signal")
 averaged["background"].plot(ax=ax, label="background")
 ax.legend()
+ax.set_title("Sample")
+plt.show()
+
+fig, ax = plt.subplots()
+averaged["reference"].plot(ax=ax, label="reference")
+averaged["reference_bg"].plot(ax=ax, label="reference background")
+ax.legend()
+ax.set_title("Reference")
 plt.show()
 """.strip()),
 
         markdown_cell("## 4. Subtract backgrounds\n\nThe sample keeps its own "
                       "background; the reference keeps its own."),
         code_cell("""
+# COMPUTE — replace this cell to change background subtraction; the
+# cell below only needs `sample_corrected` and `reference_corrected`.
 offset = BACKGROUND_OFFSET or None
 sample_corrected = subtract_background(averaged["signal"], averaged["background"], offset=offset)
 reference_corrected = subtract_background(averaged["reference"], averaged["reference_bg"])
+""".strip()),
+        code_cell("""
+# PLOT — safe to restyle without touching the cell above.
+fig, ax = plt.subplots()
+sample_corrected.plot(ax=ax)
+ax.set_ylabel("Intensity (bg-subtracted)")
+ax.set_title("Sample")
+plt.show()
 
 fig, ax = plt.subplots()
-sample_corrected.plot(ax=ax, label="sample")
-reference_corrected.plot(ax=ax, label="reference")
+reference_corrected.plot(ax=ax)
 ax.set_ylabel("Intensity (bg-subtracted)")
-ax.legend()
+ax.set_title("Reference")
 plt.show()
 """.strip()),
 
@@ -194,14 +251,17 @@ plt.show()
                       "reference removes the IR profile; upconversion converts "
                       "the detected wavelength to the IR wavenumber probed."),
         code_cell("""
+# COMPUTE — replace this cell to change normalization/upconversion; the
+# cell below only needs `result` to keep a `.plot()` method and a
+# "Wavenumber" column.
 normalized = normalize(sample_corrected, reference_corrected)
 result = normalized.upconvert_to_wavenumber(UPCONVERSION_NM)
-
+""".strip()),
+        code_cell("""
+# PLOT — safe to restyle without touching the cell above.
 fig, ax = plt.subplots()
 result.plot(ax=ax, x="Wavenumber")
 ax.set_ylabel("Normalized Intensity (a.u.)")
-ax.invert_xaxis()
-ax.minorticks_on()
 plt.show()
 """.strip()),
     ]
@@ -215,6 +275,8 @@ def _heterodyne_cells(payload: dict) -> list[dict]:
                       "field, so both the real and imaginary parts of "
                       "$\\chi^{(2)}$ — and therefore the phase — survive."),
         code_cell("""
+# COMPUTE — replace this cell to change how the raw files are loaded;
+# the cells below only need `matched` to stay a MatchedSet.
 from sfg_app2.processing.data_file import DataFile
 from sfg_app2.processing.matcher import MatchedSet
 from sfg_app2.processing.hd_sfg import (
@@ -232,10 +294,31 @@ matched = MatchedSet(signal=signal, background=background,
                      spectrum_type="heterodyne")
 print("complete set:", matched.is_complete())
 """.strip()),
+        code_cell("""
+# PLOT — safe to restyle without touching the cell above.
+fig, axes = plt.subplots(1, 2, figsize=(9, 4))
+signal.plot(ax=axes[0])
+axes[0].set_title("Signal")
+background.plot(ax=axes[1])
+axes[1].set_title("Background")
+fig.suptitle("Sample (raw)")
+plt.show()
+
+fig, axes = plt.subplots(1, 2, figsize=(9, 4))
+reference.plot(ax=axes[0])
+axes[0].set_title("Reference")
+reference_bg.plot(ax=axes[1])
+axes[1].set_title("Reference background")
+fig.suptitle("Reference (raw)")
+plt.show()
+""".strip()),
 
         markdown_cell("## 2. Configuration\n\nOne config object drives every "
                       "step below, built from the form fields above."),
         code_cell("""
+# COMPUTE — replace this cell to override any pipeline setting directly
+# (instead of through the form fields); the cells below only need
+# `config` to stay an HDSFGConfig.
 config = HDSFGConfig(
     upconversion_wavelength=UPCONVERSION_NM,
     bg_smoothing_window=BG_SMOOTHING_WINDOW,
@@ -257,23 +340,64 @@ config
                       "long-exposure sample is noisier than a short reference, "
                       "so they can differ. Here all four share one setting."),
         code_cell("""
+# COMPUTE — replace this cell to despike components differently; the
+# cell below only needs `despiked`.
 params = DeSpikeParams(window=DESPIKE_WINDOW, threshold=DESPIKE_THRESHOLD)
 despiked = step_despike(matched, params, params, params, params)
 print("despiked:", despiked.signal.n_frames, "signal frames")
+""".strip()),
+        code_cell("""
+# PLOT — safe to restyle without touching the cell above.
+fig, axes = plt.subplots(1, 2, figsize=(9, 4))
+signal.plot(ax=axes[0], frame_id=1, label="raw", alpha=0.6)
+despiked.signal.plot(ax=axes[0], frame_id=1, label="despiked")
+axes[0].legend()
+axes[0].set_title("Signal")
+background.plot(ax=axes[1], frame_id=1, label="raw", alpha=0.6)
+despiked.background.plot(ax=axes[1], frame_id=1, label="despiked")
+axes[1].legend()
+axes[1].set_title("Background")
+fig.suptitle("Sample")
+plt.show()
+
+fig, axes = plt.subplots(1, 2, figsize=(9, 4))
+reference.plot(ax=axes[0], frame_id=1, label="raw", alpha=0.6)
+despiked.reference.plot(ax=axes[0], frame_id=1, label="despiked")
+axes[0].legend()
+axes[0].set_title("Reference")
+reference_bg.plot(ax=axes[1], frame_id=1, label="raw", alpha=0.6)
+despiked.ref_background.plot(ax=axes[1], frame_id=1, label="despiked")
+axes[1].legend()
+axes[1].set_title("Reference background")
+fig.suptitle("Reference")
+plt.show()
 """.strip()),
 
         markdown_cell("## 4. Average and interpolate\n\nConverts to wavenumber, "
                       "averages frames, and puts every component on one uniform grid."),
         code_cell("""
+# COMPUTE — replace this cell freely; the cell below only needs
+# `averaged` to expose `.wavenumber`, `.sig_avg` and `.bg_avg`.
 averaged = step_average(despiked, config)
-
+""".strip()),
+        code_cell("""
+# PLOT — safe to restyle without touching the cell above.
 fig, ax = plt.subplots()
 ax.plot(averaged.wavenumber, averaged.sig_avg, label="signal")
 ax.plot(averaged.wavenumber, averaged.bg_avg, label="background")
 ax.set_xlabel("Wavenumber (cm$^{-1}$)")
 ax.set_ylabel("Intensity")
-ax.invert_xaxis()
 ax.legend()
+ax.set_title("Sample")
+plt.show()
+
+fig, ax = plt.subplots()
+ax.plot(averaged.wavenumber, averaged.ref_avg, label="reference")
+ax.plot(averaged.wavenumber, averaged.ref_bg_avg, label="reference background")
+ax.set_xlabel("Wavenumber (cm$^{-1}$)")
+ax.set_ylabel("Intensity")
+ax.legend()
+ax.set_title("Reference")
 plt.show()
 """.strip()),
 
@@ -281,16 +405,30 @@ plt.show()
                       "Optionally smooths the background before subtracting it, "
                       "then tapers the edges so the FFT sees no step."),
         code_cell("""
+# COMPUTE — replace this cell freely; the cell below only needs
+# `bg_sub` to expose `.sig_delta` and `.sig_delta_windowed`.
 bg_sub = step_bg_smooth(averaged, config)
-
+""".strip()),
+        code_cell("""
+# PLOT — safe to restyle without touching the cell above.
 fig, ax = plt.subplots()
 ax.plot(bg_sub.wavenumber, bg_sub.sig_delta, label="signal − background")
 ax.plot(bg_sub.wavenumber, bg_sub.sig_delta_windowed, linestyle="--",
         label="after edge taper")
 ax.set_xlabel("Wavenumber (cm$^{-1}$)")
 ax.set_ylabel("Signal − background")
-ax.invert_xaxis()
 ax.legend()
+ax.set_title("Sample")
+plt.show()
+
+fig, ax = plt.subplots()
+ax.plot(bg_sub.wavenumber, bg_sub.ref_delta, label="reference − reference background")
+ax.plot(bg_sub.wavenumber, bg_sub.ref_delta_windowed, linestyle="--",
+        label="after edge taper")
+ax.set_xlabel("Wavenumber (cm$^{-1}$)")
+ax.set_ylabel("Reference − reference background")
+ax.legend()
+ax.set_title("Reference")
 plt.show()
 """.strip()),
 
@@ -298,8 +436,14 @@ plt.show()
                       "cross-term sits apart from the DC and autocorrelation "
                       "terms, so a window isolates it before transforming back."),
         code_cell("""
+# COMPUTE — replace this cell freely; the cell below only needs
+# `fft_data` to expose `.time_axis`, `.sig_fft` and `.fft_mask`. The mask
+# plot is what shows whether FFT_START/END/HG_LEFT/HG_RIGHT are cutting
+# in the right place.
 fft_data = step_fft_filter(bg_sub, config)
-
+""".strip()),
+        code_cell("""
+# PLOT — safe to restyle without touching the cell above.
 fig, ax = plt.subplots()
 t = fft_data.time_axis * 1e12
 ax.plot(t, fft_data.sig_fft.imag, label="signal FFT (imag)")
@@ -309,14 +453,30 @@ ax2.set_ylabel("Mask weight", color="firebrick")
 ax.set_xlabel("Time (ps)")
 ax.set_ylabel("FFT amplitude, imaginary (a.u.)")
 ax.legend(loc="upper right")
+ax.set_title("Sample")
+plt.show()
+
+fig, ax = plt.subplots()
+ax.plot(t, fft_data.ref_fft.imag, label="reference FFT (imag)")
+ax2 = ax.twinx()
+ax2.plot(t, fft_data.fft_mask, color="firebrick", linestyle=":", label="mask")
+ax2.set_ylabel("Mask weight", color="firebrick")
+ax.set_xlabel("Time (ps)")
+ax.set_ylabel("FFT amplitude, imaginary (a.u.)")
+ax.legend(loc="upper right")
+ax.set_title("Reference")
 plt.show()
 """.strip()),
 
         markdown_cell("## 7. Normalize\n\nDividing by the reference yields the "
                       "complex $\\chi^{(2)}$ — real, imaginary and phase."),
         code_cell("""
+# COMPUTE — replace this cell freely; the export cell below only needs
+# `result` to keep a `.to_dataframe()` method.
 result = step_normalize(fft_data, config)
-
+""".strip()),
+        code_cell("""
+# PLOT — safe to restyle without touching the cell above.
 fig, ax = plt.subplots()
 ax.plot(result.wavenumber, result.complex_chi.imag, label=r"Im($\\chi^{(2)}$)")
 ax.plot(result.wavenumber, result.complex_chi.real, linestyle="--", label=r"Re($\\chi^{(2)}$)")
@@ -326,8 +486,6 @@ ax2.plot(result.wavenumber, result.phase, color="gray", linestyle=":", alpha=0.8
 ax2.set_ylabel("Phase (°)", color="gray")
 ax.set_xlabel("Wavenumber (cm$^{-1}$)")
 ax.set_ylabel(r"$\\chi^{(2)}$: Re / Im (a.u.)")
-ax.invert_xaxis()
-ax.minorticks_on()
 ax.legend()
 plt.show()
 """.strip()),
@@ -367,13 +525,11 @@ def build(payload: dict) -> dict:
 
     `payload` keys: kind ("homodyne"/"heterodyne"), label, roles
     {role: filename}, raw_files {filename: csv text}, config (the
-    pipeline parameters the app was using), style_rcparams.
+    pipeline parameters the app was using).
     """
     kind = payload["kind"]
     label = payload.get("label", "processed")
     is_het = kind == "heterodyne"
-
-    from .notebook_export import rcparams_snippet
 
     cells = [
         markdown_cell(f"""
@@ -383,14 +539,15 @@ Exported from SFG-App. Fully self-contained: the four raw files and the
 processing package are both embedded, so this runs on a fresh Colab
 runtime with no uploads and no `pip install`.
 
-Each stage below shows its own intermediate plot, so you can see — and
-change — what every parameter does. The form fields are pre-filled with
-the values the app was using.
+Each stage below is a **compute** cell followed by a **plot** cell: edit
+a compute cell to change how that stage works, or a plot cell to change
+how it's drawn — each names the variable(s) the next cell needs, so an
+edit stays contained to that one cell. The form fields are pre-filled
+with the values the app was using.
 """.strip()),
 
         markdown_cell("## Setup"),
         code_cell(_package_cell(payload), collapsed=True),
-        code_cell(rcparams_snippet(payload["style_rcparams"])),
         code_cell(_roles_cell(payload)),
         code_cell(_UPLOAD_FALLBACK.strip()),
 
