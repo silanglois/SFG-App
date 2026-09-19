@@ -1424,8 +1424,21 @@ class HDSFGPanel(QWidget, DockablePlotPanel):
             sample_exposure         = self._sample_exp.value(),
             reference_exposure      = self._ref_exp.value(),
             phase_correction_deg    = self._phase_corr.value(),
-            exclude_frames          = self._exclude_frames.get(self._matched_index, {}),
+            exclude_frames          = self._exclude_frames_for_pipeline(),
         )
+
+    def _exclude_frames_for_pipeline(self) -> dict:
+        """Frame exclusions keyed the way step_average() looks them up.
+
+        The panel keys the reference background "ref_background" (its
+        despike/strip key), but the pipeline reads
+        "reference_background" -- without this translation those
+        exclusions are silently ignored.
+        """
+        excluded = dict(self._exclude_frames.get(self._matched_index, {}))
+        if "ref_background" in excluded:
+            excluded["reference_background"] = excluded.pop("ref_background")
+        return excluded
 
     def notebook_config(self, upconversion_wavelength: float) -> dict:
         """Current parameters as plain scalars, for the notebook export.
@@ -1457,6 +1470,17 @@ class HDSFGPanel(QWidget, DockablePlotPanel):
             "hg_left": config.hg_left,
             "hg_right": config.hg_right,
             "phase_correction_deg": config.phase_correction_deg,
+            "sample_exposure": config.sample_exposure,
+            "reference_exposure": config.reference_exposure,
+            # Only window_type 4 uses these, but that type is selectable
+            # in the notebook, so it needs the geometry to go with it.
+            "mask_start": config.mask_start,
+            "mask_end": config.mask_end,
+            "mask_transition": config.mask_transition,
+            "mask_factor": config.mask_factor,
+            "exclude_frames": {role: sorted(frames)
+                               for role, frames in config.exclude_frames.items()
+                               if frames},
         }
 
     def _current_step(self) -> str:

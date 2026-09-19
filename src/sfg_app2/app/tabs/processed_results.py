@@ -1559,18 +1559,24 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         primary_ylabel = self._ylabel_for(usage.primary_hd, usage.primary_amp)
         secondary_ylabel = self._ylabel_for(usage.secondary_hd, usage.secondary_amp)
 
+        markers_mode = self._markers_checkbox.isChecked()
+
         traces = []
         for spec, color in zip(specs, colors):
             style = spec.style
+            # Same override _draw_specs applies, so the notebook reproduces
+            # what's on screen rather than the underlying line style.
+            as_markers = markers_mode and not spec.is_fit and style.is_default()
             traces.append({
                 "entry": spec.entry.label,
                 "column": spec.y_col,
                 "err_column": spec.err_col,
                 "legend": spec.label,
                 "color": mpl.colors.to_hex(style.color or color, keep_alpha=False),
-                "linestyle": style.linestyle,
-                "marker": style.marker,
-                "markersize": style.markersize,
+                "linestyle": "None" if as_markers else style.linestyle,
+                "marker": "o" if as_markers else style.marker,
+                "markersize": (self._plotting_settings.marker_size if as_markers
+                               else style.markersize),
                 "linewidth": style.linewidth,
                 "alpha": style.alpha,
                 "secondary": style.axis == "secondary",

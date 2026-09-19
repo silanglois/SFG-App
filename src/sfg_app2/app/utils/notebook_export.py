@@ -34,12 +34,21 @@ def markdown_cell(text: str) -> dict:
     return {"cell_type": "markdown", "metadata": {}, "source": _as_source(text)}
 
 
-def code_cell(text: str, *, collapsed: bool = False) -> dict:
+def code_cell(text: str, *, hidden_title: str | None = None) -> dict:
+    """A code cell; `hidden_title` collapses it to a named bar.
+
+    Colab needs both halves: the `#@title` line, which has to be the
+    cell's *first* line and supplies the bar's label, and the cellView
+    key. JupyterLab ignores those and reads jupyter.source_hidden
+    instead, so both are set and the cell folds in either front end.
+    Everywhere else `#@title` is just a comment, so nothing about
+    execution changes.
+    """
     metadata: dict = {}
-    if collapsed:
-        # Colab's own key for a cell that starts folded -- used for the
-        # setup blobs nobody wants to scroll past.
+    if hidden_title:
+        text = f'#@title {hidden_title} {{ display-mode: "form" }}\n' + text.lstrip("\n")
         metadata["cellView"] = "form"
+        metadata["jupyter"] = {"source_hidden": True}
     return {
         "cell_type": "code",
         "execution_count": None,
@@ -82,11 +91,31 @@ def write_notebook(nb: dict, path: Path):
 
 # ── Embedding ─────────────────────────────────────────────────────────────
 
+def timestamp() -> str:
+    """Export time for the notebook's provenance line."""
+    from datetime import datetime
+    return datetime.now().strftime("%Y-%m-%d %H:%M")
+
+
+def app_version() -> str:
+    """The installed app version, for the notebook's provenance line.
+
+    about_dialog has its own copy of this, but importing it here would
+    drag Qt into a deliberately Qt-free module.
+    """
+    from importlib import metadata
+    try:
+        return metadata.version("sfg-app2")
+    except metadata.PackageNotFoundError:
+        return "unknown"
+
+
 def encode_text(text: str) -> str:
     """gzip + base64 a text payload for embedding in a source cell.
 
-    mtime=0 keeps the output byte-identical for identical input, so
-    re-exporting an unchanged figure produces an unchanged notebook.
+    mtime=0 keeps the output byte-identical for identical input, so an
+    unchanged spectrum embeds to an unchanged blob (the notebook as a
+    whole still differs run to run -- it carries an export timestamp).
     """
     packed = gzip.compress(text.encode("utf-8"), mtime=0)
     return base64.b64encode(packed).decode("ascii")

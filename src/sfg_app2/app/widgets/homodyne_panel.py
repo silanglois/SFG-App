@@ -721,11 +721,19 @@ class HomodynePanel(QWidget, DockablePlotPanel):
             idx = self._selected_indices[0] if self._selected_indices else 0
         despike = self._get_despike_cfg(idx, "signal")
         sig_offset, _ref_offset = self._current_offsets(idx)
+        # Keyed to match the notebook's own despiked/averaged dicts.
+        exclude = {
+            key: sorted(self._get_exclude_frames(idx, role))
+            for key, role in (("signal", "signal"), ("background", "background"),
+                              ("reference", "reference"),
+                              ("reference_bg", "ref_background"))
+        }
         return {
             "despike_window": despike.get("window", 5),
             "despike_threshold": despike.get("threshold", 3.0),
             "bg_offset": sig_offset if isinstance(sig_offset, (int, float)) else None,
             "upconversion_wavelength": self._upconversion_wl() or upconversion_wavelength,
+            "exclude_frames": {k: v for k, v in exclude.items() if v},
         }
 
     def _build_provenance(self, idx: int, wl: float) -> dict:

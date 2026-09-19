@@ -229,6 +229,210 @@ def test_processing_export_handler_writes_a_notebook(qtbot, raw_matched_files,
                for c in nb["cells"])
 
 
+# ── Hidden plumbing cells ─────────────────────────────────────────────────
+
+def _is_hidden(cell: dict) -> bool:
+    meta = cell["metadata"]
+    return (meta.get("cellView") == "form"
+            and meta.get("jupyter", {}).get("source_hidden") is True
+            and cell["source"][0].startswith("#@title "))
+
+
+def test_hidden_cell_carries_both_front_ends_and_titles_the_bar():
+    """Colab collapses on cellView + a #@title that must be the *first*
+    line; JupyterLab reads jupyter.source_hidden instead."""
+    cell = notebook_export.code_cell("x = 1", hidden_title="Plumbing")
+    assert cell["metadata"]["cellView"] == "form"
+    assert cell["metadata"]["jupyter"] == {"source_hidden": True}
+    assert cell["source"][0] == '#@title Plumbing { display-mode: "form" }\n'
+    assert "x = 1" in "".join(cell["source"])
+
+
+def test_plain_code_cell_is_not_hidden():
+    assert notebook_export.code_cell("x = 1")["metadata"] == {}
+
+
+def test_processing_setup_splits_into_three_hideable_cells(process_tab):
+    """The package blob gets its own cell so it collapses independently
+    of the data and the setup logic."""
+    tab, matched = process_tab("homodyne")
+    from sfg_app2.app.utils import notebook_processing
+    cells = notebook_processing.build(tab._notebook_payload(matched, 0))["cells"]
+
+    hidden = {c["source"][0]: "".join(c["source"])
+              for c in cells if c["cell_type"] == "code" and _is_hidden(c)}
+    titles = sorted(line.split("#@title ")[1].split(" {")[0] for line in hidden)
+    assert titles == ["Embedded processing package (source zip)",
+                      "Embedded raw data (4 files)",
+                      "Unpack everything and import"]
+
+    package = next(src for line, src in hidden.items() if "package" in line)
+    assert "_PACKAGE = " in package
+    assert "_RAW_FILES" not in package, "blob must hide on its own"
+
+
+def test_plotting_hides_blobs_and_helpers_but_not_the_editable_cells(
+        load_entries, make_homodyne_entry):
+    tab = load_entries(make_homodyne_entry())
+    nb = notebook_plotting.build(tab._notebook_payload(tab._checked_entries()))
+    code = [c for c in nb["cells"] if c["cell_type"] == "code"]
+
+    hidden = ["".join(c["source"]) for c in code if _is_hidden(c)]
+    assert any("_EMBEDDED" in s for s in hidden)
+    assert any("wrap_phase_for_plot" in s for s in hidden)
+    assert any("import matplotlib" in s for s in hidden)
+
+    # The cells the notebook exists for stay open.
+    shown = ["".join(c["source"]) for c in code if not _is_hidden(c)]
+    assert any("#@param" in s for s in shown), "parameter form must stay readable"
+    assert any("# TRACE" in s for s in shown)
+    assert any("# DECORATE" in s for s in shown)
+
+
+def test_processing_stage_cells_stay_visible(process_tab):
+    tab, matched = process_tab("homodyne")
+    from sfg_app2.app.utils import notebook_processing
+    cells = notebook_processing.build(tab._notebook_payload(matched, 0))["cells"]
+
+    shown = ["".join(c["source"]) for c in cells
+             if c["cell_type"] == "code" and not _is_hidden(c)]
+    assert any("# COMPUTE" in s for s in shown)
+    assert any("# PLOT" in s for s in shown)
+    assert any("#@param" in s for s in shown)
+
+
+# ── Fidelity: the notebook must not silently disagree with the app ────────
+# Each parameter below was once dropped on the way to the notebook, which
+# then fell back to a library default. The notebook still ran and still
+# produced a plausible figure -- it just wasn't the app's result. Only a
+# test that reads the value back out of the generated notebook catches
+# that class of bug.
+
+@pytest.fixture
+def process_tab(qtbot, raw_matched_files):
+    """A Process & Review tab holding one matched set of the given kind."""
+    from sfg_app2.app.tabs.process_review import ProcessReviewTab
+    from sfg_app2.processing.data_file import DataFile
+    from sfg_app2.processing.matcher import MatchedSet
+
+    def _make(kind="homodyne"):
+        folder, roles = raw_matched_files(fringes=(kind == "heterodyne"))
+        matched = MatchedSet(
+            signal=DataFile(folder / roles["signal"]),
+            background=DataFile(folder / roles["background"]),
+            reference=DataFile(folder / roles["reference"]),
+            reference_background=DataFile(folder / roles["reference_background"]),
+            spectrum_type=kind,
+        )
+        tab = ProcessReviewTab()
+        qtbot.addWidget(tab)
+        tab.set_matched_sets([matched])
+        if kind == "heterodyne":
+            tab._hd_sfg_panel.set_matched_set(matched, 0)
+        return tab, matched
+
+    return _make
+
+
+def _processing_source(tab, matched, idx=0) -> str:
+    from sfg_app2.app.utils import notebook_processing
+    nb = notebook_processing.build(tab._notebook_payload(matched, idx))
+    return "".join("".join(c["source"]) for c in nb["cells"])
+
+
+def test_exposure_times_reach_the_notebook(process_tab):
+    """chi is multiplied by (reference / sample) exposure, so dropping
+    these rescales the entire result -- 10x at the stock defaults."""
+    tab, matched = process_tab("heterodyne")
+    tab._hd_sfg_panel._sample_exp.setValue(42.0)
+    tab._hd_sfg_panel._ref_exp.setValue(7.0)
+
+    config = tab._notebook_payload(matched, 0)["config"]
+    assert config["sample_exposure"] == 42.0
+    assert config["reference_exposure"] == 7.0
+
+    source = _processing_source(tab, matched)
+    assert "SAMPLE_EXPOSURE_S = 42.0" in source
+    assert "REFERENCE_EXPOSURE_S = 7.0" in source
+
+
+def test_heterodyne_excluded_frames_reach_the_notebook(process_tab):
+    """The panel keys the reference background 'ref_background' but
+    step_average() reads 'reference_background' -- the translation has to
+    survive into the notebook or those exclusions quietly do nothing."""
+    tab, matched = process_tab("heterodyne")
+    tab._hd_sfg_panel._set_exclude_frames(0, "signal", {2})
+    tab._hd_sfg_panel._set_exclude_frames(0, "ref_background", {1})
+
+    excluded = tab._notebook_payload(matched, 0)["config"]["exclude_frames"]
+    assert excluded["signal"] == [2]
+    assert excluded["reference_background"] == [1], "pipeline's key, not the panel's"
+
+    source = _processing_source(tab, matched).replace('"', "'")
+    assert "'signal': [2]" in source
+    assert "'reference_background': [1]" in source
+
+
+def test_homodyne_excluded_frames_reach_the_notebook(process_tab):
+    tab, matched = process_tab("homodyne")
+    tab._homodyne_panel._set_exclude_frames(0, "signal", {2})
+
+    payload = tab._notebook_payload(matched, 0)
+    assert payload["config"]["exclude_frames"] == {"signal": [2]}
+    source = _processing_source(tab, matched)
+    assert "EXCLUDE_FRAMES = {'signal': [2]}" in source
+    # ...and is actually applied, not just defined.
+    assert "average_spectrum(exclude_frames=EXCLUDE_FRAMES.get(name))" in source
+
+
+def test_type_4_mask_geometry_reaches_the_notebook(process_tab):
+    """WINDOW_TYPE 4 is selectable in the notebook, so the mask geometry
+    behind it has to travel too."""
+    tab, matched = process_tab("heterodyne")
+    tab._hd_sfg_panel._mask_start.setValue(123)
+    source = _processing_source(tab, matched)
+    assert "mask_start=123" in source
+
+
+def test_markers_mode_reaches_the_plotting_payload(load_entries, make_homodyne_entry):
+    """'Show data as markers' is applied when drawing, so a notebook that
+    ignores it draws lines where the screen shows points."""
+    tab = load_entries(make_homodyne_entry())
+    tab._markers_checkbox.setChecked(True)
+
+    trace = tab._notebook_payload(tab._checked_entries())["traces"][0]
+    assert trace["marker"] == "o"
+    assert trace["linestyle"] == "None"
+
+
+def test_markers_mode_does_not_touch_fits(load_entries, make_fitted_entry):
+    """Only data traces become markers -- fits stay as lines, matching
+    _draw_specs."""
+    tab = load_entries(make_fitted_entry())
+    tab._fit_checkboxes["Fit total"].setChecked(True)
+    tab._markers_checkbox.setChecked(True)
+
+    fits = [t for t in tab._notebook_payload(tab._checked_entries())["traces"]
+            if t["is_fit"]]
+    assert fits and all(t["marker"] != "o" for t in fits)
+
+
+def test_heterodyne_notebook_plots_amplitude_and_error_bands(process_tab):
+    """The app's HD-SFG panel offers |chi|^2 and 95% CI bands; the
+    notebook should not quietly drop them."""
+    tab, matched = process_tab("heterodyne")
+    source = _processing_source(tab, matched)
+    assert "result.homodyne" in source
+    assert "result.imag_err" in source and "result.real_err" in source
+
+
+def test_notebook_records_where_it_came_from(process_tab):
+    tab, matched = process_tab("homodyne")
+    source = _processing_source(tab, matched)
+    assert f"SFG-App {notebook_export.app_version()}" in source
+    assert "sample_ssp_sfg.csv" in source
+
+
 # ── Processing source bundle ──────────────────────────────────────────────
 
 def test_bundle_is_deterministic():

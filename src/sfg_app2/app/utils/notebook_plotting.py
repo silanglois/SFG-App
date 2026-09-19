@@ -17,7 +17,8 @@ The input is a plain dict (see `PlotPayload` in the docstring of
 from __future__ import annotations
 
 from .notebook_export import (
-    as_literal, code_cell, encode_text, markdown_cell, notebook,
+    app_version, as_literal, code_cell, encode_text, markdown_cell, notebook,
+    timestamp as _timestamp,
 )
 
 # wrap_phase_for_plot is ~40 lines of pure numpy; the notebook needs the
@@ -280,8 +281,12 @@ def build(payload: dict) -> dict:
         markdown_cell(f"""
 # {payload.get('title') or 'SFG figure'}
 
-Exported from SFG-App. Everything needed is embedded — this runs on a
-fresh Colab runtime with no local files and installs nothing.
+Exported from SFG-App {app_version()} on {_timestamp()}, from:
+
+{chr(10).join(f"- `{e['label']}` ({e['kind']})" for e in payload["entries"])}
+
+Everything needed is embedded — this runs on a fresh Colab runtime with
+no local files and installs nothing.
 
 The figure is built as one **setup** cell, one **trace** cell per
 plotted spectrum (colours and labels already resolved — edit, duplicate,
@@ -296,16 +301,17 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from IPython.display import display
-""".strip()),
+""".strip(), hidden_title="Imports"),
 
         code_cell(_params_cell(payload)),
 
-        markdown_cell(f"## Data\n\n{n} spectra, embedded as the app's own CSV exports."),
-        code_cell(_data_cell(payload)),
+        markdown_cell(f"## Data\n\n{n} spectra, embedded as the app's own CSV "
+                      f"exports. Expand the cell below to read them, or to "
+                      f"swap in your own CSVs instead."),
+        code_cell(_data_cell(payload), hidden_title=f"Embedded spectra ({n})"),
 
-        markdown_cell("## Helpers\n\nThe two pieces of app behaviour the "
-                      "figure depends on, so it reproduces exactly."),
-        code_cell(_PHASE_HELPER.strip() + "\n\n\n" + _NORM_HELPER.strip()),
+        code_cell(_PHASE_HELPER.strip() + "\n\n\n" + _NORM_HELPER.strip(),
+                  hidden_title="Helpers: phase wrapping and normalization"),
 
         markdown_cell("## The figure\n\nOne cell per trace below — edit, "
                       "duplicate, or delete any of them freely."),

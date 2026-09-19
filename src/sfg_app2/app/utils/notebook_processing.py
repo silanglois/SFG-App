@@ -17,8 +17,8 @@ Qt-free: the caller passes a plain dict (see `build`).
 from __future__ import annotations
 
 from .notebook_export import (
-    as_literal, build_source_bundle, code_cell, encode_text, markdown_cell,
-    notebook,
+    app_version, as_literal, build_source_bundle, code_cell, encode_text,
+    markdown_cell, notebook, timestamp as _timestamp,
 )
 
 _ROLES = ("signal", "background", "reference", "reference_background")
@@ -57,14 +57,20 @@ _UPLOAD_FALLBACK = '''
 '''
 
 
-def _package_cell(payload: dict) -> str:
-    lines = [f"_PACKAGE = {as_literal(build_source_bundle())}", ""]
-    lines.append("_RAW_FILES = {")
+def _package_source_cell() -> str:
+    """The processing package, as one base64 zip.
+
+    Its own cell so it collapses independently: it's the biggest thing
+    in the notebook and the least interesting to read.
+    """
+    return f"_PACKAGE = {as_literal(build_source_bundle())}"
+
+
+def _raw_data_cell(payload: dict) -> str:
+    lines = ["_RAW_FILES = {"]
     for name, text in payload["raw_files"].items():
         lines.append(f"    {as_literal(name)}: {as_literal(encode_text(text))},")
     lines.append("}")
-    lines.append("")
-    lines.append(_SETUP.strip())
     return "\n".join(lines)
 
 
@@ -89,6 +95,10 @@ BACKGROUND_OFFSET = {as_literal(float(cfg.get("bg_offset") or 0.0))}  #@param {{
 UPCONVERSION_NM = {as_literal(float(cfg.get("upconversion_wavelength") or 1030.7))}  #@param {{type:"number"}}
 
 OUTPUT_NAME = {as_literal(cfg.get("label", "processed"))}  #@param {{type:"string"}}
+
+# Frames excluded from the averages, as set in the app. Not a form
+# field -- it's per component, so edit it here.
+EXCLUDE_FRAMES = {as_literal(cfg.get("exclude_frames") or {})}
 """
 
 
@@ -113,6 +123,11 @@ FFT_END = {as_literal(int(cfg.get("fft_end", 110)))}  #@param {{type:"integer"}}
 HG_LEFT = {as_literal(int(cfg.get("hg_left", 10)))}  #@param {{type:"integer"}}
 HG_RIGHT = {as_literal(int(cfg.get("hg_right", 10)))}  #@param {{type:"integer"}}
 PHASE_CORRECTION_DEG = {as_literal(float(cfg.get("phase_correction_deg", 0.0)))}  #@param {{type:"number"}}
+
+#@markdown Exposure times scale the sample against the reference —
+#@markdown chi is multiplied by (reference / sample).
+SAMPLE_EXPOSURE_S = {as_literal(float(cfg.get("sample_exposure", 300.0)))}  #@param {{type:"number"}}
+REFERENCE_EXPOSURE_S = {as_literal(float(cfg.get("reference_exposure", 30.0)))}  #@param {{type:"number"}}
 
 OUTPUT_NAME = {as_literal(cfg.get("label", "processed"))}  #@param {{type:"string"}}
 """
@@ -204,7 +219,8 @@ plt.show()
         code_cell("""
 # COMPUTE — replace this cell to change how frames are combined; the
 # cell below only needs `averaged` to stay a dict of DataFile.
-averaged = {name: f.average_spectrum() for name, f in despiked.items()}
+averaged = {name: f.average_spectrum(exclude_frames=EXCLUDE_FRAMES.get(name))
+            for name, f in despiked.items()}
 """.strip()),
         code_cell("""
 # PLOT — safe to restyle without touching the cell above.
@@ -267,6 +283,45 @@ plt.show()
     ]
 
 
+def _heterodyne_config_cell(cfg: dict) -> str:
+    """The HDSFGConfig the stages run on.
+
+    The form fields above cover the parameters worth sweeping; the
+    values written out here are the rest of what the app was using —
+    the type-4 mask geometry (inert unless WINDOW_TYPE is 4) and any
+    excluded frames — kept out of the form so it stays readable.
+    """
+    return f"""
+# COMPUTE — replace this cell to override any pipeline setting directly
+# (instead of through the form fields); the cells below only need
+# `config` to stay an HDSFGConfig.
+config = HDSFGConfig(
+    upconversion_wavelength=UPCONVERSION_NM,
+    bg_smoothing_window=BG_SMOOTHING_WINDOW,
+    bg_smoothing_order=BG_SMOOTHING_ORDER,
+    bg_offset=BACKGROUND_OFFSET or None,
+    edge_left=EDGE_LEFT,
+    edge_right=EDGE_RIGHT,
+    window_type=WINDOW_TYPE,
+    fft_start=FFT_START,
+    fft_end=FFT_END,
+    hg_left=HG_LEFT,
+    hg_right=HG_RIGHT,
+    phase_correction_deg=PHASE_CORRECTION_DEG,
+    sample_exposure=SAMPLE_EXPOSURE_S,
+    reference_exposure=REFERENCE_EXPOSURE_S,
+    # Only read when window_type == 4.
+    mask_start={as_literal(int(cfg.get("mask_start", 150)))},
+    mask_end={as_literal(int(cfg.get("mask_end", 160)))},
+    mask_transition={as_literal(int(cfg.get("mask_transition", 5)))},
+    mask_factor={as_literal(float(cfg.get("mask_factor", 0.08)))},
+    # Frames excluded from the averages, as set in the app.
+    exclude_frames={as_literal(cfg.get("exclude_frames") or {})},
+)
+config
+""".strip()
+
+
 def _heterodyne_cells(payload: dict) -> list[dict]:
     return [
         markdown_cell("## 1. Load the matched set\n\n"
@@ -315,26 +370,7 @@ plt.show()
 
         markdown_cell("## 2. Configuration\n\nOne config object drives every "
                       "step below, built from the form fields above."),
-        code_cell("""
-# COMPUTE — replace this cell to override any pipeline setting directly
-# (instead of through the form fields); the cells below only need
-# `config` to stay an HDSFGConfig.
-config = HDSFGConfig(
-    upconversion_wavelength=UPCONVERSION_NM,
-    bg_smoothing_window=BG_SMOOTHING_WINDOW,
-    bg_smoothing_order=BG_SMOOTHING_ORDER,
-    bg_offset=BACKGROUND_OFFSET or None,
-    edge_left=EDGE_LEFT,
-    edge_right=EDGE_RIGHT,
-    window_type=WINDOW_TYPE,
-    fft_start=FFT_START,
-    fft_end=FFT_END,
-    hg_left=HG_LEFT,
-    hg_right=HG_RIGHT,
-    phase_correction_deg=PHASE_CORRECTION_DEG,
-)
-config
-""".strip()),
+        code_cell(_heterodyne_config_cell(payload["config"])),
 
         markdown_cell("## 3. Despike\n\nOne `DeSpikeParams` per component — a "
                       "long-exposure sample is noisier than a short reference, "
@@ -477,16 +513,35 @@ result = step_normalize(fft_data, config)
 """.strip()),
         code_cell("""
 # PLOT — safe to restyle without touching the cell above.
+# The error bands are the 95% CI across signal frames, so they only
+# exist with more than one frame.
+wn = result.wavenumber
+show_err = result.n_frames > 1
+
 fig, ax = plt.subplots()
-ax.plot(result.wavenumber, result.complex_chi.imag, label=r"Im($\\chi^{(2)}$)")
-ax.plot(result.wavenumber, result.complex_chi.real, linestyle="--", label=r"Re($\\chi^{(2)}$)")
+ax.plot(wn, result.complex_chi.imag, label=r"Im($\\chi^{(2)}$)")
+ax.plot(wn, result.complex_chi.real, linestyle="--", label=r"Re($\\chi^{(2)}$)")
+if show_err:
+    ax.fill_between(wn, result.complex_chi.imag - result.imag_err,
+                    result.complex_chi.imag + result.imag_err, alpha=0.25, linewidth=0)
+    ax.fill_between(wn, result.complex_chi.real - result.real_err,
+                    result.complex_chi.real + result.real_err, alpha=0.25, linewidth=0)
 ax.axhline(0, color="gray", linewidth=0.5)
 ax2 = ax.twinx()
-ax2.plot(result.wavenumber, result.phase, color="gray", linestyle=":", alpha=0.8)
+ax2.plot(wn, result.phase, color="gray", linestyle=":", alpha=0.8)
 ax2.set_ylabel("Phase (°)", color="gray")
 ax.set_xlabel("Wavenumber (cm$^{-1}$)")
 ax.set_ylabel(r"$\\chi^{(2)}$: Re / Im (a.u.)")
 ax.legend()
+plt.show()
+
+fig, ax = plt.subplots()
+ax.plot(wn, result.homodyne)
+if show_err:
+    ax.fill_between(wn, result.homodyne - result.homodyne_err,
+                    result.homodyne + result.homodyne_err, alpha=0.25, linewidth=0)
+ax.set_xlabel("Wavenumber (cm$^{-1}$)")
+ax.set_ylabel(r"$|\\chi^{(2)}|^2$ (a.u.)")
 plt.show()
 """.strip()),
     ]
@@ -530,24 +585,42 @@ def build(payload: dict) -> dict:
     kind = payload["kind"]
     label = payload.get("label", "processed")
     is_het = kind == "heterodyne"
+    sources = "\n".join(f"- `{name}` ({role.replace('_', ' ')})"
+                        for role, name in payload.get("roles", {}).items())
 
     cells = [
         markdown_cell(f"""
 # {label} — {'heterodyne (HD-SFG)' if is_het else 'homodyne'} processing
 
-Exported from SFG-App. Fully self-contained: the four raw files and the
-processing package are both embedded, so this runs on a fresh Colab
-runtime with no uploads and no `pip install`.
+Exported from SFG-App {app_version()} on {_timestamp()}, from:
+
+{sources}
+
+Fully self-contained: the four raw files and the processing package are
+both embedded, so this runs on a fresh Colab runtime with no uploads and
+no `pip install`.
 
 Each stage below is a **compute** cell followed by a **plot** cell: edit
 a compute cell to change how that stage works, or a plot cell to change
 how it's drawn — each names the variable(s) the next cell needs, so an
 edit stays contained to that one cell. The form fields are pre-filled
 with the values the app was using.
+
+**Two things the app can do that don't travel:** it can despike each of
+the four components with its own window/threshold, whereas the fields
+below apply one setting to all four (the signal's); and its background
+offset can be a polynomial fitted to markers you place, whereas
+`BACKGROUND_OFFSET` here is a single constant — a polynomial one is
+exported as no offset at all. Everything else — exposures, excluded
+frames, the FFT window — matches what the app was using.
 """.strip()),
 
         markdown_cell("## Setup"),
-        code_cell(_package_cell(payload), collapsed=True),
+        code_cell(_package_source_cell(),
+                  hidden_title="Embedded processing package (source zip)"),
+        code_cell(_raw_data_cell(payload),
+                  hidden_title=f"Embedded raw data ({len(payload['raw_files'])} files)"),
+        code_cell(_SETUP.strip(), hidden_title="Unpack everything and import"),
         code_cell(_roles_cell(payload)),
         code_cell(_UPLOAD_FALLBACK.strip()),
 
