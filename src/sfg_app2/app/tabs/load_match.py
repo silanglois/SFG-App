@@ -29,6 +29,7 @@ class LoadMatchTab(QWidget):
         self._folder_contents: dict[Path, set[str]] = {}   # folder -> resolved file paths loaded from it
         self._individual_file_paths: list[Path] = []
         self._plot_windows: list = []       # open PlotWindow instances
+        self._splitter_sized = False
 
         self._replace_list_and_table()
         self._connect_signals()
@@ -51,6 +52,32 @@ class LoadMatchTab(QWidget):
         old_table.hide()
         self.match_table = MatchTableView()
         splitter.insertWidget(2, self.match_table)
+
+    def showEvent(self, event):
+        """Give the file list a width based on a typical filename, once,
+        the first time this tab is actually shown.
+
+        QSplitter.setSizes() treats its arguments as a ratio scaled to
+        the splitter's *actual* current width -- it does not give the
+        first entry that many pixels and hand the rest to the others.
+        Calling this from __init__ (before the tab has a real on-screen
+        size) or with an arbitrarily large placeholder for "everything
+        else" both produce a list width that's a tiny, wrong fraction of
+        what was asked for. Doing it here, against self.width() once the
+        tab is actually on screen, makes the two entries sum to
+        (approximately) the real total, so Qt applies them close to
+        literally instead of rescaling.
+        """
+        super().showEvent(event)
+        if self._splitter_sized:
+            return
+        self._splitter_sized = True
+
+        splitter = self.ui.splitter
+        metrics = self.file_list_widget.fontMetrics()
+        list_width = int(1.5 * metrics.horizontalAdvance("sample_ssp_sfg_2024-01-01_bg.csv")) + 40
+        remaining = max(splitter.width() - list_width, list_width)
+        splitter.setSizes([list_width, 0, remaining, 0])
 
     # ── Signal wiring ─────────────────────────────────────────────────────────
 
