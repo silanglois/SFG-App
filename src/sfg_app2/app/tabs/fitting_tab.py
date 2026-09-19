@@ -1340,6 +1340,18 @@ class FittingTab(QWidget, DockablePlotPanel):
         full = self._template_manager.get_full(name)
         if full is None:
             return
+        unknown = [p.lineshape_key for p in full["spec"].peaks
+                   if p.lineshape_key not in {ls.key for ls in available_lineshapes()}]
+        if unknown:
+            # A template written by a build with more lineshapes than this
+            # one -- say so, rather than adopting it and failing on the
+            # next table rebuild.
+            QMessageBox.warning(
+                self, "Can't apply this template",
+                f"It uses a lineshape this version doesn't have: "
+                f"{', '.join(sorted(set(unknown)))}.",
+            )
+            return
         self._model_spec = full["spec"]
         self._last_result = None
         self._rebuild_peak_table()

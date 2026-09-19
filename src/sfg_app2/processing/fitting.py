@@ -1,10 +1,13 @@
 from __future__ import annotations
+import logging
 from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Callable
 
 import numpy as np
 import lmfit
+
+logger = logging.getLogger(__name__)
 
 
 # ── Lineshape registry ──────────────────────────────────────────────────────
@@ -29,9 +32,29 @@ class LineshapeSpec:
     display_name: str
     params: list[ParamSpec]
     chi: Callable[..., np.ndarray]   # (omega, **named params) -> complex array
+    # Optional click-to-place seeding. (center, amplitude, width) -> a
+    # partial {param_name: value}; anything omitted falls back to the
+    # name-matching in default_peak() and then to ParamSpec.default.
+    # Only needed by lineshapes whose parameters aren't literally named
+    # "center"/"amplitude"/"width" -- e.g. Voigt, which has to split one
+    # measured width across two broadening mechanisms.
+    seed: Callable[[float, float | None, float | None], dict[str, float]] | None = None
 
 
 _REGISTRY: dict[str, LineshapeSpec] = {}
+
+
+class UnknownLineshapeError(KeyError):
+    """A fit references a lineshape this build doesn't have registered.
+
+    Subclasses KeyError so existing handlers keep working, but carries a
+    readable `message` -- str() on a KeyError re-quotes its argument,
+    which reads badly in a dialog.
+    """
+
+    def __init__(self, message: str):
+        super().__init__(message)
+        self.message = message
 
 
 def register_lineshape(spec: LineshapeSpec) -> None:
@@ -39,11 +62,24 @@ def register_lineshape(spec: LineshapeSpec) -> None:
 
 
 def get_lineshape(key: str) -> LineshapeSpec:
-    return _REGISTRY[key]
+    try:
+        return _REGISTRY[key]
+    except KeyError:
+        raise UnknownLineshapeError(
+            f"Unknown lineshape {key!r}. This fit was probably saved by a "
+            f"version of the app with lineshapes this one doesn't have. "
+            f"Available here: {', '.join(sorted(_REGISTRY)) or '(none)'}."
+        ) from None
 
 
 def available_lineshapes() -> list[LineshapeSpec]:
     return list(_REGISTRY.values())
+
+
+# Gaussian FWHM = 2*sqrt(2*ln2)*sigma. Both Gaussian-broadened lineshapes
+# below take a *full width* like the Lorentzian does, and convert
+# internally, so every width in the UI means the same kind of quantity.
+_FWHM_PER_SIGMA = 2.0 * np.sqrt(2.0 * np.log(2.0))
 
 
 def _lorentzian_chi(omega, amplitude, center, width):
@@ -53,15 +89,92 @@ def _lorentzian_chi(omega, amplitude, center, width):
     return amplitude / (omega - center + 1j * gamma)
 
 
+def _voigt_chi(omega, amplitude, center, width, gauss_width):
+    """Lorentzian convolved with a Gaussian spread of centers.
+
+    The homogeneous (`width`) and inhomogeneous (`gauss_width`) parts are
+    both full widths. The prefactor is fixed by requiring that
+    gauss_width -> 0 reproduce _lorentzian_chi exactly (w(z) ~ i/(sqrt(pi)z)
+    for large |z| makes the two expressions agree); test_voigt_reduces_to_
+    lorentzian pins that down.
+    """
+    from scipy.special import wofz
+
+    omega = np.asarray(omega, dtype=float)
+    gamma = width / 2.0
+    sigma = gauss_width / _FWHM_PER_SIGMA
+    if sigma <= 0:
+        # Also the numerically right branch: z would blow up.
+        return amplitude / (omega - center + 1j * gamma)
+    denom = sigma * np.sqrt(2.0)
+    z = (omega - center + 1j * gamma) / denom
+    return amplitude * (-1j * np.sqrt(np.pi) / denom) * wofz(z)
+
+
+def _gaussian_chi(omega, amplitude, center, width):
+    """The Voigt with no homogeneous component.
+
+    Not just a real Gaussian: the real part is the Kramers-Kronig
+    partner (a Dawson function), which is what keeps the coherent sum
+    with other peaks physically meaningful.
+    """
+    return _voigt_chi(omega, amplitude, center, 0.0, width)
+
+
+def _voigt_seed(center, amplitude, width):
+    """Split one measured width across both broadening mechanisms.
+
+    f_V ~= 0.5346*f_L + sqrt(0.2166*f_L^2 + f_G^2), so taking
+    f_L = f_G = 0.64*f puts the resulting Voigt width back at ~f.
+    """
+    if width is None:
+        return {}
+    return {"width": 0.64 * width, "gauss_width": 0.64 * width}
+
+
+def _amplitude_spec():
+    return ParamSpec("amplitude", "Amplitude", default=1.0, min=-np.inf, max=np.inf)
+
+
+def _center_spec():
+    return ParamSpec("center", "Center", default=0.0, min=-np.inf, max=np.inf, unit="cm⁻¹")
+
+
 register_lineshape(LineshapeSpec(
     key="lorentzian",
     display_name="Lorentzian",
     params=[
-        ParamSpec("amplitude", "Amplitude", default=1.0, min=-np.inf, max=np.inf),
-        ParamSpec("center", "Center", default=0.0, min=-np.inf, max=np.inf, unit="cm⁻¹"),
+        _amplitude_spec(),
+        _center_spec(),
         ParamSpec("width", "Width (full)", default=10.0, min=0.0, max=np.inf, unit="cm⁻¹"),
     ],
     chi=_lorentzian_chi,
+))
+
+
+register_lineshape(LineshapeSpec(
+    key="gaussian",
+    display_name="Gaussian",
+    params=[
+        _amplitude_spec(),
+        _center_spec(),
+        ParamSpec("width", "Width (full)", default=10.0, min=0.0, max=np.inf, unit="cm⁻¹"),
+    ],
+    chi=_gaussian_chi,
+))
+
+
+register_lineshape(LineshapeSpec(
+    key="voigt",
+    display_name="Voigt",
+    params=[
+        _amplitude_spec(),
+        _center_spec(),
+        ParamSpec("width", "Lorentzian width", default=10.0, min=0.0, max=np.inf, unit="cm⁻¹"),
+        ParamSpec("gauss_width", "Gaussian width", default=10.0, min=0.0, max=np.inf, unit="cm⁻¹"),
+    ],
+    chi=_voigt_chi,
+    seed=_voigt_seed,
 ))
 
 
@@ -197,6 +310,12 @@ def estimate_peak_seed(omega: np.ndarray, response: np.ndarray, idx: int,
       relates to height via height = (amplitude / (width/2))^2.
     squared=False: response is |chi| (heterodyne magnitude) -- linear:
       height = amplitude / (width/2).
+
+    Both relations are the Lorentzian ones. For a Gaussian-broadened
+    lineshape the profile is area-conserving, so the same amplitude
+    gives a lower peak and this under-estimates it -- acceptable for a
+    starting guess the optimizer refines, and the reason LineshapeSpec
+    has its own `seed` hook for anything that needs better.
     """
     height, width = _local_height_and_width(omega, response, idx, min_width)
     half_width = width / 2.0
@@ -210,9 +329,12 @@ def default_peak(lineshape_key: str, center: float,
     amplitude/width from a caller-supplied data heuristic if given, else
     the lineshape's own defaults."""
     spec = get_lineshape(lineshape_key)
+    seeded = spec.seed(center, amplitude, width) if spec.seed else {}
     params = {}
     for p in spec.params:
-        if p.name == "center":
+        if p.name in seeded:
+            value = seeded[p.name]
+        elif p.name == "center":
             value = center
         elif p.name == "amplitude" and amplitude is not None:
             value = amplitude
@@ -477,10 +599,25 @@ def fit_heterodyne(omega: np.ndarray, real: np.ndarray, imag: np.ndarray, spec: 
 
 
 def fit_model_spec_from_provenance_payload(payload: dict | None) -> FitModelSpec | None:
-    """`payload` is processing.provenance.parse_fit_json()'s return value."""
+    """`payload` is processing.provenance.parse_fit_json()'s return value.
+
+    Returns None for a fit this build can't represent -- including one
+    referencing a lineshape it doesn't have registered, which a file
+    written by a newer version can legitimately contain. Every caller
+    already treats None as "no fit to restore", so rejecting it here
+    degrades gracefully instead of raising out of a table rebuild later.
+    """
     if not payload or "model" not in payload:
         return None
-    return FitModelSpec.from_dict(payload["model"])
+    spec = FitModelSpec.from_dict(payload["model"])
+    for peak in spec.peaks:
+        if peak.lineshape_key not in _REGISTRY:
+            logger.warning(
+                "Ignoring a saved fit: unknown lineshape %r (have: %s).",
+                peak.lineshape_key, ", ".join(sorted(_REGISTRY)),
+            )
+            return None
+    return spec
 
 
 def fit_kind_from_provenance_payload(payload: dict | None) -> str | None:
