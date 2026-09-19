@@ -229,6 +229,11 @@ class HDSFGPanel(QWidget, DockablePlotPanel):
         grid.addWidget(QLabel("Window"), 0, 1)
         grid.addWidget(QLabel("Threshold"), 0, 2)
 
+        # Sample/Reference are real spectra; their backgrounds are flatter,
+        # noisier dark-count traces that want a much wider smoothing window
+        # and a looser threshold.
+        _background_keys = {"background", "ref_background"}
+
         self._despike_params: dict[str, dict] = {}
         for row_idx, (key, label) in enumerate([
             ("signal",       "Sample"),
@@ -237,18 +242,21 @@ class HDSFGPanel(QWidget, DockablePlotPanel):
             ("ref_background","Ref BG"),
         ], start=1):
             grid.addWidget(QLabel(label + ":"), row_idx, 0)
+            default_window, default_threshold = (
+                (300, 10.0) if key in _background_keys else (50, 20.0)
+            )
 
             window_sb = QSpinBox()
             window_sb.setRange(3, 1001)
             window_sb.setSingleStep(10)
-            window_sb.setValue(50)
+            window_sb.setValue(default_window)
             grid.addWidget(window_sb, row_idx, 1)
 
             threshold_sb = QDoubleSpinBox()
             threshold_sb.setRange(0.5, 10000.0)
-            threshold_sb.setSingleStep(5.0)
+            threshold_sb.setSingleStep(1.0)
             threshold_sb.setDecimals(1)
-            threshold_sb.setValue(20.0)
+            threshold_sb.setValue(default_threshold)
             grid.addWidget(threshold_sb, row_idx, 2)
 
             self._despike_params[key] = {
