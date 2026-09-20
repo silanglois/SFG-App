@@ -36,7 +36,7 @@ applies to whichever set(s) you have selected.
 
     | Reference | Use it when |
     |---|---|
-    | **Tabulated material** (default: polystyrene) | The material's optical constants are in the refractiveindex.info database. Enter any shelf / book / page to use a different one. |
+    | **Tabulated material** (default: polystyrene) | The material's optical constants are in the refractiveindex.info database. To use a different one, enter its shelf / book / page — the three identifiers that database uses to address an entry. |
     | **Curve from file** | You have the reference absorption as data — a two-column CSV of wavenumber and value. |
     | **Known line positions** | You only know where the peaks *should* be. Type the literature wavenumbers, and the scan lines your measured peaks up with them. |
 
@@ -59,6 +59,14 @@ BG Subtracted → Normalized**, checking the plot at each stage:
   flagged spikes** to overlay the points currently being flagged (at
   their original raw values) on the Raw/Despiked plot, so you can
   judge the settings before committing to them.
+
+    The two kinds of channel start from different values, because they
+    look different: Sample and Reference are real spectra and begin at
+    window 50 / threshold 20, while their backgrounds — flatter,
+    noisier traces with no spectral features to preserve — begin at
+    window 300 / threshold 10. The spin arrows step the window by 10
+    and the threshold by 1. These are only starting points; the
+    **Show flagged spikes** preview is the thing to judge them by.
 
 - **Background offset** — sometimes the background trace itself sits
   slightly above or below zero where it shouldn't, and a plain
@@ -92,14 +100,24 @@ value shared across all sets.
 Right-click a matched set and choose **Export processing notebook…** to
 write a Jupyter notebook that walks its pipeline one stage at a time —
 despike, average, background subtraction, normalization, upconversion —
-plotting the intermediate result at each, with your current parameters
+plotting every component at each, with your current parameters
 pre-filled as editable form fields.
+
+Each stage is two cells: a **compute** cell that does the work, and a
+**plot** cell that draws it. That split is what makes the notebook
+worth having — swap in your own processing for one stage without
+touching how it's plotted, or restyle a figure without going near the
+maths. Each cell says which variables the next one needs, so an edit
+stays contained. The machinery you don't need to read — the embedded
+data, the processing package, the setup — is collapsed behind named
+cells you can expand if you want to.
 
 The notebook is completely self-contained: the four raw files *and* the
 processing code are embedded, so it runs on
 [Google Colab](https://colab.research.google.com) with nothing to upload
-and nothing to install. Its last cell writes a CSV with the usual
-provenance header, which loads straight back into the **Spectra
+and nothing to install. It records which version of the app exported
+it, when, and from which files. The final cell writes a CSV with the
+usual provenance header, which loads straight back into the **Spectra
 Library** via *Add spectra from file*.
 
 This is the way to see exactly what a parameter does, or to hand someone

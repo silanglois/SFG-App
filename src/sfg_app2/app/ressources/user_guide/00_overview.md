@@ -42,10 +42,11 @@ knowing them up front:
   all at once.
 - **The Preferences menu** is organized into submenus by workflow —
   **Load / Match** (metadata patterns, auto-matching, filename
-  color-coding), **Plotting** (plotting style), **Fitting**
-  (parameter-table coloring), and **Appearance** (light/dark/system
-  theme). See **Settings & Preferences** in this guide for details on
-  each.
+  color-coding, file import options), **Plotting** (plotting style),
+  **Fitting** (parameter-table coloring), and **Appearance**
+  (light/dark/system theme), plus **Export / Import settings** for
+  moving a whole configuration between machines. See **Settings &
+  Preferences** in this guide for details on each.
 - **Debounced auto-updates.** In the processing panels, editing a
   parameter doesn't require an explicit "apply" click for most
   things — the plot updates automatically a short moment after you

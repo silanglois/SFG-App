@@ -24,14 +24,30 @@ squared):
 
     $$\chi_{\mathrm{NR}} = A_{\mathrm{NR}}\,e^{i\varphi_{\mathrm{NR}}}$$
 
-- **Resonant term, one per peak *j*.** The only lineshape currently
-  implemented is a Lorentzian:
+- **Resonant term, one per peak *j*.** Three lineshapes are available,
+  chosen per peak. The **Lorentzian** is the plain homogeneously
+  broadened line:
 
     $$\chi_j(\omega) = \frac{A_j}{\omega - \omega_j + i\Gamma_j}$$
 
     where $\Gamma_j$ is the *half*-width-at-half-max. The Parameters
     table's **Width** column is the *full* width instead (the more usual
     quantity to eyeball on a plot), so internally $\Gamma_j = \text{Width}/2$.
+
+    The **Voigt** is that same line convolved with a Gaussian spread of
+    resonance positions — homogeneous *and* inhomogeneous broadening
+    together — so it carries two widths: **Lorentzian width** and
+    **Gaussian width**, both full widths. The **Gaussian** is its limit
+    when the homogeneous part vanishes, i.e. purely inhomogeneous
+    broadening.
+
+    All three are complex, not real-valued bumps. A Gaussian line here
+    still has a dispersive real part (its Kramers-Kronig partner), which
+    matters because the sum below happens before squaring: drop it and
+    interference between overlapping peaks comes out wrong. One
+    consequence worth expecting — only a Gaussian's *absorption* dies
+    away quickly in the wings; its dispersive part decays slowly, much
+    like a Lorentzian's.
 
 These sum to one complex susceptibility:
 
@@ -64,7 +80,8 @@ that no single curve captures alone.
 | $A_{\mathrm{NR}},\ \varphi_{\mathrm{NR}}$ | Non-resonant → Amplitude, Phase | Non-resonant background amplitude/phase |
 | $A_j$ | Peak *j* → Amplitude | Resonant amplitude (sign gives the peak's phase relative to the background) |
 | $\omega_j$ | Peak *j* → Center | Resonance position (cm⁻¹) |
-| $\Gamma_j$ | Peak *j* → Width, halved | Half-width-at-half-max (the table shows the full width) |
+| $\Gamma_j$ | Peak *j* → Width, halved | Half-width-at-half-max (the table shows the full width). On a Voigt this column is labelled **Lorentzian width** |
+| $\sigma_j$ | Peak *j* → Gaussian width | Inhomogeneous broadening, shown as a full width. Voigt only — the other two shapes have a single width |
 
 Panels are dockable and rearrangeable; the natural order to work
 through them is:

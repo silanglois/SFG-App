@@ -25,6 +25,14 @@ Use the **File** menu:
 
 Loaded files appear in the file list on the left.
 
+Spectra are read from `.csv`, `.txt`, `.dat`, `.asc` and `.tsv` — a
+file with any other extension is still attempted rather than refused on
+its name. If files won't load, because they use semicolons, decimal
+commas, a block of instrument settings before the headers, or columns
+named something unexpected, the app offers **File import options**
+against the file that failed; see **Settings & Preferences → File
+import options**.
+
 ## 2. Review metadata and preview files (optional)
 
 Right-click a file in the list to:
@@ -37,9 +45,12 @@ Right-click a file in the list to:
   can get back to one later without reopening it.
 
 Metadata is parsed automatically from filenames using **patterns**
-(see **Settings & Preferences → Metadata patterns**). If you'd rather
-not use filename-based metadata at all, turn it off from
-**Preferences → Use metadata patterns**.
+(see **Settings & Preferences → Metadata patterns**). A pattern either
+splits the filename on a separator of your choosing, or matches a
+regular expression whose named groups become the fields — the latter
+being the way to tell apart two layouts that have the same number of
+parts. If you'd rather not use filename-based metadata at all, turn it
+off from **Preferences → Use metadata patterns**.
 
 ## 3. Auto-match
 
