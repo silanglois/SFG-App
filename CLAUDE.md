@@ -56,13 +56,72 @@ import Qt.
   `pd.read_csv(path, comment='#')`) with the full processing-parameter
   trail, plus a `# Fit json:` section when a fit is attached — this is
   what makes export → reload a lossless round trip.
-- `TraceStyle` (per-curve color/linestyle/marker/etc., shared by the
-  Spectra Library and Fitting tabs via `TraceStyleDialog`) uses `None`
-  fields to mean "use the active plotting style's automatic default",
-  not "unset" — don't treat `None` as a missing value to backfill.
+- `TraceStyle` (per-curve color/linestyle/marker/etc., used by the
+  Spectra Library via `TraceStyleDialog` — the Fitting tab has its own
+  separate per-series styling) uses `None` fields to mean "use the
+  active plotting style's automatic default", not "unset" — don't treat
+  `None` as a missing value to backfill. It lives in
+  `app/tabs/trace_style.py` rather than in the tab, so the dialogs that
+  edit it don't import the tab module back. To ask whether the user
+  actually customized a trace use `is_customized(style, component)`, not
+  `TraceStyle.is_default()`: the latter compares against the bare
+  dataclass default, so an untouched Phase trace (which defaults to the
+  secondary axis) reads as customized.
+- A Spectra Library trace can be hidden by the entry's checkbox, a
+  global component panel, "Hide data", or its own `TraceStyle.visible`.
+  `resolve_visibility()` classifies which, so an empty plot can say
+  what emptied it — add new suppression paths there rather than
+  filtering traces out silently.
+- In the spectra list, the tick box (plotted, exported) and the
+  selection highlight (context-menu target) are independent row states;
+  `_checked_entries()` and `_selected_entries()` are not interchangeable.
+- `SpectrumPlotWidget.soft_clear()` removes lines, collections, the
+  legend **and texts**. Anything a redraw re-adds must be cleared there
+  or it stacks invisible duplicates on every refresh.
 - `.ui` files under `app/ui/` are Qt Designer sources; their `ui_*.py`
   counterparts are regenerated **by hand**, not by an automated build
   step. Editing one without the other leaves them silently out of sync.
+- A new persisted setting must be added in **three** places, not one:
+  its own `app/utils/*_settings.py` store, the `_SETTINGS_PATH_ATTRS`
+  list in `tests/conftest.py` (or the suite writes to the real user
+  config — this has already clobbered one), and `settings_bundle.PARTS`
+  (or it silently won't travel when someone exports their setup).
+  `settings_bundle` resolves each store's path at call time precisely so
+  the conftest monkeypatching reaches it.
+- Calibration (`processing/calibration.py`) is a scan over candidate
+  upconversion wavelengths scored against a reference; the reference is
+  anything with `sample(wavenumber) -> values`, so it is not tied to
+  polystyrene or to `refractiveindex` (which is why the line-position
+  mode works without that package at all). Note the two scans score in
+  opposite directions: the curve scan returns a correlation (higher is
+  better, empty answer `-inf`), the line scan an RMS error (lower is
+  better, empty answer `+inf`).
+- **Readers normalize; the pipeline never does.** `Frame`/`Wavelength`/
+  `Intensity` appear well over a hundred times across ~14 modules and
+  are the pipeline's internal data contract. Support for a file that
+  names its columns differently belongs in a `processing/readers.py`
+  reader (registered like a lineshape), which must return exactly those
+  three canonical columns. Never push a column-name mapping downstream
+  of the loader — that is the difference between a one-file change and
+  a fourteen-file one.
+- Lineshapes are a registry (`processing/fitting.py`'s
+  `register_lineshape`/`LineshapeSpec`), and the Fitting tab builds its
+  combo and parameter table from the spec — a new lineshape needs no UI
+  changes. Anything loading a *saved* fit must tolerate a
+  `lineshape_key` this build doesn't have:
+  `fit_model_spec_from_provenance_payload()` returns `None` for those
+  rather than letting `get_lineshape()` raise out of a later redraw.
+- A metadata pattern leaf (`patterns.json`) is anything
+  `FilenamePattern.coerce()` accepts. The historical `{"fields": [...]}`
+  must keep meaning positional-split-on-`_` forever — stored patterns
+  are never migrated. Pattern *selection* and *extraction* must both see
+  the same role-stripped stem (`DataFile(parse_stem=...)`), or an
+  anchored regex matches during selection and then fails during
+  extraction.
+- `DataFile` keeps `_parsed_metadata` and `_manual_metadata` apart, with
+  `metadata` as the merged view: re-parsing the filename under a new
+  pattern must not discard hand-edited values or the loader's detected
+  role. Edit through `set_manual_metadata()`, not `metadata[...] = `.
 
 ## Working conventions
 

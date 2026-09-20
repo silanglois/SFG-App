@@ -15,6 +15,7 @@ from PyInstaller.utils.hooks import collect_data_files
 
 _REPO_ROOT = Path(SPECPATH).parent
 _RESSOURCES = _REPO_ROOT / "src" / "sfg_app2" / "app" / "ressources"
+_PROCESSING_SRC = _REPO_ROOT / "src" / "sfg_app2" / "processing"
 _ICON = Path(SPECPATH) / "icon.ico"
 
 # Built MkDocs user guide (see mkdocs.yml). Optional: a source build without
@@ -35,6 +36,12 @@ a = Analysis(
         # directory at runtime via Path(__file__)-relative paths -- it
         # has to be bundled explicitly, PyInstaller can't infer it.
         (str(_RESSOURCES), "sfg_app2/app/ressources"),
+        # The processing package's *source*, shipped as data so the
+        # notebook export can embed it (utils/notebook_export.py's
+        # build_source_bundle). PyInstaller compiles modules into its
+        # archive, so without this the .py files are unreadable at
+        # runtime and the export raises ProcessingSourceUnavailable.
+        (str(_PROCESSING_SRC), "sfg_app2/processing_src"),
         # Built MkDocs Material user guide -> opened in the default browser
         # from Help -> User Guide (see
         # user_guide_dialog.user_guide_site_index, which looks for it under
@@ -50,9 +57,9 @@ a = Analysis(
     ],
     hiddenimports=[
         # Only ever imported lazily inside a function
-        # (polystyrene_calibration_dialog.py::_check_refractiveindex),
-        # so PyInstaller's static import analysis can miss it even
-        # though it's a hard pyproject.toml dependency.
+        # (calibration.MaterialReference._material), so PyInstaller's
+        # static import analysis can miss it even though it's a hard
+        # pyproject.toml dependency.
         "refractiveindex",
     ],
     hookspath=[],

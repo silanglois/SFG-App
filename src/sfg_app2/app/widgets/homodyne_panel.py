@@ -21,7 +21,18 @@ from sfg_app2.processing.normalization import normalize
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_DESPIKE = {"window": 50, "threshold": 20.0}
+# Sample/Reference are real spectra; their backgrounds are flatter,
+# noisier dark-count traces that want a much wider smoothing window and
+# a looser threshold.
+DEFAULT_DESPIKE_SIGNAL = {"window": 50, "threshold": 20.0}
+DEFAULT_DESPIKE_BACKGROUND = {"window": 300, "threshold": 10.0}
+_BACKGROUND_COMPONENTS = {"background", "ref_background"}
+
+
+def _default_despike(component: str) -> dict:
+    base = DEFAULT_DESPIKE_BACKGROUND if component in _BACKGROUND_COMPONENTS else DEFAULT_DESPIKE_SIGNAL
+    return base.copy()
+
 
 COMPONENTS = ["signal", "background", "reference", "ref_background"]
 COMPONENT_LABELS = {
@@ -223,10 +234,12 @@ class HomodynePanel(QWidget, DockablePlotPanel):
         for row_idx, key in enumerate(COMPONENTS, start=1):
             grid.addWidget(QLabel(COMPONENT_LABELS[key] + ":"), row_idx, 0)
 
+            defaults = _default_despike(key)
+
             window_sb = QSpinBox()
             window_sb.setRange(3, 1001)
-            window_sb.setSingleStep(2)
-            window_sb.setValue(DEFAULT_DESPIKE["window"])
+            window_sb.setSingleStep(10)
+            window_sb.setValue(defaults["window"])
             window_sb.setToolTip(
                 "Size of the sliding median window — larger = smoother baseline."
             )
@@ -234,9 +247,9 @@ class HomodynePanel(QWidget, DockablePlotPanel):
 
             threshold_sb = QDoubleSpinBox()
             threshold_sb.setRange(0.5, 10000.0)
-            threshold_sb.setSingleStep(10.0)
+            threshold_sb.setSingleStep(1.0)
             threshold_sb.setDecimals(1)
-            threshold_sb.setValue(DEFAULT_DESPIKE["threshold"])
+            threshold_sb.setValue(defaults["threshold"])
             threshold_sb.setToolTip(
                 "Points further than threshold x local MAD are flagged as spikes. "
                 "Lower = more aggressive."
@@ -399,7 +412,7 @@ class HomodynePanel(QWidget, DockablePlotPanel):
     # ── Despike ───────────────────────────────────────────────────────────────
 
     def _get_despike_cfg(self, idx: int, component: str) -> dict:
-        return self._despike_configs.get(idx, {}).get(component, DEFAULT_DESPIKE.copy())
+        return self._despike_configs.get(idx, {}).get(component, _default_despike(component))
 
     def _set_despike_cfg(self, idx: int, component: str, cfg: dict):
         if idx not in self._despike_configs:
@@ -706,6 +719,35 @@ class HomodynePanel(QWidget, DockablePlotPanel):
             return c["normalized"]
 
         return None
+
+    def notebook_config(self, upconversion_wavelength: float,
+                         idx: int | None = None) -> dict:
+        """Current parameters as plain scalars, for the notebook export.
+
+        The signal offset is emitted *resolved* rather than as marker
+        positions: the app fits it against this set's own averaged
+        background, so the markers wouldn't reproduce it elsewhere. A
+        polynomial offset has no scalar form, so it's dropped -- the
+        notebook's form field takes a constant.
+        """
+        if idx is None:
+            idx = self._selected_indices[0] if self._selected_indices else 0
+        despike = self._get_despike_cfg(idx, "signal")
+        sig_offset, _ref_offset = self._current_offsets(idx)
+        # Keyed to match the notebook's own despiked/averaged dicts.
+        exclude = {
+            key: sorted(self._get_exclude_frames(idx, role))
+            for key, role in (("signal", "signal"), ("background", "background"),
+                              ("reference", "reference"),
+                              ("reference_bg", "ref_background"))
+        }
+        return {
+            "despike_window": despike.get("window", 5),
+            "despike_threshold": despike.get("threshold", 3.0),
+            "bg_offset": sig_offset if isinstance(sig_offset, (int, float)) else None,
+            "upconversion_wavelength": self._upconversion_wl() or upconversion_wavelength,
+            "exclude_frames": {k: v for k, v in exclude.items() if v},
+        }
 
     def _build_provenance(self, idx: int, wl: float) -> dict:
         """Snapshot of the parameters actually used to produce the

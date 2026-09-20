@@ -1,6 +1,6 @@
 [project]
 name = "sfg-app2"
-version = "1.2.0"
+version = "1.3.0"
 description = "A desktop application for processing and analyzing Sum-Frequency Generation (SFG) spectroscopy data — homodyne and heterodyne — built with PySide6."
 readme = "README.md"
 license = "GPL-3.0-or-later"
@@ -35,4 +35,12 @@ dev = [
     "pillow>=12.2.0",
     "pyinstaller>=6.0.0",
     "pytest>=9.1.1",
+    "pytest-qt>=4.5",
+]
+
+[tool.pytest.ini_options]
+qt_api = "pyside6"
+testpaths = ["tests"]
+markers = [
+    "slow: spins up a Jupyter kernel; deselect with -m 'not slow'",
 ]

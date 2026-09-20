@@ -11,7 +11,7 @@ from sfg_app2.processing.utils import DEFAULT_ROLE_SUFFIXES
 logger = logging.getLogger(__name__)
 
 # DEFAULT_EXACT_KEYS = ["polarization", "center_wavelength", "acquisition_time", "date"]
-DEFAULT_REQUIRED_KEYS = ["center wavelength", "acquisition time"]
+DEFAULT_REQUIRED_KEYS = ["center_wavelength", "acquisition_time"]
 DEFAULT_OPTIONAL_KEYS = ["polarization", "date"]
 DEFAULT_CLOSEST_KEYS = ["timestamp"]
 DEFAULT_SAMPLE_KEY = "sample"
@@ -150,7 +150,7 @@ class MatchingConfig:
                     (default) = no effect, current behavior unchanged.
     """
     required_keys: list[str] = field(default_factory=lambda: ["sample", "polarization"])
-    optional_keys: list[str] = field(default_factory=lambda: ["center wavelength", "acquisition time"])
+    optional_keys: list[str] = field(default_factory=lambda: ["center_wavelength", "acquisition_time"])
     closest_keys: list[str] = field(default_factory=lambda: list(DEFAULT_CLOSEST_KEYS))
     highest_keys: list[str] = field(default_factory=list)
     role_priority: dict[str, list[str]] = field(default_factory=dict)
@@ -207,7 +207,7 @@ class DataFileMatcher:
         self.background_config = background_config or MatchingConfig()
         self.reference_config = reference_config or MatchingConfig(
             required_keys=["polarization"],      # references are rarer,
-            optional_keys=["center wavelength"]  # so loosen the match
+            optional_keys=["center_wavelength"]  # so loosen the match
         )
         self.sample_key = sample_key
         self._unmatched: list = []

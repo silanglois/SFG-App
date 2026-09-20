@@ -23,6 +23,11 @@ BUNDLED_STYLES_DIR = Path(__file__).parents[1] / "ressources" / "styles"
 
 MATPLOTLIB_DEFAULT = "matplotlib_default"
 DEFAULT_STYLE = "science"
+# Deliberately smaller than matplotlib's own ~6pt default -- used for the
+# Spectra Library's "Show as markers" override (small markers stay legible
+# across many overlaid/offset spectra; a trace's own explicit
+# TraceStyle.markersize, set via Trace Properties, always wins over this).
+DEFAULT_MARKER_SIZE = 3.0
 
 
 def custom_styles_dir() -> Path:
@@ -177,6 +182,7 @@ class PlottingSettings:
 
     def __init__(self):
         self._style: str = DEFAULT_STYLE
+        self._marker_size: float = DEFAULT_MARKER_SIZE
         self.load()
 
     def load(self):
@@ -185,18 +191,23 @@ class PlottingSettings:
                 data = json.loads(SETTINGS_FILE.read_text())
                 style = data.get("style", DEFAULT_STYLE)
                 self._style = style if style in available_styles() else DEFAULT_STYLE
+                self._marker_size = float(data.get("marker_size", DEFAULT_MARKER_SIZE))
                 logger.info("Loaded plotting style '%s' from %s.", self._style, SETTINGS_FILE)
             else:
                 self._style = DEFAULT_STYLE
+                self._marker_size = DEFAULT_MARKER_SIZE
                 logger.info("No plotting settings file found — using default '%s'.", DEFAULT_STYLE)
         except Exception as e:
             logger.warning("Failed to load plotting settings: %s — using default.", e)
             self._style = DEFAULT_STYLE
+            self._marker_size = DEFAULT_MARKER_SIZE
 
     def save(self) -> bool:
         try:
             CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-            SETTINGS_FILE.write_text(json.dumps({"style": self._style}, indent=2))
+            SETTINGS_FILE.write_text(json.dumps(
+                {"style": self._style, "marker_size": self._marker_size}, indent=2
+            ))
             logger.info("Plotting settings saved to %s.", SETTINGS_FILE)
             return True
         except Exception as e:
@@ -207,6 +218,10 @@ class PlottingSettings:
     def style(self) -> str:
         return self._style
 
+    @property
+    def marker_size(self) -> float:
+        return self._marker_size
+
     def apply_current(self):
         apply_style(self._style)
 
@@ -215,3 +230,7 @@ class PlottingSettings:
         saved = self.save()
         apply_style(name)
         return saved
+
+    def set_marker_size(self, value: float) -> bool:
+        self._marker_size = value
+        return self.save()

@@ -57,13 +57,53 @@ regions of interest in a figure.
 
 ## Exporting
 
-- **Export selected** / **Export all** write CSV files with a
+- **Export plotted** / **Export all** write CSV files with a
   `#`-comment provenance header — for fit-derived curves, this
   includes the model specification, weighting, and fit statistics as
-  well.
+  well. "Export plotted" covers the ticked spectra, and its label
+  shows how many that is.
 - Each panel's plot can be saved via a **WYSIWYG export dialog**
   (PNG/TIFF/SVG) with a live preview that matches exactly what will
   be written to disk.
+
+## Export to a notebook
+
+**Export notebook…** writes a Jupyter notebook that reproduces the
+current figure, for when you want full control over a plot the app's
+controls don't reach.
+
+It is completely self-contained. The ticked spectra are embedded in the
+notebook itself and it installs nothing, so it runs as-is on
+[Google Colab](https://colab.research.google.com) with no files to
+upload. It records which version of the app exported it, when, and
+which spectra went into it.
+
+The figure is built across several cells rather than one: a **setup**
+cell that makes the axes, **one cell per trace**, and a **decorate**
+cell for the axis labels, limits and legend. Each trace cell is a
+single `plot()` call with its color, style and label already filled in,
+so you can restyle one line, delete it, or copy it to add your own,
+without unpicking the rest. Form fields control normalization, offsets,
+the phase range and the output format; re-run the trace and decorate
+cells after changing them.
+
+Note that the figure uses plain matplotlib styling rather than the
+app's current plotting style, and doesn't invert the wavenumber axis
+unless you ask it to — the point of the export is a neutral starting
+point you control, not a copy of the on-screen look. What each trace
+looked like *individually* does travel: colors, line styles and markers
+come across as you set them.
+
+If a spectrum carries a fit, its curves are plotted alongside the data
+and its parameters are printed with their uncertainties.
+
+!!! tip "Processing notebooks"
+    The Process / Review tab has a matching export: right-click a
+    matched set and choose **Export processing notebook…** to get a
+    step-by-step walkthrough of that set's homodyne or heterodyne
+    pipeline, with your current parameters pre-filled. It embeds the
+    four raw files *and* the processing code, and its final cell writes
+    a CSV you can load straight back into this tab.
 
 Continue to **Fitting** to fit peaks/lineshapes to a spectrum from
 this list.

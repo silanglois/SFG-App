@@ -4,7 +4,7 @@ import logging
 from pathlib import Path
 import numpy as np
 
-from .data_file import DataFile, UnrecognizedFormatError
+from .data_file import DataFile, FilenamePattern, UnrecognizedFormatError
 
 OffsetSpec = Union[None, float, list[float], Callable[[np.ndarray], np.ndarray]]
 
@@ -50,38 +50,54 @@ def resolve_role(stem: str, mode: str, values: set[str]) -> tuple[str, bool, str
     return clean_stem, token is not None, token
 
 
+def select_pattern(clean_stem: str, patterns: list) -> FilenamePattern | None:
+    """The first pattern that applies to `clean_stem`, or None.
+
+    Regex patterns are tried first, in order, since they can actually
+    inspect the text; positional ones then match on token count. Order
+    within each group is the order given (i.e. the pattern tree's), so
+    two patterns that could both apply resolve predictably to the first
+    rather than to whichever happened to be built last.
+    """
+    coerced = [FilenamePattern.coerce(p) for p in patterns]
+    for pattern in sorted(coerced, key=lambda p: p.mode != "regex"):
+        if pattern.match(clean_stem) is not None:
+            return pattern
+    return None
+
+
 def load_datafiles(
     folder: str | Path,
-    patterns: list[list[str]] | None = None,
+    patterns: list | None = None,
     glob: str = "*.csv",
     role_mode: str = "suffix",
     role_values: set[str] = None,
     role_field: str | None = None,
+    read_options=None,
 ) -> list:
     if role_values is None:
         role_values = DEFAULT_ROLE_SUFFIXES
     role_values = {v.lower() for v in role_values}
 
-    pattern_map = {len(p): p for p in patterns} if patterns else {}
     files = []
     skipped = []
 
     for path in sorted(Path(folder).glob(glob)):
         clean_stem, matched, role_token = resolve_role(path.stem, role_mode, role_values)
-        n_parts = len(clean_stem.split("_"))
-        fields = pattern_map.get(n_parts) if pattern_map else None
+        fields = select_pattern(clean_stem, patterns) if patterns else None
 
-        if pattern_map and fields is None:
+        if patterns and fields is None:
             logger.warning(
-                "%s has %d metadata parts — no pattern matched %s. "
-                "Loading without filename_fields.",
-                path.name, n_parts, list(pattern_map.keys()),
+                "%s: no active pattern applies to %r. Loading without "
+                "filename metadata.", path.name, clean_stem,
             )
 
         extra_metadata = {"role": "background", "role_token": role_token} if matched else {}
 
         try:
-            files.append(DataFile(path, filename_fields=fields, metadata=extra_metadata))
+            files.append(DataFile(path, filename_fields=fields,
+                                  metadata=extra_metadata, parse_stem=clean_stem,
+                                  read_options=read_options))
         except UnrecognizedFormatError as e:
             logger.warning("Skipping %s: %s", path.name, e)
             skipped.append(path.name)

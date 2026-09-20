@@ -435,12 +435,15 @@
               </widget>
              </item>
              <item>
-              <widget class="QComboBox" name="legendFieldComboBox">
+              <widget class="QPushButton" name="legendFieldButton">
                <property name="maximumSize">
                 <size>
                  <width>200</width>
                  <height>16777215</height>
                 </size>
+               </property>
+               <property name="text">
+                <string>Filename</string>
                </property>
               </widget>
              </item>

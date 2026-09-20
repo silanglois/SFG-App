@@ -29,6 +29,7 @@ class LoadMatchTab(QWidget):
         self._folder_contents: dict[Path, set[str]] = {}   # folder -> resolved file paths loaded from it
         self._individual_file_paths: list[Path] = []
         self._plot_windows: list = []       # open PlotWindow instances
+        self._splitter_sized = False
 
         self._replace_list_and_table()
         self._connect_signals()
@@ -51,6 +52,32 @@ class LoadMatchTab(QWidget):
         old_table.hide()
         self.match_table = MatchTableView()
         splitter.insertWidget(2, self.match_table)
+
+    def showEvent(self, event):
+        """Give the file list a width based on a typical filename, once,
+        the first time this tab is actually shown.
+
+        QSplitter.setSizes() treats its arguments as a ratio scaled to
+        the splitter's *actual* current width -- it does not give the
+        first entry that many pixels and hand the rest to the others.
+        Calling this from __init__ (before the tab has a real on-screen
+        size) or with an arbitrarily large placeholder for "everything
+        else" both produce a list width that's a tiny, wrong fraction of
+        what was asked for. Doing it here, against self.width() once the
+        tab is actually on screen, makes the two entries sum to
+        (approximately) the real total, so Qt applies them close to
+        literally instead of rescaling.
+        """
+        super().showEvent(event)
+        if self._splitter_sized:
+            return
+        self._splitter_sized = True
+
+        splitter = self.ui.splitter
+        metrics = self.file_list_widget.fontMetrics()
+        list_width = int(1.5 * metrics.horizontalAdvance("sample_ssp_sfg_2024-01-01_bg.csv")) + 40
+        remaining = max(splitter.width() - list_width, list_width)
+        splitter.setSizes([list_width, 0, remaining, 0])
 
     # ── Signal wiring ─────────────────────────────────────────────────────────
 
@@ -75,7 +102,8 @@ class LoadMatchTab(QWidget):
             loading = show_loading(self, "Loading files from folder...")
             try:
                 new_files = load_datafiles(
-                    folder, patterns=self._get_active_patterns(), **self._role_kwargs()
+                    folder, patterns=self._get_active_patterns(),
+                    read_options=self._read_options(), **self._role_kwargs()
                 )
             finally:
                 loading.close()
@@ -99,6 +127,14 @@ class LoadMatchTab(QWidget):
             self._on_table_changed()
             self._report_merge_result(added, skipped)
             self._set_buttons_enabled(files_loaded=bool(self._files), matched=False)
+
+            # A folder of data files that yielded nothing is far more
+            # likely one wrong import setting than a folder of junk.
+            if not new_files:
+                candidates = sorted(folder.glob("*.csv"))
+                if candidates and self._offer_import_options(
+                        candidates[0], "No files in this folder could be read."):
+                    self.load_from_folder(folder)
         except Exception as e:
             QMessageBox.critical(self, "Load Error", str(e))
             logger.error("Failed to load files: %s", e)
@@ -127,10 +163,11 @@ class LoadMatchTab(QWidget):
 
     def load_individual_files(self, paths: list[str]):
         from sfg_app2.processing.data_file import DataFile
-        from sfg_app2.processing.utils import resolve_role
+        from sfg_app2.processing.utils import resolve_role, select_pattern
 
         role_kwargs = self._role_kwargs()
         newly_loaded = []
+        unreadable: list[tuple[Path, str]] = []
         loading = show_loading(self, "Loading files...")
         try:
             for path_str in paths:
@@ -140,13 +177,15 @@ class LoadMatchTab(QWidget):
                     clean_stem, matched, role_token = resolve_role(
                         path.stem, role_kwargs["role_mode"], role_kwargs["role_values"]
                     )
-                    n_parts = len(clean_stem.split("_"))
-                    pattern_map = {len(p): p for p in patterns} if patterns else {}
-                    fields = pattern_map.get(n_parts) if pattern_map else None
+                    fields = select_pattern(clean_stem, patterns) if patterns else None
                     extra_metadata = {"role": "background", "role_token": role_token} if matched else {}
-                    newly_loaded.append(DataFile(path, filename_fields=fields, metadata=extra_metadata))
+                    newly_loaded.append(DataFile(path, filename_fields=fields,
+                                                 metadata=extra_metadata,
+                                                 parse_stem=clean_stem,
+                                                 read_options=self._read_options()))
                 except UnrecognizedFormatError as e:
                     logger.warning("Skipping %s: %s", path.name, e)
+                    unreadable.append((path, str(e)))
                 except Exception as e:
                     logger.warning("Could not load %s: %s — skipping.", path.name, e)
         finally:
@@ -157,6 +196,14 @@ class LoadMatchTab(QWidget):
         self._refresh_file_list()
         self._report_merge_result(added, skipped)
         self._set_buttons_enabled(files_loaded=bool(self._files), matched=False)
+
+        # Everything failed to parse: almost always one wrong import
+        # setting rather than N bad files, so offer to fix it and retry
+        # instead of leaving the user with a silent empty list.
+        if unreadable and not newly_loaded:
+            path, reason = unreadable[0]
+            if self._offer_import_options(path, reason):
+                self.load_individual_files(paths)
 
     def _merge_files(self, new_files: list) -> tuple[list, list]:
         existing = {f.path.resolve() for f in self._files}
@@ -248,6 +295,33 @@ class LoadMatchTab(QWidget):
         has_rows = self.match_table._table_model.rowCount() > 0
         self._set_buttons_enabled(files_loaded=bool(self._files), matched=has_rows)
 
+    def _read_options(self):
+        """The user's configured import options, or the defaults (which
+        read an ordinary CSV exactly as this app always did)."""
+        from sfg_app2.processing.readers import ReadOptions
+
+        main = self.window()
+        settings = getattr(main, "file_format_settings", None)
+        return settings.options if settings is not None else ReadOptions()
+
+    def _offer_import_options(self, path: Path, reason: str) -> bool:
+        """A file wouldn't parse. Offer the import-options dialog against
+        that very file rather than just logging a skip -- the mapping is
+        only fixable if you can see which file broke and why.
+        """
+        main = self.window()
+        if not hasattr(main, "_on_set_file_format"):
+            return False
+        answer = QMessageBox.question(
+            self, "Couldn't read this file",
+            f"{path.name} couldn't be read:\n\n{reason}\n\n"
+            "Open import options to tell the app how this file is laid out?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return False
+        return bool(main._on_set_file_format(sample_path=path))
+
     def _get_active_patterns(self) -> list[list[str]] | None:
         """Returns active patterns if the toggle is on, None otherwise.
         None signals load_datafiles to skip pattern parsing entirely.
@@ -271,19 +345,19 @@ class LoadMatchTab(QWidget):
         """Re-parse filename metadata for all loaded files using current
         toggle state and active patterns. Manual metadata always wins.
         """
-        from sfg_app2.processing.utils import resolve_role
+        from sfg_app2.processing.utils import resolve_role, select_pattern
 
         role_kwargs = self._role_kwargs()
         patterns = self._get_active_patterns()
-        pattern_map = {len(p): p for p in patterns} if patterns else {}
 
         for f in self._files:
             clean_stem, _, _ = resolve_role(
                 f.path.stem, role_kwargs["role_mode"], role_kwargs["role_values"]
             )
-            n_parts = len(clean_stem.split("_"))
-            fields = pattern_map.get(n_parts) if pattern_map else None
-            f.reparse_filename_metadata(fields)
+            # Same selection rule the loader uses, so re-parsing can't
+            # disagree with what the initial load produced.
+            fields = select_pattern(clean_stem, patterns) if patterns else None
+            f.reparse_filename_metadata(fields, parse_stem=clean_stem)
 
         logger.info(
             "Re-parsed metadata for %d files (patterns %s).",
@@ -460,19 +534,6 @@ class LoadMatchTab(QWidget):
         self.match_table.refresh_colors()
 
     # ── Helpers ───────────────────────────────────────────────────────────────
-
-    def _get_active_patterns(self) -> list[list[str]]:
-        try:
-            main = self.window()
-            if hasattr(main, "pattern_manager"):
-                return main.pattern_manager.active_patterns
-        except Exception:
-            pass
-        return [
-            ["sample", "polarization", "center_wavelength", "acquisition_time", "timestamp", "date"],
-            ["sample", "concentration", "potential", "polarization",
-             "center_wavelength", "acquisition_time", "timestamp", "date"],
-        ]
 
     def _report_merge_result(self, added: list, skipped: list):
         if skipped and added:

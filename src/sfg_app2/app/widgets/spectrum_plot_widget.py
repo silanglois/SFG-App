@@ -414,6 +414,12 @@ class SpectrumPlotWidget(QWidget):
                 ax.lines[0].remove()
             while ax.collections:
                 ax.collections[0].remove()
+            # Texts too: text annotations and the empty-plot explanation
+            # are re-added by every redraw, so leaving them would stack
+            # copies on top of each other indefinitely. Axis labels and
+            # the title are separate Axes properties, not in ax.texts.
+            while ax.texts:
+                ax.texts[0].remove()
             legend = ax.get_legend()
             if legend:
                 legend.remove()

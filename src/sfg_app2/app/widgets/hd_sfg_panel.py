@@ -229,6 +229,11 @@ class HDSFGPanel(QWidget, DockablePlotPanel):
         grid.addWidget(QLabel("Window"), 0, 1)
         grid.addWidget(QLabel("Threshold"), 0, 2)
 
+        # Sample/Reference are real spectra; their backgrounds are flatter,
+        # noisier dark-count traces that want a much wider smoothing window
+        # and a looser threshold.
+        _background_keys = {"background", "ref_background"}
+
         self._despike_params: dict[str, dict] = {}
         for row_idx, (key, label) in enumerate([
             ("signal",       "Sample"),
@@ -237,18 +242,21 @@ class HDSFGPanel(QWidget, DockablePlotPanel):
             ("ref_background","Ref BG"),
         ], start=1):
             grid.addWidget(QLabel(label + ":"), row_idx, 0)
+            default_window, default_threshold = (
+                (300, 10.0) if key in _background_keys else (50, 20.0)
+            )
 
             window_sb = QSpinBox()
             window_sb.setRange(3, 1001)
             window_sb.setSingleStep(10)
-            window_sb.setValue(50)
+            window_sb.setValue(default_window)
             grid.addWidget(window_sb, row_idx, 1)
 
             threshold_sb = QDoubleSpinBox()
             threshold_sb.setRange(0.5, 10000.0)
-            threshold_sb.setSingleStep(5.0)
+            threshold_sb.setSingleStep(1.0)
             threshold_sb.setDecimals(1)
-            threshold_sb.setValue(20.0)
+            threshold_sb.setValue(default_threshold)
             grid.addWidget(threshold_sb, row_idx, 2)
 
             self._despike_params[key] = {
@@ -1098,7 +1106,7 @@ class HDSFGPanel(QWidget, DockablePlotPanel):
                                      alpha=0.7, label="Reference iFFT (imag)")
         self.plot_widget.ax.axhline(0, color="gray", linewidth=0.5)
         self.plot_widget.set_labels(
-            xlabel="Wavenumber (cm$^{-1}$)", ylabel="Amplitude (a.u.)",
+            xlabel="Wavenumber (cm$^{-1}$)", ylabel="Amplitude, real & imaginary (a.u.)",
             title="iFFT result (frequency domain)"
         )
 
@@ -1216,7 +1224,7 @@ class HDSFGPanel(QWidget, DockablePlotPanel):
 
         self.plot_widget.set_labels(
             xlabel="Wavenumber (cm$^{-1}$)",
-            ylabel=r"$\chi^{(2)}$ (a.u.)",
+            ylabel=r"$\chi^{(2)}$: Re / Im (a.u.)",
             title="Normalized HD-SFG result"
         )
 
@@ -1424,8 +1432,64 @@ class HDSFGPanel(QWidget, DockablePlotPanel):
             sample_exposure         = self._sample_exp.value(),
             reference_exposure      = self._ref_exp.value(),
             phase_correction_deg    = self._phase_corr.value(),
-            exclude_frames          = self._exclude_frames.get(self._matched_index, {}),
+            exclude_frames          = self._exclude_frames_for_pipeline(),
         )
+
+    def _exclude_frames_for_pipeline(self) -> dict:
+        """Frame exclusions keyed the way step_average() looks them up.
+
+        The panel keys the reference background "ref_background" (its
+        despike/strip key), but the pipeline reads
+        "reference_background" -- without this translation those
+        exclusions are silently ignored.
+        """
+        excluded = dict(self._exclude_frames.get(self._matched_index, {}))
+        if "ref_background" in excluded:
+            excluded["reference_background"] = excluded.pop("ref_background")
+        return excluded
+
+    def notebook_config(self, upconversion_wavelength: float) -> dict:
+        """Current parameters as plain scalars, for the notebook export.
+
+        bg_offset is emitted *resolved*: the panel fits it from marker
+        positions against the averaged background (see _run_from_step),
+        so the markers alone would mean nothing in a notebook.
+        """
+        config = self._current_config()
+        despike = self._get_despike_params("signal")
+        # The offset is fit from plot markers against the averaged
+        # background, so only a already-computed numeric result is
+        # meaningful outside the app; markers alone aren't portable.
+        cached = self._cache.get(self._matched_index, {}) if hasattr(self, "_cache") else {}
+        averaged = cached.get("averaged")
+        resolved_offset = self._fit_bg_offset(averaged) if averaged is not None else None
+        return {
+            "upconversion_wavelength": config.upconversion_wavelength or upconversion_wavelength,
+            "despike_window": despike.window,
+            "despike_threshold": despike.threshold,
+            "bg_smoothing_window": config.bg_smoothing_window,
+            "bg_smoothing_order": config.bg_smoothing_order,
+            "bg_offset": resolved_offset if isinstance(resolved_offset, (int, float)) else None,
+            "edge_left": config.edge_left,
+            "edge_right": config.edge_right,
+            "window_type": config.window_type,
+            "fft_start": config.fft_start,
+            "fft_end": config.fft_end,
+            "hg_left": config.hg_left,
+            "hg_right": config.hg_right,
+            "phase_correction_deg": config.phase_correction_deg,
+            "sample_exposure": config.sample_exposure,
+            "reference_exposure": config.reference_exposure,
+            # Only window_type 4 uses these, but that type is selectable
+            # in the notebook, so it needs the geometry to go with it.
+            "mask_start": config.mask_start,
+            "mask_end": config.mask_end,
+            "mask_transition": config.mask_transition,
+            "mask_factor": config.mask_factor,
+            "exclude_frames": {role: sorted(frames)
+                               for role, frames in config.exclude_frames.items()
+                               if frames},
+        }
 
     def _current_step(self) -> str:
         for step, rb in self._step_radios.items():

@@ -15,7 +15,9 @@ Filter → iFFT → Normalization** to inspect the effect of each stage:
 Same idea as the homodyne panel: per-component despike window/
 threshold, a **Show flagged spikes** checkbox to preview which points
 the current settings would flag, and per-component frame exclusion,
-each in their own dock.
+each in their own dock. The starting values differ by channel for the
+same reason as in homodyne — Sample and Reference at window 50 /
+threshold 20, their backgrounds at window 300 / threshold 10.
 
 ## Background subtraction + edge window
 
@@ -88,6 +90,36 @@ reprocess after a brief pause (~400ms) — you generally don't need to
 click Process yourself after every small tweak. Purely visual toggles
 (checkboxes, the step selector) redraw almost immediately (~50ms)
 without reprocessing.
+
+## Export to a notebook
+
+Right-click a matched set and choose **Export processing notebook…** to
+write a Jupyter notebook that walks the HD-SFG pipeline one stage at a
+time — despike, average and interpolate, background subtraction and
+edge taper, FFT filter, normalization — with your current parameters
+pre-filled as editable form fields. It is the clearest way to see what
+the FFT window or the edge taper is actually doing: the filter plot
+shows the mask drawn over the signal it's cutting, and sample and
+reference are plotted separately at every stage that changes them.
+
+Each stage is two cells: a **compute** cell that does the work, and a
+**plot** cell that draws it, so you can replace either without
+disturbing the other. The embedded data, the processing package and the
+setup are collapsed behind named cells you can expand if you want to.
+
+The notebook is completely self-contained: the four raw files *and* the
+processing code are embedded, so it runs on
+[Google Colab](https://colab.research.google.com) with nothing to upload
+and nothing to install. It records which version of the app exported
+it, when, and from which files. The final cell writes a CSV with the
+usual provenance header, which loads straight back into the **Spectra
+Library** via *Add spectra from file*.
+
+!!! note "Background offset"
+    The offset is fitted from the markers you place against *this* set's
+    averaged background, so the notebook receives the resolved number
+    rather than the marker positions — the markers alone wouldn't
+    reproduce it elsewhere.
 
 Continue to **Spectra Library** to view, compare, and export what you've
 processed.

@@ -11,6 +11,8 @@ from sfg_app2.app.utils.plotting_settings import PlottingSettings
 from sfg_app2.app.utils.matching_settings import MatchingProfileManager
 from sfg_app2.app.utils.color_coding_settings import ColorCodingSettings
 from sfg_app2.app.utils.dock_layout_settings import DockLayoutSettings
+from sfg_app2.app.utils.calibration_settings import CalibrationSettings
+from sfg_app2.app.utils.file_format_settings import FileFormatSettings
 from sfg_app2.app.utils.appearance_settings import AppearanceSettings, THEMES
 from sfg_app2.app.utils.fitting_display_settings import FittingDisplaySettings
 from sfg_app2.app.widgets.image_window import ImageWindow
@@ -33,6 +35,8 @@ class MainWindow(QMainWindow):
         self.plotting_settings = PlottingSettings()
         self.plotting_settings.apply_current()
         self.color_coding_settings = ColorCodingSettings()
+        self.file_format_settings = FileFormatSettings()
+        self.calibration_settings = CalibrationSettings()
         self.appearance_settings = AppearanceSettings()
         self.dock_layout_settings = DockLayoutSettings()
         self.fitting_display_settings = FittingDisplaySettings()
@@ -75,7 +79,7 @@ class MainWindow(QMainWindow):
         self._replace_tab(1, self.process_review_tab, "Process / Review")
         self.process_review_tab.processing_complete.connect(self._on_processing_complete)
 
-        self.processed_results_tab = ProcessedResultsTab()
+        self.processed_results_tab = ProcessedResultsTab(plotting_settings=self.plotting_settings)
         self.processed_results_tab.restore_dock_state(self.dock_layout_settings.get("results"))
         self._replace_tab(2, self.processed_results_tab, "Spectra Library")
 
@@ -152,6 +156,10 @@ class MainWindow(QMainWindow):
         load_match_menu.addSeparator()
         load_match_menu.addAction(self.ui.actionSet_auto_matching_parameters)
         load_match_menu.addAction(self.ui.actionSet_color_coding)
+        load_match_menu.addSeparator()
+        self._file_format_action = QAction("File import options...", self)
+        self._file_format_action.triggered.connect(self._on_set_file_format)
+        load_match_menu.addAction(self._file_format_action)
 
         plotting_menu = menu.addMenu("Plotting")
         plotting_menu.addAction(self.ui.actionSet_plotting_settings)
@@ -167,6 +175,18 @@ class MainWindow(QMainWindow):
             self._on_toggle_fitting_peak_coloring
         )
         fitting_menu.addAction(self._fitting_color_by_peak_action)
+
+        # Whole-configuration transfer, so a working setup can be handed
+        # to someone else rather than re-created by hand. Applies across
+        # every submenu above, so it sits after them rather than inside
+        # any one of them.
+        menu.addSeparator()
+        self._export_settings_action = QAction("Export settings...", self)
+        self._export_settings_action.triggered.connect(self._on_export_settings)
+        menu.addAction(self._export_settings_action)
+        self._import_settings_action = QAction("Import settings...", self)
+        self._import_settings_action.triggered.connect(self._on_import_settings)
+        menu.addAction(self._import_settings_action)
 
     def _on_toggle_fitting_peak_coloring(self, checked: bool):
         self.fitting_display_settings.color_parameter_table_by_peak = checked
@@ -415,13 +435,89 @@ class MainWindow(QMainWindow):
             fields = sorted({
                 field
                 for pattern in self.pattern_manager.active_patterns
-                for field in pattern
+                for field in pattern.field_names()
             })
 
         dialog = ColorCodingSettingsDialog(self.color_coding_settings, fields, parent=self)
         if dialog.exec():
             self.load_match_tab.refresh_color_coding()
             self.statusBar().showMessage("Filename color-coding settings updated.")
+
+    def _on_export_settings(self):
+        from sfg_app2.app.dialogs.settings_bundle_dialog import SettingsBundleDialog
+        from sfg_app2.app.utils import settings_bundle
+
+        chooser = SettingsBundleDialog("export", parent=self)
+        if not chooser.exec():
+            return
+        keys = chooser.selected_keys()
+        if not keys:
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export settings", "sfg-app-settings.zip", "Settings bundle (*.zip)")
+        if not path:
+            return
+        if not path.lower().endswith(".zip"):
+            path += ".zip"
+        try:
+            written = settings_bundle.export_bundle(path, keys)
+        except Exception as e:
+            logger.error("Settings export failed: %s", e, exc_info=True)
+            QMessageBox.warning(self, "Couldn't export settings", str(e))
+            return
+        self.statusBar().showMessage(f"Exported {len(written)} settings part(s).")
+
+    def _on_import_settings(self):
+        from sfg_app2.app.dialogs.settings_bundle_dialog import SettingsBundleDialog
+        from sfg_app2.app.utils import settings_bundle
+
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Import settings", "", "Settings bundle (*.zip)")
+        if not path:
+            return
+        try:
+            manifest = settings_bundle.read_manifest(path)
+        except ValueError as e:
+            QMessageBox.warning(self, "Couldn't read that bundle", str(e))
+            return
+
+        chooser = SettingsBundleDialog("import", manifest.get("parts", []), parent=self)
+        if not chooser.exec():
+            return
+        keys = chooser.selected_keys()
+        if not keys:
+            return
+        try:
+            restored = settings_bundle.import_bundle(path, keys)
+        except Exception as e:
+            logger.error("Settings import failed: %s", e, exc_info=True)
+            QMessageBox.warning(self, "Couldn't import settings", str(e))
+            return
+
+        QMessageBox.information(
+            self, "Settings imported",
+            f"Restored {len(restored)} settings part(s).\n\n"
+            "Restart the app for all of them to take effect — several are "
+            "read once at startup.",
+        )
+
+    def _on_set_file_format(self, sample_path=None):
+        """Import options, optionally opened against a file that failed
+        to load so the mapping can be fixed where the problem is."""
+        from sfg_app2.app.dialogs.file_format_dialog import FileFormatDialog
+
+        dialog = FileFormatDialog(
+            self.file_format_settings.options, sample_path=sample_path, parent=self)
+        if not dialog.exec():
+            return False
+        if not self.file_format_settings.set_options(dialog.options()):
+            QMessageBox.warning(
+                self, "Couldn't save settings",
+                "File import options could not be saved to disk. They will "
+                "apply for this session but won't persist.",
+            )
+        self.statusBar().showMessage("File import options updated.")
+        return True
 
     def _on_about(self):
         from sfg_app2.app.dialogs.about_dialog import AboutDialog

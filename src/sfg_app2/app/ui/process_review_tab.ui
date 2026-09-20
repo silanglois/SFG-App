@@ -73,7 +73,7 @@
       <item>
        <widget class="QPushButton" name="calibrateButton">
         <property name="text">
-         <string>▶ Calibrate with polystyrene...</string>
+         <string>▶ Calibrate...</string>
         </property>
        </widget>
       </item>
@@ -103,13 +103,6 @@
      </property>
      <widget class="QWidget" name="leftPanelWidget" native="true">
       <layout class="QVBoxLayout" name="verticalLayout">
-       <item>
-        <widget class="QPushButton" name="reviewReferencesButton">
-         <property name="text">
-          <string>Review references</string>
-         </property>
-        </widget>
-       </item>
        <item>
         <widget class="QLabel" name="label_2">
          <property name="font">

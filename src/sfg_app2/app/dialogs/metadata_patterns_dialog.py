@@ -7,13 +7,15 @@ from pathlib import Path
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
-    QAbstractItemView, QComboBox, QDialog, QListWidgetItem, QMessageBox, QVBoxLayout,
+    QAbstractItemView, QComboBox, QDialog, QFormLayout, QLabel, QLineEdit,
+    QListWidgetItem, QMessageBox, QVBoxLayout,
 )
 
 from sfg_app2.app.ui.ui_metadata_patterns_dialog import Ui_Dialog
-from sfg_app2.app.utils.pattern_manager import PatternManager
+from sfg_app2.app.utils.pattern_manager import PatternManager, positional_length
 from sfg_app2.app.utils.preset_tree import find_node, iter_leaves
 from sfg_app2.app.widgets.preset_tree_widget import PresetTreeWidget
+from sfg_app2.processing.data_file import FilenamePattern
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +54,7 @@ class MetadataPatternsDialog(QDialog):
         self._tree: list[dict] = copy.deepcopy(pattern_manager.tree)
         self._current_leaf_id: str | None = None
 
+        self._setup_mode_controls()
         self._setup_fields_list()
         self._setup_saved_patterns_tree()
         self._connect_signals()
@@ -61,11 +64,46 @@ class MetadataPatternsDialog(QDialog):
         # nothing selected yet — disable editor
         self._set_editor_enabled(False)
 
+    def _setup_mode_controls(self):
+        """Match-mode row, inserted above the fields list.
+
+        Built in code rather than in the .ui file: the .ui and its
+        generated ui_*.py are hand-maintained here, so editing both by
+        hand just to add three rows invites them drifting apart.
+        """
+        self._mode_combo = QComboBox()
+        self._mode_combo.addItem("Split on a separator", "positional")
+        self._mode_combo.addItem("Regular expression", "regex")
+
+        self._delimiter_edit = QLineEdit("_")
+        self._delimiter_edit.setMaxLength(4)
+        self._delimiter_edit.setFixedWidth(60)
+        self._delimiter_edit.setToolTip("Character the filename is split on.")
+
+        self._regex_edit = QLineEdit()
+        self._regex_edit.setPlaceholderText(r"^(?P<sample>[^-]+)-(?P<polarization>\w+)$")
+        self._regex_edit.setToolTip(
+            "Named groups become the metadata fields. Use this when two "
+            "layouts have the same number of parts -- splitting alone "
+            "can't tell those apart."
+        )
+
+        form = QFormLayout()
+        form.setContentsMargins(0, 0, 0, 0)
+        self._delimiter_label = QLabel("Separator:")
+        self._regex_label = QLabel("Expression:")
+        form.addRow("Match by:", self._mode_combo)
+        form.addRow(self._delimiter_label, self._delimiter_edit)
+        form.addRow(self._regex_label, self._regex_edit)
+        # After the pattern-name row, before the fields list.
+        self.ui.verticalLayout_3.insertLayout(2, form)
+
     def _setup_saved_patterns_tree(self):
         layout = QVBoxLayout(self.ui.savedPatternsPlaceholder)
         layout.setContentsMargins(0, 0, 0, 0)
         self._tree_widget = PresetTreeWidget(
-            leaf_data_factory=lambda: {"fields": ["sample"]},
+            leaf_data_factory=lambda: {"fields": ["sample"], "delimiter": "_",
+                                       "mode": "positional", "regex": ""},
             new_leaf_name="New Pattern",
         )
         self._tree_widget.leafSelected.connect(self._on_pattern_selected)
@@ -107,6 +145,9 @@ class MetadataPatternsDialog(QDialog):
 
         # editor
         self.ui.patternNamemLineEdit.textChanged.connect(self._on_name_changed)
+        self._mode_combo.currentIndexChanged.connect(self._on_mode_changed)
+        self._delimiter_edit.textChanged.connect(self._on_editor_changed)
+        self._regex_edit.textChanged.connect(self._on_editor_changed)
         self.ui.addFieldButton.clicked.connect(self._on_add_field)
         self.ui.moveUpButton.clicked.connect(self._on_move_up)
         self.ui.moveDownButton.clicked.connect(self._on_move_down)
@@ -168,9 +209,16 @@ class MetadataPatternsDialog(QDialog):
         target = find_node(self._tree, leaf_id)
         if target is None:
             return None
-        target_len = len(target["data"]["fields"])
+        target_len = positional_length(target)
+        if target_len is None:
+            # Regex patterns are picked by inspecting the filename, not by
+            # token count, so they can't collide with anything.
+            target["active"] = True
+            self._tree_widget.refresh_labels()
+            self._update_active_lengths_label()
+            return None
         for p in self._all_patterns():
-            if p["id"] != leaf_id and p.get("active") and len(p["data"]["fields"]) == target_len:
+            if p["id"] != leaf_id and p.get("active") and positional_length(p) == target_len:
                 # show inline warning with a resolve option
                 reply = QMessageBox.question(
                     self,
@@ -197,10 +245,13 @@ class MetadataPatternsDialog(QDialog):
         self.ui.conflictWarningLabel.setVisible(bool(text))
 
     def _update_active_lengths_label(self):
-        lengths = sorted(
-            len(p["data"]["fields"]) for p in self._all_patterns() if p.get("active")
-        )
+        active = [p for p in self._all_patterns() if p.get("active")]
+        lengths = sorted(n for n in (positional_length(p) for p in active)
+                         if n is not None)
         text = ", ".join(str(l) for l in lengths) if lengths else "none"
+        n_regex = sum(1 for p in active if positional_length(p) is None)
+        if n_regex:
+            text += f" (+{n_regex} by expression)"
         self.ui.activeLengthsLabel.setText(f"Active lengths: {text}")
 
     # ── Editor ────────────────────────────────────────────────────────────────
@@ -208,6 +259,9 @@ class MetadataPatternsDialog(QDialog):
     def _set_editor_enabled(self, enabled: bool):
         for w in [
             self.ui.patternNamemLineEdit,
+            self._mode_combo,
+            self._delimiter_edit,
+            self._regex_edit,
             self.ui.fieldsListWidget,
             self.ui.addFieldButton,
             self.ui.moveUpButton,
@@ -216,12 +270,58 @@ class MetadataPatternsDialog(QDialog):
             self.ui.parsedResultTextEdit,
         ]:
             w.setEnabled(enabled)
+        if enabled:
+            self._apply_mode_visibility()
+
+    def _apply_mode_visibility(self):
+        """In regex mode the fields come from the expression's named
+        groups, so the hand-built field list has nothing to say."""
+        is_regex = self._mode_combo.currentData() == "regex"
+        for w in (self._regex_label, self._regex_edit):
+            w.setVisible(is_regex)
+        for w in (self._delimiter_label, self._delimiter_edit):
+            w.setVisible(not is_regex)
+        for w in (self.ui.fieldsListWidget, self.ui.addFieldButton,
+                  self.ui.moveUpButton, self.ui.moveDownButton, self.ui.label_3):
+            w.setVisible(not is_regex)
+
+    def _on_mode_changed(self):
+        self._apply_mode_visibility()
+        self._on_editor_changed()
+
+    def _on_editor_changed(self):
+        self._save_current_fields_to_pattern()
+        self._update_preview()
+        self._update_active_lengths_label()
+
+    def _editor_pattern(self) -> FilenamePattern:
+        """The pattern as the editor currently describes it -- the single
+        source of truth for both saving and the preview, so the preview
+        can't drift from what loading will actually do."""
+        return FilenamePattern(
+            fields=self._get_current_fields(),
+            delimiter=self._delimiter_edit.text() or "_",
+            mode=self._mode_combo.currentData() or "positional",
+            regex=self._regex_edit.text(),
+        )
 
     def _load_pattern_into_editor(self, leaf: dict):
+        pattern = FilenamePattern.coerce(leaf["data"] or {})
         self.ui.patternNamemLineEdit.blockSignals(True)
         self.ui.patternNamemLineEdit.setText(leaf["name"])
         self.ui.patternNamemLineEdit.blockSignals(False)
-        self._rebuild_fields_list(leaf["data"]["fields"])
+
+        for widget, value in ((self._delimiter_edit, pattern.delimiter),
+                              (self._regex_edit, pattern.regex)):
+            widget.blockSignals(True)
+            widget.setText(value)
+            widget.blockSignals(False)
+        self._mode_combo.blockSignals(True)
+        self._mode_combo.setCurrentIndex(max(self._mode_combo.findData(pattern.mode), 0))
+        self._mode_combo.blockSignals(False)
+
+        self._rebuild_fields_list(pattern.fields)
+        self._apply_mode_visibility()
         self._update_preview()
 
     def _on_name_changed(self, text: str):
@@ -280,7 +380,7 @@ class MetadataPatternsDialog(QDialog):
             return
         leaf = find_node(self._tree, self._current_leaf_id)
         if leaf is not None:
-            leaf["data"]["fields"] = self._get_current_fields()
+            leaf["data"] = self._editor_pattern().to_dict()
 
     def _on_fields_reordered(self):
         """After drag-drop, item widgets don't move with items.
@@ -334,34 +434,41 @@ class MetadataPatternsDialog(QDialog):
         return {"role_mode": "suffix", "role_values": DEFAULT_ROLE_SUFFIXES, "role_field": ""}
 
     def _update_preview(self):
+        """Show what this pattern would actually produce.
+
+        Runs the real FilenamePattern rather than re-implementing the
+        split here, so the preview can't quietly disagree with what
+        loading a file will do -- the whole point of having it.
+        """
         from sfg_app2.processing.utils import resolve_role
 
         filename = self.ui.previewFilenameLineEdit.text().strip()
-        fields = self._get_current_fields()
-
-        if not filename or not fields:
+        if not filename:
             self.ui.parsedResultTextEdit.setPlainText("")
             return
 
+        pattern = self._editor_pattern()
         role_kwargs = self._role_kwargs()
-        stem = Path(filename).stem
         clean_stem, matched, _ = resolve_role(
-            stem, role_kwargs["role_mode"], role_kwargs["role_values"]
+            Path(filename).stem, role_kwargs["role_mode"], role_kwargs["role_values"]
         )
-        role = "background" if matched else None
-        parts = clean_stem.split("_")
 
-        lines = []
-        for i, field in enumerate(fields):
-            value = parts[i] if i < len(parts) else "⚠ missing"
-            lines.append(f"{field:<25} → {value}")
+        if pattern.mode == "regex" and not pattern.field_names():
+            self.ui.parsedResultTextEdit.setPlainText(
+                "⚠ No named groups yet — write them as (?P<name>...)."
+                if pattern.regex else "")
+            return
 
-        if len(parts) > len(fields):
-            extra = parts[len(fields):]
-            lines.append(f"{'(extra parts)':<25} → {', '.join(extra)}")
-
-        if role:
-            lines.append(f"{'role':<25} → {role} (stripped)")
+        applies = pattern.match(clean_stem) is not None
+        lines = [f"{key:<25} → {value}"
+                 for key, value in pattern.extract(clean_stem).items()]
+        if not applies:
+            lines.insert(0, "⚠ This pattern would NOT be picked for this file."
+                            if pattern.mode == "regex" else
+                            "⚠ Part count doesn't match — this pattern would "
+                            "not be picked for this file.")
+        if matched:
+            lines.append(f"{'role':<25} → background (stripped)")
 
         self.ui.parsedResultTextEdit.setPlainText("\n".join(lines))
 

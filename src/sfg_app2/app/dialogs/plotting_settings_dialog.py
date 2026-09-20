@@ -7,14 +7,16 @@ import numpy as np
 from aquarel import Theme
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QPushButton,
-    QDialogButtonBox, QMessageBox, QFileDialog,
+    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QDoubleSpinBox,
+    QDialogButtonBox, QMessageBox, QFileDialog, QTreeWidget, QTreeWidgetItem,
 )
 
 from sfg_app2.app.utils.plotting_settings import (
-    PlottingSettings, MATPLOTLIB_DEFAULT, DEFAULT_STYLE, available_styles,
+    PlottingSettings, MATPLOTLIB_DEFAULT, DEFAULT_STYLE,
     apply_rcparams, _load_theme, is_custom_style, delete_custom_style,
+    list_bundled_styles, list_themes, list_custom_styles,
 )
 from sfg_app2.app.dialogs.custom_style_editor_dialog import CustomStyleEditorDialog
 
@@ -48,7 +50,7 @@ class PlottingSettingsDialog(QDialog):
         self._build_ui()
         self._connect_signals()
 
-        self._refresh_style_combo(select=settings.style)
+        self._refresh_style_tree(select=settings.style)
         self._update_preview()
 
     # ── UI ────────────────────────────────────────────────────────────────────
@@ -56,11 +58,11 @@ class PlottingSettingsDialog(QDialog):
     def _build_ui(self):
         layout = QVBoxLayout(self)
 
-        row = QHBoxLayout()
-        row.addWidget(QLabel("Style:"))
-        self._style_combo = QComboBox()
-        row.addWidget(self._style_combo, stretch=1)
-        layout.addLayout(row)
+        layout.addWidget(QLabel("Style:"))
+        self._style_tree = QTreeWidget()
+        self._style_tree.setHeaderHidden(True)
+        self._style_tree.setMaximumHeight(160)
+        layout.addWidget(self._style_tree)
 
         manage_row = QHBoxLayout()
         self._new_button = QPushButton("New from selected style...")
@@ -74,6 +76,16 @@ class PlottingSettingsDialog(QDialog):
         ):
             manage_row.addWidget(button)
         layout.addLayout(manage_row)
+
+        marker_row = QHBoxLayout()
+        marker_row.addWidget(QLabel("Marker size (Spectra Library \"Show as markers\"):"))
+        self._marker_size_spin = QDoubleSpinBox()
+        self._marker_size_spin.setRange(0.5, 20.0)
+        self._marker_size_spin.setSingleStep(0.5)
+        self._marker_size_spin.setValue(self._settings.marker_size)
+        marker_row.addWidget(self._marker_size_spin)
+        marker_row.addStretch()
+        layout.addLayout(marker_row)
 
         self._figure = Figure(figsize=(4, 3), tight_layout=True)
         self._canvas = FigureCanvasQTAgg(self._figure)
@@ -90,7 +102,7 @@ class PlottingSettingsDialog(QDialog):
         layout.addWidget(self._button_box)
 
     def _connect_signals(self):
-        self._style_combo.currentIndexChanged.connect(self._on_selection_changed)
+        self._style_tree.currentItemChanged.connect(self._on_selection_changed)
         self._new_button.clicked.connect(self._on_new_style)
         self._edit_button.clicked.connect(self._on_edit_style)
         self._delete_button.clicked.connect(self._on_delete_style)
@@ -101,34 +113,54 @@ class PlottingSettingsDialog(QDialog):
 
     # ── Style list management ────────────────────────────────────────────────
 
-    def _refresh_style_combo(self, select: str | None = None):
+    def _refresh_style_tree(self, select: str | None = None):
         select = select if select is not None else self._selected_style_or_none()
-        self._style_combo.blockSignals(True)
-        self._style_combo.clear()
-        styles = available_styles()
-        built_in = [s for s in styles if not is_custom_style(s)]
-        custom = [s for s in styles if is_custom_style(s)]
-        for s in built_in:
-            self._style_combo.addItem(_display_name(s), s)
-        if custom:
-            self._style_combo.insertSeparator(self._style_combo.count())
-            for s in custom:
-                self._style_combo.addItem(_display_name(s), s)
-        self._style_combo.blockSignals(False)
+        self._style_tree.blockSignals(True)
+        self._style_tree.clear()
 
-        index = self._style_combo.findData(select)
-        self._style_combo.setCurrentIndex(index if index >= 0 else 0)
+        default_item = QTreeWidgetItem([_display_name(MATPLOTLIB_DEFAULT)])
+        default_item.setData(0, Qt.ItemDataRole.UserRole, MATPLOTLIB_DEFAULT)
+        self._style_tree.addTopLevelItem(default_item)
+
+        selected_item = default_item
+        groups = [
+            ("Bundled", sorted(list_bundled_styles())),
+            ("Aquarel Themes", sorted(list_themes())),
+            ("Custom", list_custom_styles()),
+        ]
+        for group_name, names in groups:
+            if not names:
+                continue
+            group_item = QTreeWidgetItem([group_name])
+            # Group headers organize the tree only -- they aren't a
+            # selectable style, so mouse/keyboard navigation can't land
+            # on one as "the selected style".
+            group_item.setFlags(Qt.ItemFlag.ItemIsEnabled)
+            self._style_tree.addTopLevelItem(group_item)
+            for name in names:
+                leaf = QTreeWidgetItem([_display_name(name)])
+                leaf.setData(0, Qt.ItemDataRole.UserRole, name)
+                group_item.addChild(leaf)
+                if name == select:
+                    selected_item = leaf
+            group_item.setExpanded(True)
+
+        self._style_tree.blockSignals(False)
+        self._style_tree.setCurrentItem(selected_item)
         self._update_button_states()
 
     def _selected_style_or_none(self) -> str | None:
-        return self._style_combo.currentData()
+        item = self._style_tree.currentItem()
+        return item.data(0, Qt.ItemDataRole.UserRole) if item is not None else None
 
     def _update_button_states(self):
         custom = is_custom_style(self._selected_style())
         self._edit_button.setEnabled(custom)
         self._delete_button.setEnabled(custom)
 
-    def _on_selection_changed(self):
+    def _on_selection_changed(self, current: QTreeWidgetItem | None, _previous):
+        if current is None or current.data(0, Qt.ItemDataRole.UserRole) is None:
+            return   # a group header, not an actual style -- ignore
         self._update_button_states()
         self._update_preview()
 
@@ -138,7 +170,7 @@ class PlottingSettingsDialog(QDialog):
         base = _base_theme_for(self._selected_style())
         dialog = CustomStyleEditorDialog(base, parent=self)
         if dialog.exec():
-            self._refresh_style_combo(select=dialog.saved_name)
+            self._refresh_style_tree(select=dialog.saved_name)
 
     def _on_edit_style(self):
         name = self._selected_style()
@@ -147,7 +179,7 @@ class PlottingSettingsDialog(QDialog):
         base = _load_theme(name)
         dialog = CustomStyleEditorDialog(base, existing_name=name, parent=self)
         if dialog.exec():
-            self._refresh_style_combo(select=dialog.saved_name)
+            self._refresh_style_tree(select=dialog.saved_name)
 
     def _on_delete_style(self):
         name = self._selected_style()
@@ -165,7 +197,7 @@ class PlottingSettingsDialog(QDialog):
                 "The custom style file could not be deleted from disk.",
             )
             return
-        self._refresh_style_combo(select=DEFAULT_STYLE)
+        self._refresh_style_tree(select=DEFAULT_STYLE)
 
     # ── Import / export ──────────────────────────────────────────────────────
 
@@ -187,7 +219,7 @@ class PlottingSettingsDialog(QDialog):
         dialog = CustomStyleEditorDialog(theme, parent=self)
         dialog._name_edit.setText(theme.info.get("name", "") or "")
         if dialog.exec():
-            self._refresh_style_combo(select=dialog.saved_name)
+            self._refresh_style_tree(select=dialog.saved_name)
 
     def _on_export_style(self):
         name = self._selected_style()
@@ -214,7 +246,8 @@ class PlottingSettingsDialog(QDialog):
     # ── Preview ───────────────────────────────────────────────────────────────
 
     def _selected_style(self) -> str:
-        return self._style_combo.currentData()
+        item = self._style_tree.currentItem()
+        return item.data(0, Qt.ItemDataRole.UserRole) if item is not None else MATPLOTLIB_DEFAULT
 
     def _update_preview(self):
         style = self._selected_style()
@@ -248,10 +281,12 @@ class PlottingSettingsDialog(QDialog):
     # ── OK ────────────────────────────────────────────────────────────────────
 
     def _on_ok(self):
-        if not self._settings.set_style(self._selected_style()):
+        ok = self._settings.set_style(self._selected_style())
+        ok = self._settings.set_marker_size(self._marker_size_spin.value()) and ok
+        if not ok:
             QMessageBox.warning(
                 self, "Couldn't save settings",
-                "The plotting style could not be saved to disk. "
-                "It will apply for this session but won't persist.",
+                "The plotting settings could not be saved to disk. "
+                "They will apply for this session but won't persist.",
             )
         self.accept()
