@@ -1284,11 +1284,10 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         if not paths:
             return
 
-        from sfg_app2.processing.utils import resolve_role
+        from sfg_app2.processing.utils import resolve_role, select_pattern
         import pandas as pd
 
         patterns = self._get_active_patterns()
-        pattern_map = {len(p): p for p in patterns} if patterns else {}
         role_kwargs = self._get_role_kwargs()
 
         added, skipped, failed, renamed = 0, 0, 0, 0
@@ -1302,7 +1301,7 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
 
                 # parse filename metadata if patterns are active
                 # manual metadata from header always wins (update order matters)
-                if pattern_map:
+                if patterns:
                     from sfg_app2.processing.data_file import DataFile
                     # strip a "Keep Both" duplicate suffix (e.g. "sample1 (2)")
                     # and a Fitting-tab export's "_fit" suffix before parsing
@@ -1313,8 +1312,7 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
                     clean_stem, _, _ = resolve_role(
                         metadata_stem, role_kwargs["role_mode"], role_kwargs["role_values"]
                     )
-                    n_parts = len(clean_stem.split("_"))
-                    fields = pattern_map.get(n_parts)
+                    fields = select_pattern(clean_stem, patterns)
                     if fields:
                         metadata_path = (
                             path.with_stem(metadata_stem)
