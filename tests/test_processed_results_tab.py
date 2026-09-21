@@ -344,3 +344,34 @@ def test_reset_restores_a_trace_hidden_by_an_override(load_entries, make_homodyn
 
     tab._on_reset_trace_styles([entry])
     assert len(_lines(tab)) == 1
+
+
+# ── Add from file ────────────────────────────────────────────────────────
+
+def test_add_from_file_with_active_pattern_does_not_crash(results_tab, tmp_path, monkeypatch):
+    """Regression test: _get_active_patterns() returns FilenamePattern
+    objects (processing/data_file.py), not the pre-refactor bare lists
+    of field names -- _on_add_from_file used to key a dict on len(p),
+    which raised TypeError on the very first FilenamePattern it saw,
+    before any per-file error handling could catch it. The fix routes
+    through select_pattern() (processing/utils.py), same as
+    load_match.py already does."""
+    from sfg_app2.processing.data_file import FilenamePattern
+
+    csv_path = tmp_path / "sample_ssp_sfg.csv"
+    csv_path.write_text("Wavenumber,Intensity\n2800.0,1.0\n2850.0,1.2\n")
+
+    pattern = FilenamePattern(fields=["sample", "polarization", "technique"])
+    monkeypatch.setattr(results_tab, "_get_active_patterns", lambda: [pattern])
+    monkeypatch.setattr(
+        "sfg_app2.app.tabs.processed_results.QFileDialog.getOpenFileNames",
+        lambda *a, **k: ([str(csv_path)], ""),
+    )
+
+    results_tab._on_add_from_file()
+
+    assert len(results_tab._entries) == 1
+    metadata = results_tab._entries[0].spectrum.metadata
+    assert metadata["sample"] == "sample"
+    assert metadata["polarization"] == "ssp"
+    assert metadata["technique"] == "sfg"
