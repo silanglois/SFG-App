@@ -316,12 +316,18 @@ class SavePlotDialog(QDialog):
         self._legend_check.toggled.connect(self._on_setting_changed)
         vbox.addWidget(self._legend_check)
 
-        self._legend_table = QTableWidget(len(self._legend_labels), 1)
-        self._legend_table.setHorizontalHeaderLabels(["Legend label"])
-        self._legend_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self._legend_table = QTableWidget(len(self._legend_labels), 2)
+        self._legend_table.setHorizontalHeaderLabels(["Keep", "Legend label"])
+        header = self._legend_table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self._legend_table.verticalHeader().setVisible(False)
         for row, text in enumerate(self._legend_labels):
-            self._legend_table.setItem(row, 0, QTableWidgetItem(text))
+            keep_item = QTableWidgetItem()
+            keep_item.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled)
+            keep_item.setCheckState(Qt.CheckState.Checked)
+            self._legend_table.setItem(row, 0, keep_item)
+            self._legend_table.setItem(row, 1, QTableWidgetItem(text))
         self._legend_table.itemChanged.connect(self._on_setting_changed)
         vbox.addWidget(self._legend_table)
 
@@ -431,11 +437,23 @@ class SavePlotDialog(QDialog):
             return
         legend.set_visible(show)
 
+        # Individually hiding a row's handle/text (rather than rebuilding
+        # the legend without it) keeps this a pure visibility toggle --
+        # cheap to undo exactly in _restore_original_state(), and it never
+        # risks reconstructing a legend whose original loc/ncol/frameon
+        # some panel chose deliberately. The tradeoff is a blank gap where
+        # a hidden row sat, rather than the remaining rows reflowing.
+        handles = list(legend.legend_handles)
         texts = legend.get_texts()
-        for row in range(min(self._legend_table.rowCount(), len(texts))):
-            item = self._legend_table.item(row, 0)
-            if item is not None:
-                texts[row].set_text(item.text())
+        n = min(len(handles), len(texts), self._legend_table.rowCount())
+        for row in range(n):
+            keep_item = self._legend_table.item(row, 0)
+            keep = keep_item is None or keep_item.checkState() == Qt.CheckState.Checked
+            handles[row].set_visible(keep)
+            texts[row].set_visible(keep)
+            label_item = self._legend_table.item(row, 1)
+            if label_item is not None:
+                texts[row].set_text(label_item.text())
 
     # ── Teardown / export ────────────────────────────────────────────────────
 
@@ -456,7 +474,10 @@ class SavePlotDialog(QDialog):
                 else:
                     legend.set_visible(self._orig_legend_visible)
                     for text, original in zip(legend.get_texts(), self._orig_legend_labels):
+                        text.set_visible(True)
                         text.set_text(original)
+                    for handle in legend.legend_handles:
+                        handle.set_visible(True)
 
     def done(self, result):
         self._restore_original_state()

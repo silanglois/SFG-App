@@ -12,7 +12,7 @@ import matplotlib as mpl
 import numpy as np
 import pytest
 
-from sfg_app2.app.utils import notebook_export, notebook_plotting
+from sfg_app2.app.utils import notebook_export
 
 
 # ── Document shape ────────────────────────────────────────────────────────
@@ -103,67 +103,6 @@ def test_rcparams_snippet_is_executable_python():
         mpl.rcParams.update(before)
 
 
-# ── Payload -> notebook ───────────────────────────────────────────────────
-
-def _payload(tab, entries):
-    return tab._notebook_payload(entries)
-
-
-def test_payload_resolves_colours_and_offsets(load_entries, make_homodyne_entry):
-    tab = load_entries(
-        make_homodyne_entry(label="a"),
-        make_homodyne_entry(label="b"),
-    )
-    payload = _payload(tab, tab._checked_entries())
-
-    assert [t["entry"] for t in payload["traces"]] == ["a", "b"]
-    # Offset slots are per entry, matching the figure.
-    assert [t["offset_slot"] for t in payload["traces"]] == [0, 1]
-    assert all(t["color"].startswith("#") for t in payload["traces"])
-
-
-def test_phase_trace_is_flagged_for_the_twin_axis(load_entries, make_heterodyne_entry):
-    tab = load_entries(make_heterodyne_entry(label="het"))
-    tab._hd_checkboxes["Phase"].setChecked(True)
-    payload = _payload(tab, tab._checked_entries())
-
-    phase = [t for t in payload["traces"] if t["column"] == "Phase"]
-    assert len(phase) == 1
-    assert phase[0]["secondary"] is True
-    assert phase[0]["is_phase"] is True
-
-
-def test_embedded_csv_carries_the_provenance_header(load_entries, make_homodyne_entry):
-    tab = load_entries(make_homodyne_entry(label="a"))
-    payload = _payload(tab, tab._checked_entries())
-    assert payload["entries"][0]["csv"].startswith("# SFG-App export")
-
-
-def test_built_notebook_has_no_fit_section_without_fits(load_entries, make_homodyne_entry):
-    tab = load_entries(make_homodyne_entry())
-    nb = notebook_plotting.build(_payload(tab, tab._checked_entries()))
-    sources = "".join("".join(c["source"]) for c in nb["cells"])
-    assert "Fit parameters" not in sources
-
-
-def test_built_notebook_adds_a_fit_section_when_fits_are_plotted(load_entries, make_fitted_entry):
-    tab = load_entries(make_fitted_entry())
-    tab._fit_checkboxes["Fit total"].setChecked(True)
-    nb = notebook_plotting.build(_payload(tab, tab._checked_entries()))
-    sources = "".join("".join(c["source"]) for c in nb["cells"])
-    assert "Fit parameters" in sources
-
-
-def test_notebook_installs_nothing(load_entries, make_homodyne_entry):
-    """The plotting notebook must be zero-install: everything it imports
-    is preinstalled on Colab."""
-    tab = load_entries(make_homodyne_entry())
-    nb = notebook_plotting.build(_payload(tab, tab._checked_entries()))
-    code = "".join("".join(c["source"]) for c in nb["cells"]
-                   if c["cell_type"] == "code")
-    assert "pip install" not in code
-
-
 # ── The export handlers ───────────────────────────────────────────────────
 # Driving the real slots, not just the builders: the first version of
 # this feature used show_loading() as a context manager (it isn't one,
@@ -183,23 +122,6 @@ def silent_dialogs(monkeypatch, tmp_path):
     monkeypatch.setattr(QMessageBox, "information", staticmethod(lambda *a, **k: None))
     monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: None))
     return target
-
-
-def test_plotting_export_handler_writes_a_notebook(load_entries, make_homodyne_entry,
-                                                   silent_dialogs):
-    tab = load_entries(make_homodyne_entry())
-    tab._on_export_notebook()
-
-    assert silent_dialogs.exists(), "handler ran but wrote nothing"
-    assert json.loads(silent_dialogs.read_text(encoding="utf-8"))["nbformat"] == 4
-
-
-def test_plotting_export_handler_refuses_an_empty_selection(load_entries,
-                                                            make_homodyne_entry,
-                                                            silent_dialogs):
-    tab = load_entries(make_homodyne_entry(checked=False))
-    tab._on_export_notebook()
-    assert not silent_dialogs.exists()
 
 
 def test_processing_export_handler_writes_a_notebook(qtbot, raw_matched_files,
@@ -269,24 +191,6 @@ def test_processing_setup_splits_into_three_hideable_cells(process_tab):
     package = next(src for line, src in hidden.items() if "package" in line)
     assert "_PACKAGE = " in package
     assert "_RAW_FILES" not in package, "blob must hide on its own"
-
-
-def test_plotting_hides_blobs_and_helpers_but_not_the_editable_cells(
-        load_entries, make_homodyne_entry):
-    tab = load_entries(make_homodyne_entry())
-    nb = notebook_plotting.build(tab._notebook_payload(tab._checked_entries()))
-    code = [c for c in nb["cells"] if c["cell_type"] == "code"]
-
-    hidden = ["".join(c["source"]) for c in code if _is_hidden(c)]
-    assert any("_EMBEDDED" in s for s in hidden)
-    assert any("wrap_phase_for_plot" in s for s in hidden)
-    assert any("import matplotlib" in s for s in hidden)
-
-    # The cells the notebook exists for stay open.
-    shown = ["".join(c["source"]) for c in code if not _is_hidden(c)]
-    assert any("#@param" in s for s in shown), "parameter form must stay readable"
-    assert any("# TRACE" in s for s in shown)
-    assert any("# DECORATE" in s for s in shown)
 
 
 def test_processing_stage_cells_stay_visible(process_tab):
@@ -394,29 +298,6 @@ def test_type_4_mask_geometry_reaches_the_notebook(process_tab):
     assert "mask_start=123" in source
 
 
-def test_markers_mode_reaches_the_plotting_payload(load_entries, make_homodyne_entry):
-    """'Show data as markers' is applied when drawing, so a notebook that
-    ignores it draws lines where the screen shows points."""
-    tab = load_entries(make_homodyne_entry())
-    tab._markers_checkbox.setChecked(True)
-
-    trace = tab._notebook_payload(tab._checked_entries())["traces"][0]
-    assert trace["marker"] == "o"
-    assert trace["linestyle"] == "None"
-
-
-def test_markers_mode_does_not_touch_fits(load_entries, make_fitted_entry):
-    """Only data traces become markers -- fits stay as lines, matching
-    _draw_specs."""
-    tab = load_entries(make_fitted_entry())
-    tab._fit_checkboxes["Fit total"].setChecked(True)
-    tab._markers_checkbox.setChecked(True)
-
-    fits = [t for t in tab._notebook_payload(tab._checked_entries())["traces"]
-            if t["is_fit"]]
-    assert fits and all(t["marker"] != "o" for t in fits)
-
-
 def test_heterodyne_notebook_plots_amplitude_and_error_bands(process_tab):
     """The app's HD-SFG panel offers |chi|^2 and 95% CI bands; the
     notebook should not quietly drop them."""
@@ -466,49 +347,6 @@ def test_missing_sources_raise_rather_than_shipping_an_empty_bundle(monkeypatch,
     monkeypatch.setattr(notebook_export, "processing_source_dir", lambda: tmp_path / "gone")
     with pytest.raises(notebook_export.ProcessingSourceUnavailable):
         notebook_export.build_source_bundle()
-
-
-# ── The one that matters ──────────────────────────────────────────────────
-
-@pytest.mark.slow
-def test_generated_notebook_runs_end_to_end(load_entries, make_homodyne_entry,
-                                            make_heterodyne_entry, tmp_path):
-    """Generate a notebook from live tab state and execute it.
-
-    Covers both spectrum kinds, a twin-axis Phase trace and error bands,
-    since those are where the reproduction is most likely to drift from
-    what the app draws.
-    """
-    nbformat = pytest.importorskip("nbformat")
-    nbclient = pytest.importorskip("nbclient")
-
-    tab = load_entries(
-        make_homodyne_entry(label="sample_ssp"),
-        make_heterodyne_entry(label="gold_ref"),
-    )
-    tab._hd_checkboxes["Phase"].setChecked(True)
-    tab.ui.hdCheckShowError.setChecked(True)
-    tab.ui.offsetSpectraSpinner.setValue(0.5)
-    tab._refresh_plot()
-
-    payload = tab._notebook_payload(tab._checked_entries())
-    payload["output_name"] = str(tmp_path / "figure")
-    path = tmp_path / "exported.ipynb"
-    notebook_export.write_notebook(notebook_plotting.build(payload), path)
-
-    nb = nbformat.read(path, as_version=4)
-    nbclient.NotebookClient(
-        nb, timeout=180, kernel_name="python3", resources={"metadata": {"path": str(tmp_path)}},
-    ).execute()
-
-    errors = [o for cell in nb.cells for o in cell.get("outputs", [])
-              if o.get("output_type") == "error"]
-    assert not errors, errors[0].get("evalue")
-
-    figures = [o for cell in nb.cells for o in cell.get("outputs", [])
-               if "image/png" in o.get("data", {})]
-    assert figures, "notebook ran but rendered no figure"
-    assert (tmp_path / "figure.png").exists(), "save cell wrote nothing"
 
 
 def _run_notebook(path, workdir):

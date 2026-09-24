@@ -64,38 +64,17 @@ regions of interest in a figure.
   shows how many that is.
 - Each panel's plot can be saved via a **WYSIWYG export dialog**
   (PNG/TIFF/SVG) with a live preview that matches exactly what will
-  be written to disk.
+  be written to disk. Its legend section lists every entry currently
+  in the legend, each with its own checkbox and an editable label —
+  untick a row to leave it out of the saved/copied image, or rename it,
+  without touching the on-screen plot. This dialog is shared across the
+  app, so the same controls are available from any plot that has its
+  own "💾 Save plot" button (the Spectra Library, the Fitting tab, ...).
 
-## Export to a notebook
-
-**Export notebook…** writes a Jupyter notebook that reproduces the
-current figure, for when you want full control over a plot the app's
-controls don't reach.
-
-It is completely self-contained. The ticked spectra are embedded in the
-notebook itself and it installs nothing, so it runs as-is on
-[Google Colab](https://colab.research.google.com) with no files to
-upload. It records which version of the app exported it, when, and
-which spectra went into it.
-
-The figure is built across several cells rather than one: a **setup**
-cell that makes the axes, **one cell per trace**, and a **decorate**
-cell for the axis labels, limits and legend. Each trace cell is a
-single `plot()` call with its color, style and label already filled in,
-so you can restyle one line, delete it, or copy it to add your own,
-without unpicking the rest. Form fields control normalization, offsets,
-the phase range and the output format; re-run the trace and decorate
-cells after changing them.
-
-Note that the figure uses plain matplotlib styling rather than the
-app's current plotting style, and doesn't invert the wavenumber axis
-unless you ask it to — the point of the export is a neutral starting
-point you control, not a copy of the on-screen look. What each trace
-looked like *individually* does travel: colors, line styles and markers
-come across as you set them.
-
-If a spectrum carries a fit, its curves are plotted alongside the data
-and its parameters are printed with their uncertainties.
+In the Fit components panel, **Hide fit traces from legend** keeps
+fit-derived curves on screen but drops them from the legend — handy
+once a fit's curves start crowding out the data traces. It's
+session-only and resets on restart.
 
 !!! tip "Processing notebooks"
     The Process / Review tab has a matching export: right-click a

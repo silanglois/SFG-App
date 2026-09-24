@@ -1,9 +1,7 @@
 """Generate self-contained, Colab-ready notebooks from app state.
 
-Two kinds are produced (see the builders in `notebook_plotting` and
-`notebook_processing`): one that re-plots a set of Spectra Library
-spectra so the figure can be tuned freely, and one that reproduces a
-matched set's processing pipeline.
+See the builder in `notebook_processing`, which reproduces a matched
+set's processing pipeline for the Process & Review tab.
 
 Everything here is Qt-free so it can be tested without a GUI, and
 every notebook is standalone: data is embedded, not referenced by path,
