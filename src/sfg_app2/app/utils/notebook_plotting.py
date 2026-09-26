@@ -1,107 +1,113 @@
-"""Build a self-contained plotting notebook from Spectra Library state.
+"""Build a self-contained plotting notebook from a plain matplotlib Axes.
 
 The point of this notebook is full control over the figure, so it
-reproduces what the app currently draws and then gets out of the way:
-the traces are written as explicit per-trace `ax.plot()` calls with
-their colours and labels already resolved, so any line can be edited
-directly instead of through a helper.
+reproduces exactly what's currently plotted and then gets out of the
+way: each line becomes an explicit, editable `ax.plot()` call with its
+color/style/label already resolved. It works from any plot in the app
+-- it reads real trace data straight off the Axes (`Line2D.get_xdata()`/
+`get_ydata()`), not from any tab-specific data model, so it carries no
+processing history/provenance and no per-tab concepts (fits, metadata,
+normalization modes) -- just lines.
 
 It installs nothing -- numpy/pandas/matplotlib are preinstalled on
-Colab, the spectra are embedded, and the figure uses matplotlib's
-default style rather than the app's -- only the resolved trace
-colours/styles travel across, as literal values per `ax.plot()` call.
+Colab, and the data is embedded, not referenced by path.
 
-The input is a plain dict (see `PlotPayload` in the docstring of
-`build`), not app objects, so this module stays Qt-free.
+`build_payload()` is the only function that touches matplotlib objects;
+`build()` takes the plain dict it returns, so this module is easy to
+exercise without ever creating a Qt widget.
 """
 from __future__ import annotations
+
+import numpy as np
+import pandas as pd
+import matplotlib as mpl
 
 from .notebook_export import (
     app_version, as_literal, code_cell, encode_text, markdown_cell, notebook,
     timestamp as _timestamp,
 )
 
-# wrap_phase_for_plot is ~40 lines of pure numpy; the notebook needs the
-# identical algorithm or phase traces break at different places than they
-# do in the app. Inlined verbatim rather than approximated.
-_PHASE_HELPER = '''
-def wrap_phase_for_plot(y, wrap):
-    """Fold phase into the chosen display window, breaking the line only
-    where the continuous phase crosses that window's own seam.
 
-    Copied verbatim from the app so phase traces break in the same
-    places. A plain np.mod() fold would heal one seam and open an
-    artificial one at the other boundary.
+def is_overlay_line(xd, yd) -> bool:
+    """True for a 2-point axhline/axvline artist, which store one of their
+    two coordinate arrays as [0, 1] in axes-fraction space rather than real
+    data -- axhline puts that placeholder in xdata, axvline in ydata, so
+    both must be checked or the un-checked one leaks into range/autoscale
+    computations (or, here, into the exported notebook) as if it were real
+    plotted data."""
+    return ((len(xd) == 2 and np.allclose(xd, [0.0, 1.0])) or
+            (len(yd) == 2 and np.allclose(yd, [0.0, 1.0])))
+
+
+def _line_style(line) -> dict:
+    marker = line.get_marker()
+    label = line.get_label() or ""
+    return {
+        "label": "" if label.startswith("_") else label,
+        "color": mpl.colors.to_hex(line.get_color(), keep_alpha=False),
+        "linestyle": line.get_linestyle(),
+        "marker": None if marker in (None, "None", "") else marker,
+        "markersize": line.get_markersize(),
+        "linewidth": line.get_linewidth(),
+        "alpha": line.get_alpha(),
+    }
+
+
+def build_payload(ax, ax2=None, *, output_name: str = "figure",
+                   output_format: str = "png") -> dict:
+    """Flatten one Axes (plus its optional twin) into the plain dict
+    `build()` consumes.
+
+    Only real `Line2D` data survives -- fill_between error bands and
+    errorbar caps aren't Line2D children and are silently omitted, and
+    axhline/axvline placeholders are excluded via is_overlay_line(). A
+    proxy legend handle (e.g. homodyne_panel's "minimized legend" mode,
+    built as an mlines.Line2D never added to the axes) is likewise
+    invisible here since it's never in ax.get_lines() -- the real data
+    line it stands in for is plotted separately and is picked up as
+    usual.
     """
-    y = np.asarray(y, dtype=float)
-    finite = np.isfinite(y)
-    if finite.all():
-        filled = y
-    else:
-        filled = y.copy()
-        idx = np.arange(len(y))
-        if finite.any():
-            filled[~finite] = np.interp(idx[~finite], idx[finite], y[finite])
-        else:
-            filled[:] = 0.0
+    traces = []
+    for axis, secondary in ((ax, False), (ax2, True)):
+        if axis is None:
+            continue
+        for line in axis.get_lines():
+            xd = np.asarray(line.get_xdata(), dtype=float)
+            yd = np.asarray(line.get_ydata(), dtype=float)
+            if not len(xd) or is_overlay_line(xd, yd):
+                continue
+            trace = _line_style(line)
+            trace["id"] = f"t{len(traces)}"
+            trace["secondary"] = secondary
+            trace["csv"] = pd.DataFrame({"x": xd, "y": yd}).to_csv(index=False)
+            traces.append(trace)
 
-    continuous = np.unwrap(filled, period=360.0)
-    folded = np.mod(continuous, 360.0) if wrap else np.mod(continuous + 180.0, 360.0) - 180.0
-
-    turns = np.round((continuous - folded) / 360.0)
-    breaks = np.diff(turns) != 0
-    folded = folded.copy()
-    folded[1:][breaks] = np.nan
-    folded[~finite] = np.nan
-    return folded
-'''
-
-_NORM_HELPER = '''
-def norm_factor(x, y):
-    """Scale factor for one trace, matching the app's Data display modes.
-
-    Kept as a function because the mode is a live form field above --
-    inlining three branches into every trace would make the plot cell
-    unreadable and unedittable, which is the opposite of the point.
-    """
-    if NORMALIZATION == "none":
-        return 1.0
-    if NORMALIZATION == "at wavenumber":
-        ref = y[np.argmin(np.abs(x - NORMALIZE_AT))]
-        # magnitude, not signed value: a negative reference point must
-        # not flip the whole trace
-        return 1.0 / abs(ref) if ref != 0 else 1.0
-    if NORMALIZATION == "to peak":
-        visible = y
-        if X_MIN != X_MAX:
-            mask = (x >= min(X_MIN, X_MAX)) & (x <= max(X_MIN, X_MAX))
-            if mask.any():
-                visible = y[mask]
-        peak = np.nanmax(np.abs(visible))
-        return 1.0 / peak if peak != 0 else 1.0
-    return 1.0
-'''
-
-_NORM_CHOICES = ["none", "at wavenumber", "to peak"]
+    width, height = ax.figure.get_size_inches()
+    return {
+        "title": ax.get_title(),
+        "x_label": ax.get_xlabel(),
+        "y_label": ax.get_ylabel(),
+        "y_label2": ax2.get_ylabel() if ax2 is not None else None,
+        "x_range": tuple(ax.get_xlim()),
+        "figsize": (float(width), float(height)),
+        "dpi": 150,
+        "output_name": output_name,
+        "output_format": output_format,
+        "traces": traces,
+    }
 
 
 def _params_cell(payload: dict) -> str:
-    norm = payload["normalization"]
-    mode = _NORM_CHOICES[norm.get("mode", 0)]
     x_range = payload.get("x_range") or (0.0, 0.0)
     figsize = payload.get("figsize", (6.4, 4.8))
     return f"""
 #@title Figure settings {{ run: "auto" }}
-#@markdown Re-run the plot cell after changing anything here.
+#@markdown Re-run the trace and decorate cells after changing anything here.
 
-NORMALIZATION = {as_literal(mode)}  #@param ["none", "at wavenumber", "to peak"]
-NORMALIZE_AT = {as_literal(float(norm.get("target", 0.0)))}  #@param {{type:"number"}}
 OFFSET_STEP = {as_literal(float(payload.get("offset_step", 0.0)))}  #@param {{type:"number"}}
 X_MIN = {as_literal(float(x_range[0]))}  #@param {{type:"number"}}
 X_MAX = {as_literal(float(x_range[1]))}  #@param {{type:"number"}}
 INVERT_X = {as_literal(bool(payload.get("invert_x", False)))}  #@param {{type:"boolean"}}
-PHASE_0_360 = {as_literal(bool(payload.get("phase_wrap_0_360", False)))}  #@param {{type:"boolean"}}
-SHOW_ERROR_BANDS = {as_literal(bool(payload.get("show_error", False)))}  #@param {{type:"boolean"}}
 
 FIG_WIDTH = {as_literal(float(figsize[0]))}  #@param {{type:"number"}}
 FIG_HEIGHT = {as_literal(float(figsize[1]))}  #@param {{type:"number"}}
@@ -113,39 +119,26 @@ OUTPUT_FORMAT = {as_literal(payload.get("output_format", "png"))}  #@param ["png
 
 
 def _data_cell(payload: dict) -> str:
-    blobs = {e["label"]: encode_text(e["csv"]) for e in payload["entries"]}
-    lines = ["_EMBEDDED = {"]
-    for label, blob in blobs.items():
-        lines.append(f"    {as_literal(label)}: {as_literal(blob)},")
+    blobs = {t["id"]: encode_text(t["csv"]) for t in payload["traces"]}
+    lines = ["_ENCODED = {"]
+    for tid, blob in blobs.items():
+        lines.append(f"    {as_literal(tid)}: {as_literal(blob)},")
     lines.append("}")
     lines.append("")
     lines.append('''
-# Each blob is the app's own CSV export, provenance header and all, so
-# these spectra are byte-identical to "Export plotted" -- and can be
-# loaded straight back into the Spectra Library.
-spectra = {}
-for _label, _blob in _EMBEDDED.items():
+_TRACES = {}
+for _id, _blob in _ENCODED.items():
     _text = gzip.decompress(base64.b64decode(_blob)).decode("utf-8")
-    _df = pd.read_csv(io.StringIO(_text), comment="#")
-    if "Frame" in _df.columns:
-        # Homodyne exports keep every frame; the app plots the averaged one.
-        _df = _df[_df["Frame"] == _df["Frame"].iloc[0]]
-    spectra[_label] = _df.reset_index(drop=True)
+    _TRACES[_id] = pd.read_csv(io.StringIO(_text))
 
-print(f"{len(spectra)} spectra:", ", ".join(spectra))
+print(f"{len(_TRACES)} traces:", ", ".join(_TRACES))
 '''.strip())
-    lines.append("")
-    lines.append("# Uncomment to swap in your own exported CSVs instead:")
-    lines.append("# from google.colab import files")
-    lines.append("# for name, raw in files.upload().items():")
-    lines.append('#     spectra[name] = pd.read_csv(io.BytesIO(raw), comment="#")')
     return "\n".join(lines)
 
 
-def _trace_block(trace: dict, payload: dict) -> str:
-    """Explicit, editable source for one plotted trace."""
-    entry = as_literal(trace["entry"])
-    column = as_literal(trace["column"])
+def _trace_block(index: int, trace: dict) -> str:
+    """Explicit, editable source for one plotted line."""
+    tid = as_literal(trace["id"])
     axis = "ax2" if trace["secondary"] else "ax"
 
     kwargs = [f"color={as_literal(trace['color'])}",
@@ -153,41 +146,26 @@ def _trace_block(trace: dict, payload: dict) -> str:
     for key in ("marker", "markersize", "linewidth", "alpha"):
         if trace.get(key) is not None:
             kwargs.append(f"{key}={as_literal(trace[key])}")
-    if trace.get("legend"):
-        kwargs.append(f"label={as_literal(trace['legend'])}")
+    if trace.get("label"):
+        kwargs.append(f"label={as_literal(trace['label'])}")
 
-    lines = [f"# {trace['entry']} — {trace['column']}"]
-    lines.append(f"df = spectra[{entry}]")
-    lines.append(f"x = df['Wavenumber'].to_numpy()")
-    lines.append(f"y = df[{column}].to_numpy()")
-    if trace.get("is_phase"):
-        lines.append("y = wrap_phase_for_plot(y, PHASE_0_360)")
-    if trace["secondary"]:
-        # The app leaves a secondary axis in its own native units.
-        lines.append(f"y = y + {trace['offset_slot']} * OFFSET_STEP")
-    else:
-        lines.append(f"y = y * norm_factor(x, y) + {trace['offset_slot']} * OFFSET_STEP")
+    lines = [f"# {trace.get('label') or trace['id']}"]
+    lines.append(f"_df = _TRACES[{tid}]")
+    lines.append("x = _df['x'].to_numpy()")
+    lines.append(f"y = _df['y'].to_numpy() + {index} * OFFSET_STEP")
     lines.append(f"{axis}.plot(x, y, {', '.join(kwargs)})")
-
-    err = trace.get("err_column")
-    if err and payload.get("show_error"):
-        band_alpha = 0.25 * (trace.get("alpha") if trace.get("alpha") is not None else 1.0)
-        lines.append("if SHOW_ERROR_BANDS and " + as_literal(err) + " in df.columns:")
-        lines.append(f"    e = df[{as_literal(err)}].to_numpy() * norm_factor(x, df[{column}].to_numpy())")
-        lines.append(f"    {axis}.fill_between(x, y - e, y + e, color={as_literal(trace['color'])}, "
-                     f"alpha={as_literal(band_alpha)}, linewidth=0)")
     return "\n".join(lines)
 
 
 def _setup_cell(payload: dict) -> str:
-    """The axes every trace cell below draws onto — runs once."""
+    """The axes every trace cell below draws onto -- runs once."""
     traces = payload["traces"]
     lines = [
         "# SETUP — the axes every trace cell below draws onto.",
         "fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT), dpi=DPI)",
     ]
     if any(t["secondary"] for t in traces):
-        lines.append("ax2 = ax.twinx()   # Phase is on its own scale (degrees)")
+        lines.append("ax2 = ax.twinx()")
     lines += [
         "# Closed right away so Colab doesn't render an empty figure here --",
         "# ax/ax2 stay fully usable, this only stops the auto-display that",
@@ -198,14 +176,14 @@ def _setup_cell(payload: dict) -> str:
     return "\n".join(lines)
 
 
-def _trace_cell(trace: dict, payload: dict) -> str:
-    """One editable cell per plotted spectrum — restyle, or delete, freely."""
-    return "# TRACE — edit color/style/label here, or drop this cell to remove the line.\n" + \
-        _trace_block(trace, payload)
+def _trace_cell(index: int, trace: dict) -> str:
+    """One editable cell per plotted line -- restyle, or drop it, freely."""
+    return ("# TRACE — edit color/style/label here, or drop this cell to "
+            "remove the line.\n" + _trace_block(index, trace))
 
 
 def _decorate_cell(payload: dict) -> str:
-    """Axis labels, limits and legend — runs after every trace cell above."""
+    """Axis labels, limits and legend -- runs after every trace cell above."""
     traces = payload["traces"]
     needs_secondary = any(t["secondary"] for t in traces)
 
@@ -239,64 +217,34 @@ def _decorate_cell(payload: dict) -> str:
     return "\n".join(lines)
 
 
-def _fit_cell(payload: dict) -> str:
-    return '''
-# Fit parameters recovered from each spectrum's "# Fit json:" header --
-# the same numbers the Fitting tab reported, uncertainties included.
-rows = []
-for label, blob in _EMBEDDED.items():
-    text = gzip.decompress(base64.b64decode(blob)).decode("utf-8")
-    line = next((l for l in text.splitlines() if l.startswith("# Fit json:")), None)
-    if line is None:
-        continue
-    fit = json.loads(line.split("# Fit json:", 1)[1].strip())
-    errors = fit.get("param_errors") or {}
-    for key, value in (fit.get("model") or {}).get("params", {}).items():
-        rows.append({"spectrum": label, "parameter": key,
-                     "value": value, "stderr": errors.get(key)})
-    rows.append({"spectrum": label, "parameter": "redchi",
-                 "value": fit.get("redchi"), "stderr": None})
-
-if rows:
-    display(pd.DataFrame(rows))
-else:
-    print("No fit attached to these spectra.")
-'''.strip()
-
-
 def build(payload: dict) -> dict:
     """Assemble the notebook.
 
-    `payload` keys: title, x_label, y_label, y_label2, normalization
-    {mode,target}, offset_step, x_range, invert_x, phase_wrap_0_360,
-    show_error, figsize, dpi, output_name, output_format, entries
-    [{label, kind, csv}], traces [{entry, column, err_column, legend,
-    color, linestyle, marker, markersize, linewidth, alpha, secondary,
-    is_fit, is_phase, offset_slot}].
+    `payload` keys: title, x_label, y_label, y_label2, x_range,
+    offset_step, invert_x, figsize, dpi, output_name, output_format,
+    traces [{id, label, color, linestyle, marker, markersize,
+    linewidth, alpha, secondary, csv}].
     """
-    n = len(payload["entries"])
-    has_fits = any(t.get("is_fit") for t in payload["traces"])
+    n = len(payload["traces"])
 
     cells = [
         markdown_cell(f"""
-# {payload.get('title') or 'SFG figure'}
+# {payload.get('title') or 'Figure'}
 
-Exported from SFG-App {app_version()} on {_timestamp()}, from:
-
-{chr(10).join(f"- `{e['label']}` ({e['kind']})" for e in payload["entries"])}
+Exported from SFG-App {app_version()} on {_timestamp()}.
 
 Everything needed is embedded — this runs on a fresh Colab runtime with
 no local files and installs nothing.
 
 The figure is built as one **setup** cell, one **trace** cell per
-plotted spectrum (colours and labels already resolved — edit, duplicate,
-or delete any of them), and one **decorate** cell for axis labels/limits/
-legend. The form fields control normalization, offsets and output;
+plotted line (colours and labels already resolved — edit, duplicate,
+or delete any of them), and one **decorate** cell for axis labels/
+limits/legend. The form fields control offsets, x-range and output;
 re-run the trace and decorate cells after changing them.
 """.strip()),
 
         code_cell("""
-import base64, gzip, io, json
+import base64, gzip, io
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -305,28 +253,17 @@ from IPython.display import display
 
         code_cell(_params_cell(payload)),
 
-        markdown_cell(f"## Data\n\n{n} spectra, embedded as the app's own CSV "
-                      f"exports. Expand the cell below to read them, or to "
-                      f"swap in your own CSVs instead."),
-        code_cell(_data_cell(payload), hidden_title=f"Embedded spectra ({n})"),
+        markdown_cell(f"## Data\n\n{n} line(s), embedded as plain x/y CSV "
+                      f"data. Expand the cell below to read them, or to "
+                      f"swap in your own instead."),
+        code_cell(_data_cell(payload), hidden_title=f"Embedded traces ({n})"),
 
-        code_cell(_PHASE_HELPER.strip() + "\n\n\n" + _NORM_HELPER.strip(),
-                  hidden_title="Helpers: phase wrapping and normalization"),
-
-        markdown_cell("## The figure\n\nOne cell per trace below — edit, "
+        markdown_cell("## The figure\n\nOne cell per line below — edit, "
                       "duplicate, or delete any of them freely."),
         code_cell(_setup_cell(payload)),
-        *[code_cell(_trace_cell(t, payload)) for t in payload["traces"]],
+        *[code_cell(_trace_cell(i, t)) for i, t in enumerate(payload["traces"])],
         code_cell(_decorate_cell(payload)),
-    ]
 
-    if has_fits:
-        cells += [
-            markdown_cell("## Fit parameters"),
-            code_cell(_fit_cell(payload)),
-        ]
-
-    cells += [
         markdown_cell("## Save"),
         code_cell("""
 out = f"{OUTPUT_NAME}.{OUTPUT_FORMAT}"
@@ -336,4 +273,4 @@ print("wrote", out)
 """.strip()),
     ]
 
-    return notebook(cells, title=(payload.get("title") or "SFG figure"))
+    return notebook(cells, title=(payload.get("title") or "Figure"))

@@ -160,7 +160,44 @@ def test_offset_is_per_spectrum_not_per_line(load_entries, make_heterodyne_entry
 
 def test_homodyne_ylabel_is_arbitrary_units(load_entries, make_homodyne_entry):
     tab = load_entries(make_homodyne_entry())
-    assert tab.plot_widget.ax.get_ylabel() == "Normalized Intensity (a.u.)"
+    assert tab.plot_widget.ax.get_ylabel() == "Intensity (a.u.)"
+
+
+# ── Hide fit traces from legend ─────────────────────────────────────────────
+
+def test_hide_fit_legend_checkbox_drops_fit_traces_only(load_entries, make_fitted_entry):
+    # Two entries, so filtering out the (single) fit trace still leaves
+    # more than one line -- with just one entry, the remaining lone data
+    # trace wouldn't get a legend at all (same "no legend for a single
+    # line" rule that already applies without this toggle).
+    tab = load_entries(
+        make_fitted_entry(label="a"),
+        make_fitted_entry(label="b", components=()),
+    )
+    tab._fit_checkboxes["Fit total"].setChecked(True)
+
+    specs = tab._build_plot_specs(tab._checked_entries())
+    fit_label = next(s.label for s in specs if s.is_fit)
+    data_labels = [s.label for s in specs if not s.is_fit]
+    assert len(data_labels) == 2
+
+    legend = tab.plot_widget.ax.get_legend()
+    labels = [t.get_text() for t in legend.get_texts()]
+    assert fit_label in labels
+    assert all(l in labels for l in data_labels)
+
+    tab._hide_fit_legend_checkbox.setChecked(True)
+
+    legend = tab.plot_widget.ax.get_legend()
+    labels = [t.get_text() for t in legend.get_texts()] if legend is not None else []
+    assert fit_label not in labels
+    assert all(l in labels for l in data_labels)
+
+    # Unchecking restores it -- this is a live, non-persisted toggle.
+    tab._hide_fit_legend_checkbox.setChecked(False)
+    legend = tab.plot_widget.ax.get_legend()
+    labels = [t.get_text() for t in legend.get_texts()]
+    assert fit_label in labels
 
 
 # ── Empty-plot explanation ────────────────────────────────────────────────

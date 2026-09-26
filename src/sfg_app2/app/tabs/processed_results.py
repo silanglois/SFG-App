@@ -35,7 +35,6 @@ from sfg_app2.app.tabs.trace_style import (   # noqa: F401
 from sfg_app2.app.utils.app_logging import LOG_FILE
 from sfg_app2.processing import provenance as provenance_mod
 from sfg_app2.processing import fitting as fitting_mod
-from sfg_app2.app.utils import notebook_export, notebook_plotting
 
 logger = logging.getLogger(__name__)
 
@@ -342,17 +341,6 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         # shows the stale Designer text before the first draw.
         self._update_export_button_text(0)
 
-        # Sits with the CSV exports: same inputs (the checked spectra),
-        # different artifact.
-        self._export_notebook_button = QPushButton("Export notebook...")
-        self._export_notebook_button.setToolTip(
-            "Write a self-contained Colab notebook that reproduces this "
-            "figure, with the plotted spectra embedded — for full control "
-            "over the figure outside the app."
-        )
-        self._export_notebook_button.clicked.connect(self._on_export_notebook)
-        self.ui.horizontalLayout.addWidget(self._export_notebook_button)
-
     def _set_all_checked(self, checked: bool):
         """Sets every spectrum's checkbox (and backing SpectrumEntry.checked)
         at once, then redraws a single time -- _on_item_check_changed()
@@ -469,6 +457,16 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         )
         self._markers_checkbox.toggled.connect(self._refresh_plot)
         outer.addWidget(self._markers_checkbox)
+
+        # Session-only (not persisted): resets to unchecked on every launch.
+        self._hide_fit_legend = False
+        self._hide_fit_legend_checkbox = QCheckBox("Hide fit traces from legend")
+        self._hide_fit_legend_checkbox.setToolTip(
+            "Keep fit-derived curves on the plot but leave them out of "
+            "the legend."
+        )
+        self._hide_fit_legend_checkbox.toggled.connect(self._on_hide_fit_legend_toggled)
+        outer.addWidget(self._hide_fit_legend_checkbox)
 
         outer.addStretch()
         return widget
@@ -834,7 +832,7 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
             # dimensionless, never raw camera counts. normalizationComboBox
             # is a separate in-tab *display* rescaling knob (_normalize_
             # factor()) and has no bearing on this.
-            return "Normalized Intensity (a.u.)"
+            return "Intensity (a.u.)"
         return ""
 
     def _draw_annotations(self):
@@ -903,8 +901,12 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
             return
         axis_usage = self._draw_specs(specs)
         self._draw_annotations()
-        self._decorate_axes(entries, axis_usage)
+        self._decorate_axes(entries, axis_usage, specs)
         self.plot_widget.sync_x_range()
+
+    def _on_hide_fit_legend_toggled(self, checked: bool):
+        self._hide_fit_legend = checked
+        self._refresh_plot()
 
     def _update_export_button_text(self, checked_count: int):
         """Name what the export actually covers.
@@ -1116,12 +1118,18 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
                 logger.warning("Could not plot %s: %s", spec.label, e)
         return usage
 
-    def _decorate_axes(self, entries: list[SpectrumEntry], usage: _AxisUsage):
+    def _decorate_axes(
+        self, entries: list[SpectrumEntry], usage: _AxisUsage, specs: list[PlotSpec],
+    ):
         """Legend, axis labels and title, once the traces exist."""
         handles, labels = self.plot_widget.ax.get_legend_handles_labels()
         if self.plot_widget.ax2 is not None:
             h2, l2 = self.plot_widget.ax2.get_legend_handles_labels()
             handles, labels = handles + h2, labels + l2
+        if self._hide_fit_legend:
+            fit_labels = {s.label for s in specs if s.is_fit}
+            kept = [(h, l) for h, l in zip(handles, labels) if l not in fit_labels]
+            handles, labels = ([list(t) for t in zip(*kept)] if kept else ([], []))
         if len(handles) > 1 and self._legend_fields != ["None"]:
             self.plot_widget.ax.legend(handles, labels, fontsize=8)
 
@@ -1522,130 +1530,6 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
             payload["model"], payload.get("weighting"), payload.get("redchi"),
             payload.get("r_squared"), payload.get("aic"), payload.get("bic"),
             kind=payload.get("kind", entry.kind), param_errors=payload.get("param_errors"),
-        )
-
-    def _notebook_payload(self, entries: list[SpectrumEntry]) -> dict:
-        """Flatten the current plot into the plain dict the notebook
-        builder consumes.
-
-        Colours, labels and offset slots are resolved here, by the same
-        code that draws the figure, so the notebook starts from exactly
-        what's on screen rather than re-deriving it.
-        """
-        specs = self._build_plot_specs(entries)
-        colors = self._assign_spec_colors(specs)
-        offset_slots: dict = {}
-        for spec in specs:
-            offset_slots.setdefault(spec.entry, len(offset_slots))
-
-        usage = _AxisUsage()
-        for spec in specs:
-            if spec.entry.kind == "heterodyne":
-                target = (usage.secondary_hd if spec.style.axis == "secondary"
-                          else usage.primary_hd)
-                target.append(spec.component)
-            elif spec.style.axis == "secondary":
-                usage.secondary_amp = True
-            else:
-                usage.primary_amp = True
-
-        first_data = entries[0].spectrum.data
-        x_is_wavenumber = "Wavenumber" in first_data.columns
-        x_label = ("Wavenumber (cm$^{-1}$)" if x_is_wavenumber else "Wavelength (nm)")
-        custom_x = self.ui.xAxisLabelEdit.text().strip()
-        custom_y = self.ui.yAxisLabelEdit.text().strip()
-        primary_ylabel = self._ylabel_for(usage.primary_hd, usage.primary_amp)
-        secondary_ylabel = self._ylabel_for(usage.secondary_hd, usage.secondary_amp)
-
-        markers_mode = self._markers_checkbox.isChecked()
-
-        traces = []
-        for spec, color in zip(specs, colors):
-            style = spec.style
-            # Same override _draw_specs applies, so the notebook reproduces
-            # what's on screen rather than the underlying line style.
-            as_markers = markers_mode and not spec.is_fit and style.is_default()
-            traces.append({
-                "entry": spec.entry.label,
-                "column": spec.y_col,
-                "err_column": spec.err_col,
-                "legend": spec.label,
-                "color": mpl.colors.to_hex(style.color or color, keep_alpha=False),
-                "linestyle": "None" if as_markers else style.linestyle,
-                "marker": "o" if as_markers else style.marker,
-                "markersize": (self._plotting_settings.marker_size if as_markers
-                               else style.markersize),
-                "linewidth": style.linewidth,
-                "alpha": style.alpha,
-                "secondary": style.axis == "secondary",
-                "is_fit": spec.is_fit,
-                "is_phase": spec.component == "Phase",
-                "offset_slot": offset_slots[spec.entry],
-            })
-
-        return {
-            "title": f"{len(entries)} spectrum/spectra",
-            "x_label": custom_x or x_label,
-            "y_label": custom_y or primary_ylabel,
-            "y_label2": secondary_ylabel or None,
-            "normalization": {
-                "mode": self.ui.normalizationComboBox.currentIndex(),
-                "target": self.ui.doubleSpinBox.value(),
-            },
-            "offset_step": self.ui.offsetSpectraSpinner.value(),
-            "x_range": self.plot_widget.get_x_range(),
-            "invert_x": False,
-            "phase_wrap_0_360": self._phase_range_combo.currentData() == "0to360",
-            "show_error": self.ui.hdCheckShowError.isChecked(),
-            "figsize": tuple(self.plot_widget.figure.get_size_inches()),
-            "dpi": 150,
-            "output_name": "figure",
-            "output_format": "png",
-            "entries": [
-                {"label": e.label, "kind": e.kind, "csv": self._csv_text_for(e)}
-                for e in entries
-            ],
-            "traces": traces,
-        }
-
-    def _on_export_notebook(self):
-        entries = self._checked_entries()
-        if not entries:
-            QMessageBox.information(
-                self, "Nothing to export",
-                "Tick the spectra you want in the notebook first — it "
-                "reproduces what's currently plotted.",
-            )
-            return
-
-        path_str, _ = QFileDialog.getSaveFileName(
-            self, "Export plotting notebook", "sfg_figure.ipynb",
-            "Jupyter Notebook (*.ipynb)",
-        )
-        if not path_str:
-            return
-        path = Path(path_str)
-        if path.suffix.lower() != ".ipynb":
-            path = path.with_suffix(".ipynb")
-
-        loading = show_loading(self, "Building notebook...")
-        try:
-            payload = self._notebook_payload(entries)
-            payload["output_name"] = path.stem
-            notebook_export.write_notebook(notebook_plotting.build(payload), path)
-        except Exception as e:
-            logger.error("Notebook export failed: %s", e, exc_info=True)
-            QMessageBox.warning(self, "Couldn't export notebook", str(e))
-            return
-        finally:
-            loading.close()
-
-        size_kb = path.stat().st_size / 1024
-        QMessageBox.information(
-            self, "Notebook exported",
-            f"Wrote {path.name} ({size_kb:.0f} KB) with {len(entries)} "
-            f"spectrum/spectra embedded.\n\nIt runs as-is on Google Colab — "
-            f"no files to upload, nothing to install.",
         )
 
     def _write_csv_with_provenance(self, entry: SpectrumEntry, out_path: Path):
