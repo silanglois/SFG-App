@@ -1,11 +1,14 @@
 from __future__ import annotations
 import logging
+from copy import deepcopy
 from PySide6.QtWidgets import QComboBox, QTableView, QAbstractItemView, QHeaderView, QMenu
 from PySide6.QtCore import (
     Qt, QAbstractTableModel, QModelIndex,
     QMimeData, QByteArray, Signal
 )
-from PySide6.QtGui import QColor, QBrush
+from PySide6.QtGui import QColor, QBrush, QUndoStack
+
+from sfg_app2.app.tabs.load_match_undo import ReplaceMatchTableCommand
 
 logger = logging.getLogger(__name__)
 
@@ -161,6 +164,16 @@ class MatchTableModel(QAbstractTableModel):
         index = self.createIndex(row, 4)
         self.dataChanged.emit(index, index, [Qt.ItemDataRole.DisplayRole])
 
+    def snapshot(self) -> tuple:
+        """A cheap deep copy -- _rows/_types hold only (path, name)
+        string tuples, never anything expensive to duplicate."""
+        return (deepcopy(self._rows), list(self._types))
+
+    def restore(self, state: tuple):
+        self.beginResetModel()
+        self._rows, self._types = deepcopy(state[0]), list(state[1])
+        self.endResetModel()
+
     def all_paths_used(self) -> set[str]:
         paths = set()
         for row in self._rows:
@@ -225,6 +238,15 @@ class MatchTableView(QTableView):
         self.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self._on_context_menu)
+        self._undo_stack: QUndoStack | None = None
+
+    def set_undo_stack(self, stack: QUndoStack) -> None:
+        self._undo_stack = stack
+
+    def _push_table_change(self, before: tuple, description: str) -> None:
+        after = self._table_model.snapshot()
+        if self._undo_stack is not None and before != after:
+            self._undo_stack.push(ReplaceMatchTableCommand(self._table_model, before, after, description))
 
     def set_metadata_lookup(self, fn) -> None:
         self._table_model.set_metadata_lookup(fn)
@@ -253,6 +275,8 @@ class MatchTableView(QTableView):
             event.ignore()
             return
 
+        before = self._table_model.snapshot()
+
         path = mime.data(MIME_FILE).data().decode()
         display_name = path.replace("\\", "/").split("/")[-1]
 
@@ -275,6 +299,7 @@ class MatchTableView(QTableView):
 
         self._table_model.set_cell(target_row, col, path, display_name)
         event.acceptProposedAction()
+        self._push_table_change(before, "Assign match")
         self.table_changed.emit()
 
     def _on_context_menu(self, pos):
@@ -286,8 +311,12 @@ class MatchTableView(QTableView):
         remove_action = menu.addAction("Remove row")
         action = menu.exec(self.viewport().mapToGlobal(pos))
         if action == clear_action:
+            before = self._table_model.snapshot()
             self._table_model.clear_cell(index.row(), index.column())
+            self._push_table_change(before, "Clear cell")
             self.table_changed.emit()
         elif action == remove_action:
+            before = self._table_model.snapshot()
             self._table_model.remove_row(index.row())
+            self._push_table_change(before, "Remove row")
             self.table_changed.emit()

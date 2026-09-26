@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QListWidget, QAbstractItemView,
     QPushButton, QLabel, QMessageBox, QInputDialog, QFileDialog, QDialogButtonBox,
 )
 
 from sfg_app2.app.utils.fit_template_manager import FitTemplateManager
+from sfg_app2.app.utils import recent_paths_settings
 
 
 class TemplateManagerDialog(QDialog):
@@ -96,11 +99,15 @@ class TemplateManagerDialog(QDialog):
         if not names:
             QMessageBox.information(self, "Nothing selected", "Select one or more templates to export.")
             return
+        last_dir = recent_paths_settings.get_last_dir("settings")
+        default_name = "fit_templates.json"
+        default_path = str(Path(last_dir) / default_name) if last_dir else default_name
         path_str, _ = QFileDialog.getSaveFileName(
-            self, "Export fit templates", "fit_templates.json", "JSON files (*.json)",
+            self, "Export fit templates", default_path, "JSON files (*.json)",
         )
         if not path_str:
             return
+        recent_paths_settings.remember_dir("settings", path_str)
         if not self._manager.export_to_file(names, path_str):
             QMessageBox.warning(self, "Export failed", "Could not write the template file — see log for details.")
             return
@@ -108,10 +115,12 @@ class TemplateManagerDialog(QDialog):
 
     def _on_import(self):
         path_str, _ = QFileDialog.getOpenFileName(
-            self, "Import fit templates", "", "JSON files (*.json)",
+            self, "Import fit templates", recent_paths_settings.get_last_dir("settings"),
+            "JSON files (*.json)",
         )
         if not path_str:
             return
+        recent_paths_settings.remember_dir("settings", path_str)
         imported = self._manager.import_from_file(path_str)
         if not imported:
             QMessageBox.warning(

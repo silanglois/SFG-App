@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QColor, QBrush, QPalette
+from PySide6.QtGui import QColor, QBrush, QPalette, QUndoStack
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel, QComboBox,
     QPushButton, QCheckBox, QDoubleSpinBox, QLineEdit, QTableWidget,
@@ -23,7 +23,7 @@ from sfg_app2.app.widgets.spectrum_plot_widget import SpectrumPlotWidget
 from sfg_app2.app.widgets.dockable_panels import DockablePlotPanel
 from sfg_app2.app.utils.loading_indicator import show_loading
 from sfg_app2.app.utils.fit_template_manager import FitTemplateManager
-from sfg_app2.app.utils import color_coding
+from sfg_app2.app.utils import color_coding, recent_paths_settings
 from sfg_app2.processing import provenance
 from sfg_app2.processing.processed_spectrum import ProcessedSpectrum
 from sfg_app2.processing.fitting import (
@@ -33,6 +33,10 @@ from sfg_app2.processing.fitting import (
     available_lineshapes, get_lineshape, fit_model_spec_from_provenance_payload,
     BatchDataset, fit_sequential_batch, fit_independent_batch, fit_one_dataset, advance_seed,
     fit_global_batch,
+)
+from sfg_app2.app.tabs.fitting_tab_undo import (
+    AddPeakCommand, ApplyTemplateCommand, RemovePeakCommand,
+    RunBatchFitCommand, RunFitCommand,
 )
 
 logger = logging.getLogger(__name__)
@@ -286,6 +290,12 @@ class FittingTab(QWidget, DockablePlotPanel):
         # independent batch run or a sequential run.
         self._batch_global_result = None
         self._batch_shared_keys: list[str] = []
+        self._undo_stack = QUndoStack(self)
+        # Captured once at the start of _on_run_batch_fit()/
+        # _on_run_sequential_fit(); consumed by _maybe_push_batch_undo()
+        # once the run actually finishes -- a paused sequential run
+        # never reaches that point, so nothing gets pushed mid-run.
+        self._pending_undo_snapshot: tuple | None = None
 
         # File-loaded spectra merged into each mode's own selection list
         # alongside Results-tab entries (see _load_files_into()).
@@ -352,6 +362,12 @@ class FittingTab(QWidget, DockablePlotPanel):
         self._rebuild_display_table()
         self._update_quality_readout()
         self._update_multifit_plot()
+
+    # ── Public API — called by MainWindow ───────────────────────────────────
+
+    @property
+    def undo_stack(self) -> QUndoStack:
+        return self._undo_stack
 
     # ── Data source dock ─────────────────────────────────────────────────────
 
@@ -436,10 +452,12 @@ class FittingTab(QWidget, DockablePlotPanel):
 
     def _load_files_into(self, list_widget: QListWidget, file_entries: list, checkable: bool):
         paths, _ = QFileDialog.getOpenFileNames(
-            self, "Load spectra", "", "CSV files (*.csv);;All files (*.*)",
+            self, "Load spectra", recent_paths_settings.get_last_dir("fitting"),
+            "CSV files (*.csv);;All files (*.*)",
         )
         if not paths:
             return
+        recent_paths_settings.remember_dir("fitting", paths[0])
         for path_str in paths:
             path = Path(path_str)
             try:
@@ -544,10 +562,12 @@ class FittingTab(QWidget, DockablePlotPanel):
         if not self._confirm_abandon_paused_sequential_run():
             return
         path_str, _ = QFileDialog.getOpenFileName(
-            self, "Load spectrum", "", "CSV files (*.csv);;All files (*.*)",
+            self, "Load spectrum", recent_paths_settings.get_last_dir("fitting"),
+            "CSV files (*.csv);;All files (*.*)",
         )
         if not path_str:
             return
+        recent_paths_settings.remember_dir("fitting", path_str)
         path = Path(path_str)
         try:
             df = provenance.load_csv_skip_comments(path)
@@ -726,11 +746,7 @@ class FittingTab(QWidget, DockablePlotPanel):
             amplitude = -amplitude
 
         peak = default_peak(lineshape_key, center=float(center), amplitude=amplitude, width=width)
-        self._model_spec.peaks.append(peak)
-        self._rebuild_peak_table()
-        self._rebuild_parameter_table()
-        self._rebuild_display_table()
-        self._schedule_preview()
+        self._undo_stack.push(AddPeakCommand(self, peak))
 
     def _on_nonresonant_toggled(self, checked: bool):
         nr = self._model_spec.nonresonant
@@ -765,11 +781,7 @@ class FittingTab(QWidget, DockablePlotPanel):
 
     def _on_remove_peak(self, row: int):
         if 0 <= row < len(self._model_spec.peaks):
-            del self._model_spec.peaks[row]
-        self._rebuild_peak_table()
-        self._rebuild_parameter_table()
-        self._rebuild_display_table()
-        self._schedule_preview()
+            self._undo_stack.push(RemovePeakCommand(self, row, self._model_spec.peaks[row]))
 
     # ── Parameters dock ──────────────────────────────────────────────────────
 
@@ -1273,6 +1285,8 @@ class FittingTab(QWidget, DockablePlotPanel):
             return
         omega = self._data.omega[mask]
         weighting = self._weighting_combo.currentData()
+        old_spec = self._model_spec
+        old_result = self._last_result
 
         loading = show_loading(self, "Fitting...")
         try:
@@ -1282,7 +1296,7 @@ class FittingTab(QWidget, DockablePlotPanel):
                 real_err = self._data.real_err[mask] if self._data.real_err is not None else None
                 imag_err = self._data.imag_err[mask] if self._data.imag_err is not None else None
                 weights_real, weights_imag = compute_heterodyne_weights(weighting, real, imag, real_err, imag_err)
-                self._last_result = fit_heterodyne(
+                result = fit_heterodyne(
                     omega, real, imag, self._model_spec,
                     weights_real=weights_real, weights_imag=weights_imag,
                 )
@@ -1291,7 +1305,7 @@ class FittingTab(QWidget, DockablePlotPanel):
                 intensity_std = self._data.intensity_std[mask] if self._data.intensity_std is not None else None
                 count = self._data.count[mask] if self._data.count is not None else None
                 weights = compute_weights(weighting, intensity, intensity_std, count)
-                self._last_result = fit_homodyne(omega, intensity, self._model_spec, weights=weights)
+                result = fit_homodyne(omega, intensity, self._model_spec, weights=weights)
         except Exception as e:
             logger.warning("Fit failed: %s", e)
             QMessageBox.warning(self, "Fit failed", str(e))
@@ -1299,10 +1313,7 @@ class FittingTab(QWidget, DockablePlotPanel):
         finally:
             loading.close()
 
-        self._model_spec = self._last_result.spec
-        self._apply_fit_result_to_table()
-        self._update_quality_readout()
-        self._update_preview()
+        self._undo_stack.push(RunFitCommand(self, old_spec, old_result, result.spec, result))
 
     def _update_quality_readout(self):
         if self._last_result is None:
@@ -1352,24 +1363,21 @@ class FittingTab(QWidget, DockablePlotPanel):
                 f"{', '.join(sorted(set(unknown)))}.",
             )
             return
-        self._model_spec = full["spec"]
-        self._last_result = None
-        self._rebuild_peak_table()
-        self._rebuild_parameter_table()
-        self._rebuild_display_table()
-        self._update_quality_readout()
+
+        before = {
+            "spec": self._model_spec, "result": self._last_result,
+            "fit_range": (self._fit_min_spin.value(), self._fit_max_spin.value()),
+            "weighting": self._weighting_combo.currentData(),
+        }
         # Older templates (saved before fit_range/weighting existed) come
-        # back as None here -- leave the Fit dock's current controls
-        # untouched rather than resetting them to something arbitrary.
-        if full["fit_range"] is not None:
-            lo, hi = full["fit_range"]
-            self._fit_min_spin.setValue(lo)
-            self._fit_max_spin.setValue(hi)
-        if full["weighting"] is not None:
-            idx = self._weighting_combo.findData(full["weighting"])
-            if idx >= 0:
-                self._weighting_combo.setCurrentIndex(idx)
-        self._schedule_preview()
+        # back as None here -- ApplyTemplateCommand then leaves the Fit
+        # dock's current controls untouched rather than resetting them
+        # to something arbitrary, same as this always did.
+        after = {
+            "spec": full["spec"], "result": None,
+            "fit_range": full["fit_range"], "weighting": full["weighting"],
+        }
+        self._undo_stack.push(ApplyTemplateCommand(self, before, after))
 
     def _on_manage_templates(self):
         from sfg_app2.app.dialogs.template_manager_dialog import TemplateManagerDialog
@@ -1381,11 +1389,15 @@ class FittingTab(QWidget, DockablePlotPanel):
         if self._data is None or self._last_result is None:
             QMessageBox.information(self, "Nothing to export", "Load data and run a fit first.")
             return
+        last_dir = recent_paths_settings.get_last_dir("fitting")
+        default_name = f"{self._data.label}_fit.csv"
+        default_path = str(Path(last_dir) / default_name) if last_dir else default_name
         path_str, _ = QFileDialog.getSaveFileName(
-            self, "Export fit", f"{self._data.label}_fit.csv", "CSV files (*.csv)",
+            self, "Export fit", default_path, "CSV files (*.csv)",
         )
         if not path_str:
             return
+        recent_paths_settings.remember_dir("fitting", path_str)
 
         spectrum = self._data.source_spectrum
         if spectrum is None:
@@ -1549,6 +1561,7 @@ class FittingTab(QWidget, DockablePlotPanel):
         # table.
         if not self._confirm_abandon_paused_sequential_run("Running a batch fit"):
             return
+        self._pending_undo_snapshot = self._capture_batch_state()
         entries = self._all_batch_entries()
         if len(entries) < 2:
             return
@@ -1609,6 +1622,7 @@ class FittingTab(QWidget, DockablePlotPanel):
         self._batch_rows = list(zip(entries[:n], datasets[:n], results))
         self._batch_row_overrides = [None] * len(self._batch_rows)
         self._finish_multifit_run()
+        self._maybe_push_batch_undo()
 
     # ── Sequential fit dock (seeded-chain mode) ─────────────────────────────
     # Each spectrum seeds from the previous one's converged result, in
@@ -1710,6 +1724,7 @@ class FittingTab(QWidget, DockablePlotPanel):
             self._sequential_status_label.setText("")
 
     def _on_run_sequential_fit(self):
+        self._pending_undo_snapshot = self._capture_batch_state()
         rows = self._all_sequential_rows()
         if len(rows) < 2:
             return
@@ -1755,6 +1770,7 @@ class FittingTab(QWidget, DockablePlotPanel):
             self._batch_rows = list(zip(entries[:n], datasets[:n], results))
             self._batch_row_overrides = [None] * len(self._batch_rows)
             self._finish_multifit_run()
+            self._maybe_push_batch_undo()
             return
 
         self._sequential_run = {
@@ -1850,6 +1866,7 @@ class FittingTab(QWidget, DockablePlotPanel):
         self._sequential_run = None
         self._refresh_sequential_controls()
         self._finish_multifit_run()
+        self._maybe_push_batch_undo()
 
     # ── Multi-fit results dock (shared by Batch and Sequential) ────────────
 
@@ -1924,6 +1941,30 @@ class FittingTab(QWidget, DockablePlotPanel):
         self._multifit_table.setRowCount(len(self._batch_rows))
         for row in range(len(self._batch_rows)):
             self._update_multifit_row(row)
+
+    def _capture_batch_state(self) -> tuple:
+        return (
+            list(self._batch_rows), list(self._batch_row_overrides),
+            deepcopy(self._batch_template) if self._batch_template is not None else None,
+            self._batch_fit_range, self._batch_weighting, self._batch_run_mode,
+            self._batch_global_result, list(self._batch_shared_keys),
+        )
+
+    def _restore_batch_state(self, state: tuple):
+        (self._batch_rows, self._batch_row_overrides, self._batch_template,
+         self._batch_fit_range, self._batch_weighting, self._batch_run_mode,
+         self._batch_global_result, self._batch_shared_keys) = state
+
+    def _maybe_push_batch_undo(self):
+        """Called right after each of _finish_multifit_run()'s 3 call
+        sites -- the only points a batch/global/sequential run is fully
+        committed. A paused sequential run never reaches here, so
+        nothing gets pushed mid-run."""
+        if self._pending_undo_snapshot is None:
+            return
+        old_state = self._pending_undo_snapshot
+        self._pending_undo_snapshot = None
+        self._undo_stack.push(RunBatchFitCommand(self, old_state, self._capture_batch_state()))
 
     def _finish_multifit_run(self):
         self._populate_multifit_table()
@@ -2055,9 +2096,12 @@ class FittingTab(QWidget, DockablePlotPanel):
         if not self._batch_rows:
             QMessageBox.information(self, "Nothing to export", "Run a batch or sequential fit first.")
             return
-        folder = QFileDialog.getExistingDirectory(self, "Select export folder")
+        folder = QFileDialog.getExistingDirectory(
+            self, "Select export folder", recent_paths_settings.get_last_dir("fitting"),
+        )
         if not folder:
             return
+        recent_paths_settings.remember_dir("fitting", folder)
         path_str = str(Path(folder) / "batch_fit_summary.csv")
 
         param_columns = self._batch_param_columns(self._batch_template)

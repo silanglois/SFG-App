@@ -70,8 +70,10 @@ PARTS: tuple[SettingsPart, ...] = (
                  "appearance_settings", "SETTINGS_FILE"),
 )
 
-# Dock layouts are deliberately absent: they're window geometry for one
-# machine's screen, so carrying them to another is at best noise.
+# Dock layouts and recent_paths_settings are deliberately absent: both are
+# machine/session state (window geometry, last-browsed folders) rather
+# than a portable preference, so carrying them to another machine is at
+# best noise.
 
 
 def available_parts() -> list[SettingsPart]:

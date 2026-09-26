@@ -33,6 +33,7 @@ _SETTINGS_PATH_ATTRS = [
     ("fit_template_manager", ["CONFIG_DIR", "TEMPLATES_FILE"]),
     ("matching_settings", ["CONFIG_DIR", "SETTINGS_FILE"]),
     ("pattern_manager", ["CONFIG_DIR", "PATTERNS_FILE"]),
+    ("recent_paths_settings", ["CONFIG_DIR", "SETTINGS_FILE"]),
     ("plotting_settings", ["CONFIG_DIR", "SETTINGS_FILE", "CUSTOM_STYLES_DIR"]),
 ]
 
