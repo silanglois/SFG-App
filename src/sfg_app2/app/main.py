@@ -131,7 +131,7 @@ def run():
     # own show/expose events first.
     def _start():
         window = MainWindow()
-        window.show()
+        window.showMaximized()
         app.processEvents()   # let the new window's layout settle while
                                # the splash is still covering it
         _apply_native_window_icon(window, icon)
