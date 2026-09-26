@@ -3,6 +3,7 @@ import logging
 from pathlib import Path
 
 from PySide6.QtCore import Signal, Qt
+from PySide6.QtGui import QUndoStack
 from PySide6.QtWidgets import QWidget, QFileDialog, QMessageBox
 
 from sfg_app2.app.ui.ui_load_match_tab import Ui_loadmatchTab
@@ -11,6 +12,9 @@ from sfg_app2.app.widgets.match_table import MatchTableView
 from sfg_app2.processing.utils import load_datafiles
 from sfg_app2.processing.data_file import UnrecognizedFormatError
 from sfg_app2.app.utils.loading_indicator import show_loading
+from sfg_app2.app.tabs.load_match_undo import (
+    RemoveFilesCommand, ReplaceMatchTableCommand, UpdateFileMetadataCommand,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -30,10 +34,16 @@ class LoadMatchTab(QWidget):
         self._individual_file_paths: list[Path] = []
         self._plot_windows: list = []       # open PlotWindow instances
         self._splitter_sized = False
+        self._undo_stack = QUndoStack(self)
 
         self._replace_list_and_table()
+        self.match_table.set_undo_stack(self._undo_stack)
         self._connect_signals()
         self._set_buttons_enabled(files_loaded=False, matched=False)
+
+    @property
+    def undo_stack(self) -> QUndoStack:
+        return self._undo_stack
 
     # ── Widget replacement ────────────────────────────────────────────────────
 
@@ -149,17 +159,19 @@ class LoadMatchTab(QWidget):
         if not path_set:
             return
         model = self.match_table._table_model
+        table_before = model.snapshot()
         for row in range(model.rowCount()):
             for col in range(model.columnCount()):
                 if model.data(model.createIndex(row, col), Qt.ItemDataRole.UserRole) in path_set:
                     model.clear_cell(row, col)
+        table_after = model.snapshot()
 
-        self._files = [f for f in self._files if str(f.path) not in path_set]
-        for p in path_set:
-            self._file_registry.pop(p, None)
-        self._individual_file_paths = [
-            p for p in self._individual_file_paths if str(p) not in path_set
-        ]
+        self._undo_stack.beginMacro("Remove files")
+        if table_before != table_after:
+            self._undo_stack.push(ReplaceMatchTableCommand(model, table_before, table_after,
+                                                             "Clear removed files from match table"))
+        self._undo_stack.push(RemoveFilesCommand(self, path_set))
+        self._undo_stack.endMacro()
 
     def load_individual_files(self, paths: list[str]):
         from sfg_app2.processing.data_file import DataFile
@@ -258,8 +270,9 @@ class LoadMatchTab(QWidget):
                 return 0
 
         # remove from table
+        model = self.match_table._table_model
+        table_before = model.snapshot()
         for path in in_table:
-            model = self.match_table._table_model
             for row in range(model.rowCount()):
                 for col in range(model.columnCount()):
                     if model.data(
@@ -267,15 +280,15 @@ class LoadMatchTab(QWidget):
                         Qt.ItemDataRole.UserRole
                     ) == path:
                         model.clear_cell(row, col)
+        table_after = model.snapshot()
 
         # remove from file tracking
-        self._files = [f for f in self._files if str(f.path) not in to_remove]
-        for p in to_remove:
-            self._file_registry.pop(p, None)
-        self._individual_file_paths = [
-            p for p in self._individual_file_paths
-            if str(p) not in to_remove
-        ]
+        self._undo_stack.beginMacro("Remove ignored files")
+        if table_before != table_after:
+            self._undo_stack.push(ReplaceMatchTableCommand(model, table_before, table_after,
+                                                             "Clear ignored files from match table"))
+        self._undo_stack.push(RemoveFilesCommand(self, to_remove))
+        self._undo_stack.endMacro()
 
         self._refresh_file_list()
         self._on_table_changed()
@@ -474,6 +487,7 @@ class LoadMatchTab(QWidget):
     def _populate_table_from_matched(self, matched: list):
         self._wire_color_coding()
         model = self.match_table._table_model
+        table_before = model.snapshot()
         while model.rowCount() > 0:
             model.remove_row(0)
 
@@ -489,6 +503,11 @@ class LoadMatchTab(QWidget):
             add(row, 3, m.reference_background)
             model.set_type(row, m.spectrum_type.capitalize())
 
+        table_after = model.snapshot()
+        if table_before != table_after:
+            self._undo_stack.push(
+                ReplaceMatchTableCommand(model, table_before, table_after, "Auto-match")
+            )
         self._on_table_changed()
 
     def _on_start_processing(self):
@@ -579,8 +598,10 @@ class LoadMatchTab(QWidget):
         files = [self._file_registry[p] for p in paths if p in self._file_registry]
         if not files:
             return
+        old_metadata = [dict(f.metadata) for f in files]
         dialog = MetadataEditDialog(files, parent=self)
-        dialog.exec()
+        if dialog.exec() == dialog.DialogCode.Accepted:
+            self._undo_stack.push(UpdateFileMetadataCommand(files, old_metadata))
 
     def _on_plot_files(self, paths: list[str]):
         from sfg_app2.app.widgets.plot_window import PlotWindow

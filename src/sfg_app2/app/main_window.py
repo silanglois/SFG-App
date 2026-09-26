@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from PySide6.QtGui import QAction, QActionGroup
+from PySide6.QtGui import QAction, QActionGroup, QKeySequence, QUndoGroup
 from PySide6.QtWidgets import QMainWindow, QFileDialog, QMessageBox, QMenu
 from sfg_app2.app.ui.ui_main_window import Ui_MainWindow
 from sfg_app2.app.utils.pattern_manager import PatternManager
@@ -47,6 +47,7 @@ class MainWindow(QMainWindow):
 
         self._init_tabs()
         self._connect_menu()
+        self._build_edit_menu()
         self._build_preferences_menu()
         self._build_appearance_menu()
         self._build_view_menu()
@@ -231,6 +232,43 @@ class MainWindow(QMainWindow):
                 "It will apply for this session but won't persist.",
             )
         self.statusBar().showMessage(f"Appearance set to '{theme}'.")
+
+    def _build_edit_menu(self):
+        """Undo/Redo across the three tabs that mutate data (Load/Match,
+        Spectra Library, Fitting) -- one QUndoGroup so the Edit menu's
+        actions always track whichever tab is currently active, instead
+        of needing to be rebuilt on every tab switch.
+
+        Inserted right after File (before Preferences), deliberately not
+        following this app's own "append near Help" convention used by
+        View/Window below -- File-then-Edit is a near-universal software
+        convention and Undo/Redo specifically benefit from it.
+        """
+        self._undo_group = QUndoGroup(self)
+        self._undo_group.addStack(self.load_match_tab.undo_stack)
+        self._undo_group.addStack(self.processed_results_tab.undo_stack)
+        self._undo_group.addStack(self.fitting_tab.undo_stack)
+
+        self._edit_menu = QMenu("Edit", self.menuBar())
+        self.menuBar().insertMenu(self.ui.menuPreferences.menuAction(), self._edit_menu)
+
+        undo_action = self._undo_group.createUndoAction(self, "Undo")
+        undo_action.setShortcut(QKeySequence.StandardKey.Undo)
+        redo_action = self._undo_group.createRedoAction(self, "Redo")
+        redo_action.setShortcut(QKeySequence.StandardKey.Redo)
+        self._edit_menu.addAction(undo_action)
+        self._edit_menu.addAction(redo_action)
+
+        self._tab_undo_stacks = {
+            0: self.load_match_tab.undo_stack,
+            2: self.processed_results_tab.undo_stack,
+            3: self.fitting_tab.undo_stack,
+        }
+        self.ui.mainTabWidget.currentChanged.connect(self._on_tab_changed_for_undo)
+        self._on_tab_changed_for_undo(self.ui.mainTabWidget.currentIndex())
+
+    def _on_tab_changed_for_undo(self, index: int):
+        self._undo_group.setActiveStack(self._tab_undo_stacks.get(index))
 
     def _build_view_menu(self):
         """Lists every dock's own toggleViewAction() (the standard Qt

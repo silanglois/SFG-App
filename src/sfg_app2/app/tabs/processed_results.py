@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QUndoStack
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QListWidgetItem, QFileDialog,
     QMessageBox, QAbstractItemView, QInputDialog, QMenu, QCheckBox,
@@ -36,6 +37,11 @@ from sfg_app2.app.utils.app_logging import LOG_FILE
 from sfg_app2.app.utils import recent_paths_settings
 from sfg_app2.processing import provenance as provenance_mod
 from sfg_app2.processing import fitting as fitting_mod
+from sfg_app2.app.tabs.processed_results_undo import (
+    AddEntryCommand, OverwriteEntryCommand, RemoveEntriesCommand,
+    ReplaceAnnotationsCommand, ResetTraceStylesCommand, SetTraceStylesCommand,
+    SortEntriesCommand, UpdateMetadataCommand,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -195,6 +201,7 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
 
         self._entries: list[SpectrumEntry] = []
         self._annotations: list[PlotAnnotation] = []
+        self._undo_stack = QUndoStack(self)
 
         # before _setup_plot(), which reparents the Data display tab into
         # its dock -- the checkbox rides along with it
@@ -520,13 +527,19 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
 
     # ── Public API — called by MainWindow ─────────────────────────────────────
 
+    @property
+    def undo_stack(self) -> QUndoStack:
+        return self._undo_stack
+
     def add_results(self, results: dict):
         from sfg_app2.processing.hd_sfg import HDSFGResult
         from sfg_app2.processing.processed_spectrum import ProcessedSpectrum
 
         remembered: dict = {}
         failed: list[str] = []
+        pushed = 0
         loading = show_loading(self, "Adding results...")
+        self._undo_stack.beginMacro("Add results")
         try:
             for filename, spectrum in results.items():
                 try:
@@ -563,31 +576,21 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
                             continue
                         if choice == "Keep Both":
                             new_label = self._unique_label(label)
-                            self._entries.append(SpectrumEntry(spectrum, new_label, kind=kind))
-                            self.ui.spectraList.addItem(
-                                self._make_list_item(len(self._entries) - 1)
-                            )
+                            new_entry = SpectrumEntry(spectrum, new_label, kind=kind)
+                            self._undo_stack.push(AddEntryCommand(self, new_entry))
+                            pushed += 1
                             continue
                         new_entry = SpectrumEntry(spectrum, label, kind=kind)
-                        self._entries[existing_idx] = new_entry
-                        # same as _on_add_from_file()'s Overwrite branch --
-                        # refresh this row's own text in place (e.g. a
-                        # stale "(fitted)" suffix if the entry being
-                        # replaced no longer carries fit_components),
-                        # found by stored index since widget row order
-                        # can differ from self._entries order after
-                        # drag-reordering.
-                        for row in range(self.ui.spectraList.count()):
-                            item = self.ui.spectraList.item(row)
-                            if item.data(Qt.ItemDataRole.UserRole) == existing_idx:
-                                item.setText(_entry_display_text(new_entry))
-                                break
+                        self._undo_stack.push(
+                            OverwriteEntryCommand(self, existing_idx,
+                                                   self._entries[existing_idx], new_entry)
+                        )
+                        pushed += 1
                         continue
 
-                    self._entries.append(SpectrumEntry(spectrum, label, kind=kind))
-                    self.ui.spectraList.addItem(
-                        self._make_list_item(len(self._entries) - 1)
-                    )
+                    new_entry = SpectrumEntry(spectrum, label, kind=kind)
+                    self._undo_stack.push(AddEntryCommand(self, new_entry))
+                    pushed += 1
                 except Exception as e:
                     logger.error(
                         "Failed to add result %r to the Spectra Library: %s",
@@ -596,8 +599,11 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
                     failed.append(str(filename))
         finally:
             loading.close()
-
-        self._refresh_plot()
+            self._undo_stack.endMacro()
+            if not pushed:
+                # every file was skipped/erroring -- discard the no-op macro
+                # so Undo never shows a step that visibly does nothing.
+                self._undo_stack.undo()
 
         if failed:
             QMessageBox.warning(
@@ -1199,18 +1205,7 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         if not ok:
             return
 
-        def sort_key(entry: SpectrumEntry):
-            val = entry.spectrum.metadata.get(key)
-            if val is None:
-                return ""
-            try:
-                return float(val)
-            except (ValueError, TypeError):
-                return str(val)
-
-        self._entries.sort(key=sort_key)
-        self._rebuild_list()
-        self._refresh_plot()
+        self._undo_stack.push(SortEntriesCommand(self, key))
         logger.info("Sorted spectra by metadata field '%s'.", key)
 
     def _rebuild_list(self):
@@ -1304,6 +1299,7 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         added, skipped, failed, renamed = 0, 0, 0, 0
         remembered: dict = {}
         loading = show_loading(self, "Loading files...")
+        self._undo_stack.beginMacro("Add spectra from file")
         for path_str in paths:
             path = Path(path_str)
             try:
@@ -1375,10 +1371,7 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
                 if existing_idx is None:
                     entry = SpectrumEntry(spectrum, label, kind=kind)
                     entry.fit_components = fit_components
-                    self._entries.append(entry)
-                    self.ui.spectraList.addItem(
-                        self._make_list_item(len(self._entries) - 1)
-                    )
+                    self._undo_stack.push(AddEntryCommand(self, entry))
                     added += 1
                 elif self._same_content(self._entries[existing_idx].spectrum, spectrum):
                     skipped += 1
@@ -1396,36 +1389,27 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
                         new_label = self._unique_label(label)
                         entry = SpectrumEntry(spectrum, new_label, kind=kind)
                         entry.fit_components = fit_components
-                        self._entries.append(entry)
-                        self.ui.spectraList.addItem(
-                            self._make_list_item(len(self._entries) - 1)
-                        )
+                        self._undo_stack.push(AddEntryCommand(self, entry))
                         added += 1
                         renamed += 1
                     else:  # Overwrite
                         entry = SpectrumEntry(spectrum, label, kind=kind)
                         entry.fit_components = fit_components
-                        self._entries[existing_idx] = entry
-                        # the overwritten row's own list-item text (e.g. its
-                        # "(fitted)" suffix) isn't touched by replacing
-                        # self._entries[existing_idx] alone -- find that
-                        # row by its stored index (not by widget row
-                        # number, which can differ after drag-reordering)
-                        # and refresh its text in place.
-                        for row in range(self.ui.spectraList.count()):
-                            item = self.ui.spectraList.item(row)
-                            if item.data(Qt.ItemDataRole.UserRole) == existing_idx:
-                                item.setText(_entry_display_text(entry))
-                                break
+                        self._undo_stack.push(
+                            OverwriteEntryCommand(self, existing_idx,
+                                                   self._entries[existing_idx], entry)
+                        )
                         added += 1
 
             except Exception as e:
                 logger.warning("Could not load %s: %s", path.name, e)
                 failed += 1
         loading.close()
-
-        if added:
-            self._refresh_plot()
+        self._undo_stack.endMacro()
+        if not added:
+            # every file was skipped/erroring -- discard the no-op macro
+            # so Undo never shows a step that visibly does nothing.
+            self._undo_stack.undo()
 
         msg_parts = []
         if added:
@@ -1638,17 +1622,16 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
             self._on_remove(selected)
 
     def _on_reset_trace_styles(self, entries: list[SpectrumEntry]):
-        for entry in entries:
-            entry.styles.clear()
-        self._rebuild_list()
-        self._refresh_plot()
+        self._undo_stack.push(ResetTraceStylesCommand(self, entries))
 
     def _on_edit_annotations(self):
         from sfg_app2.app.dialogs.plot_annotations_dialog import PlotAnnotationsDialog
+        old_annotations = list(self._annotations)
         dialog = PlotAnnotationsDialog(self._annotations, self)
         if dialog.exec() == dialog.DialogCode.Accepted:
-            self._annotations = dialog.result_annotations()
-            self._refresh_plot()
+            self._undo_stack.push(
+                ReplaceAnnotationsCommand(self, old_annotations, dialog.result_annotations())
+            )
 
     def _entry_component_rows(self, entry: SpectrumEntry) -> list[tuple[str, str]]:
         """(style_key, display_name) rows to show in the trace properties
@@ -1668,9 +1651,17 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
             for entry in entries
             for key, display_name in self._entry_component_rows(entry)
         ]
+        before = [
+            (entry, key, key in entry.styles, entry.styles.get(key))
+            for entry, key, _display_name in rows
+        ]
         dialog = TraceStyleDialog(rows, self)
         if dialog.exec() == dialog.DialogCode.Accepted:
-            self._refresh_plot()
+            changes = [
+                (entry, key, had, old, entry.styles[key])
+                for entry, key, had, old in before
+            ]
+            self._undo_stack.push(SetTraceStylesCommand(self, changes))
 
     def _on_item_double_clicked(self, item: QListWidgetItem):
         idx = item.data(Qt.ItemDataRole.UserRole)
@@ -1690,8 +1681,10 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         for e, s in zip(entries, spectra):
             if not hasattr(s, "path"):
                 s._display_name = e.label   # temporary attr for dialog display
+        old_metadata = [dict(s.metadata) for s in spectra]
         dialog = MetadataEditDialog(spectra, parent=self)
-        dialog.exec()
+        if dialog.exec() == dialog.DialogCode.Accepted:
+            self._undo_stack.push(UpdateMetadataCommand(entries, old_metadata))
 
     def _on_view_processing_params(self, entries: list[SpectrumEntry]):
         from sfg_app2.app.dialogs.processing_params_dialog import ProcessingParamsDialog
@@ -1715,8 +1708,5 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         if reply == QMessageBox.StandardButton.No:
             return
 
-        labels_to_remove = {e.label for e in entries}
-        self._entries = [e for e in self._entries if e.label not in labels_to_remove]
-        self._rebuild_list()
-        self._refresh_plot()
+        self._undo_stack.push(RemoveEntriesCommand(self, entries))
         logger.info("Removed %d spectrum/spectra from results.", n)
