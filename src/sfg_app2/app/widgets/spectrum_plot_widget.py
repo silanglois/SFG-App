@@ -12,7 +12,7 @@ from PySide6.QtCore import Qt, Signal
 from sfg_app2.app.utils.plotting_settings import style_figure
 from sfg_app2.app.dialogs.save_plot_dialog import SavePlotDialog
 from sfg_app2.app.utils.loading_indicator import show_loading
-from sfg_app2.app.utils import notebook_export, notebook_plotting
+from sfg_app2.app.utils import notebook_export, notebook_plotting, recent_paths_settings
 from sfg_app2.app.utils.notebook_plotting import is_overlay_line as _is_overlay_line
 
 
@@ -114,12 +114,14 @@ class SpectrumPlotWidget(QWidget):
             "tiff": "TIFF Image (*.tif *.tiff)",
             "svg": "SVG Image (*.svg)",
         }
-        path, _ = QFileDialog.getSaveFileName(self, "Save plot", "", filters[fmt])
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save plot", recent_paths_settings.get_last_dir("figures"), filters[fmt])
         if not path:
             return
         valid_exts = (".tif", ".tiff") if fmt == "tiff" else (f".{fmt}",)
         if not path.lower().endswith(valid_exts):
             path += f".{fmt}"
+        recent_paths_settings.remember_dir("figures", path)
 
         loading = show_loading(self, "Saving plot...")
         try:
@@ -139,8 +141,11 @@ class SpectrumPlotWidget(QWidget):
             )
             return
 
+        last_dir = recent_paths_settings.get_last_dir("figures")
+        default_name = "figure.ipynb"
+        default_path = str(Path(last_dir) / default_name) if last_dir else default_name
         path_str, _ = QFileDialog.getSaveFileName(
-            self, "Export plotting notebook", "figure.ipynb",
+            self, "Export plotting notebook", default_path,
             "Jupyter Notebook (*.ipynb)",
         )
         if not path_str:
@@ -148,6 +153,7 @@ class SpectrumPlotWidget(QWidget):
         path = Path(path_str)
         if path.suffix.lower() != ".ipynb":
             path = path.with_suffix(".ipynb")
+        recent_paths_settings.remember_dir("figures", path)
 
         loading = show_loading(self, "Building notebook...")
         try:

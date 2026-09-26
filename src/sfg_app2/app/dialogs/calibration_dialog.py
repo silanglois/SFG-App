@@ -17,6 +17,7 @@ from sfg_app2.app.utils.calibration_settings import (
     CURVE, LINES, MATERIAL, CalibrationConfig, CalibrationSettings,
 )
 from sfg_app2.app.utils.loading_indicator import show_loading
+from sfg_app2.app.utils import recent_paths_settings
 
 logger = logging.getLogger(__name__)
 
@@ -218,9 +219,10 @@ class CalibrationDialog(QDialog):
 
     def _on_browse_curve(self):
         path, _ = QFileDialog.getOpenFileName(
-            self, "Choose a reference curve", "",
+            self, "Choose a reference curve", recent_paths_settings.get_last_dir("calibration"),
             "Reference data (*.csv *.txt *.dat);;All files (*)")
         if path:
+            recent_paths_settings.remember_dir("calibration", path)
             self._curve_edit.setText(path)
             self._update_plot()
 

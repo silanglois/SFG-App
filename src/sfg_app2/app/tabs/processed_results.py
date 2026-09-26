@@ -33,6 +33,7 @@ from sfg_app2.app.tabs.trace_style import (   # noqa: F401
     _default_trace_style, is_customized, resolve_visibility,
 )
 from sfg_app2.app.utils.app_logging import LOG_FILE
+from sfg_app2.app.utils import recent_paths_settings
 from sfg_app2.processing import provenance as provenance_mod
 from sfg_app2.processing import fitting as fitting_mod
 
@@ -1286,11 +1287,13 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
 
     def _on_add_from_file(self):
         paths, _ = QFileDialog.getOpenFileNames(
-            self, "Load processed spectra", "",
+            self, "Load processed spectra",
+            recent_paths_settings.get_last_dir("spectra_library"),
             "CSV files (*.csv);;All files (*.*)"
         )
         if not paths:
             return
+        recent_paths_settings.remember_dir("spectra_library", paths[0])
 
         from sfg_app2.processing.utils import resolve_role, select_pattern
         import pandas as pd
@@ -1465,9 +1468,12 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
             QMessageBox.information(self, "Nothing to export", "No spectra to export.")
             return
 
-        folder = QFileDialog.getExistingDirectory(self, "Select export folder")
+        folder = QFileDialog.getExistingDirectory(
+            self, "Select export folder", recent_paths_settings.get_last_dir("spectra_library"),
+        )
         if not folder:
             return
+        recent_paths_settings.remember_dir("spectra_library", folder)
 
         remembered: dict = {}
         exported, skipped, failed = 0, 0, 0

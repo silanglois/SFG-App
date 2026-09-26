@@ -1,6 +1,7 @@
 from __future__ import annotations
 import logging
 import warnings
+from pathlib import Path
 
 import matplotlib as mpl
 import numpy as np
@@ -18,6 +19,7 @@ from sfg_app2.app.utils.plotting_settings import (
     apply_rcparams, _load_theme, is_custom_style, delete_custom_style,
     list_bundled_styles, list_themes, list_custom_styles,
 )
+from sfg_app2.app.utils import recent_paths_settings
 from sfg_app2.app.dialogs.custom_style_editor_dialog import CustomStyleEditorDialog
 
 logger = logging.getLogger(__name__)
@@ -203,10 +205,12 @@ class PlottingSettingsDialog(QDialog):
 
     def _on_import_style(self):
         path, _filter = QFileDialog.getOpenFileName(
-            self, "Import plot style", "", "Style files (*.json)"
+            self, "Import plot style", recent_paths_settings.get_last_dir("settings"),
+            "Style files (*.json)"
         )
         if not path:
             return
+        recent_paths_settings.remember_dir("settings", path)
         try:
             theme = Theme.from_file(path)
         except Exception as e:
@@ -229,12 +233,15 @@ class PlottingSettingsDialog(QDialog):
                 "The plain Matplotlib default isn't a style file that can be exported.",
             )
             return
-        default_path = f"{name}.json"
+        last_dir = recent_paths_settings.get_last_dir("settings")
+        default_name = f"{name}.json"
+        default_path = str(Path(last_dir) / default_name) if last_dir else default_name
         path, _filter = QFileDialog.getSaveFileName(
             self, "Export plot style", default_path, "Style files (*.json)"
         )
         if not path:
             return
+        recent_paths_settings.remember_dir("settings", path)
         try:
             _load_theme(name).save(path)
         except Exception as e:

@@ -23,7 +23,7 @@ from sfg_app2.app.widgets.spectrum_plot_widget import SpectrumPlotWidget
 from sfg_app2.app.widgets.dockable_panels import DockablePlotPanel
 from sfg_app2.app.utils.loading_indicator import show_loading
 from sfg_app2.app.utils.fit_template_manager import FitTemplateManager
-from sfg_app2.app.utils import color_coding
+from sfg_app2.app.utils import color_coding, recent_paths_settings
 from sfg_app2.processing import provenance
 from sfg_app2.processing.processed_spectrum import ProcessedSpectrum
 from sfg_app2.processing.fitting import (
@@ -436,10 +436,12 @@ class FittingTab(QWidget, DockablePlotPanel):
 
     def _load_files_into(self, list_widget: QListWidget, file_entries: list, checkable: bool):
         paths, _ = QFileDialog.getOpenFileNames(
-            self, "Load spectra", "", "CSV files (*.csv);;All files (*.*)",
+            self, "Load spectra", recent_paths_settings.get_last_dir("fitting"),
+            "CSV files (*.csv);;All files (*.*)",
         )
         if not paths:
             return
+        recent_paths_settings.remember_dir("fitting", paths[0])
         for path_str in paths:
             path = Path(path_str)
             try:
@@ -544,10 +546,12 @@ class FittingTab(QWidget, DockablePlotPanel):
         if not self._confirm_abandon_paused_sequential_run():
             return
         path_str, _ = QFileDialog.getOpenFileName(
-            self, "Load spectrum", "", "CSV files (*.csv);;All files (*.*)",
+            self, "Load spectrum", recent_paths_settings.get_last_dir("fitting"),
+            "CSV files (*.csv);;All files (*.*)",
         )
         if not path_str:
             return
+        recent_paths_settings.remember_dir("fitting", path_str)
         path = Path(path_str)
         try:
             df = provenance.load_csv_skip_comments(path)
@@ -1381,11 +1385,15 @@ class FittingTab(QWidget, DockablePlotPanel):
         if self._data is None or self._last_result is None:
             QMessageBox.information(self, "Nothing to export", "Load data and run a fit first.")
             return
+        last_dir = recent_paths_settings.get_last_dir("fitting")
+        default_name = f"{self._data.label}_fit.csv"
+        default_path = str(Path(last_dir) / default_name) if last_dir else default_name
         path_str, _ = QFileDialog.getSaveFileName(
-            self, "Export fit", f"{self._data.label}_fit.csv", "CSV files (*.csv)",
+            self, "Export fit", default_path, "CSV files (*.csv)",
         )
         if not path_str:
             return
+        recent_paths_settings.remember_dir("fitting", path_str)
 
         spectrum = self._data.source_spectrum
         if spectrum is None:
@@ -2055,9 +2063,12 @@ class FittingTab(QWidget, DockablePlotPanel):
         if not self._batch_rows:
             QMessageBox.information(self, "Nothing to export", "Run a batch or sequential fit first.")
             return
-        folder = QFileDialog.getExistingDirectory(self, "Select export folder")
+        folder = QFileDialog.getExistingDirectory(
+            self, "Select export folder", recent_paths_settings.get_last_dir("fitting"),
+        )
         if not folder:
             return
+        recent_paths_settings.remember_dir("fitting", folder)
         path_str = str(Path(folder) / "batch_fit_summary.csv")
 
         param_columns = self._batch_param_columns(self._batch_template)

@@ -12,6 +12,7 @@ from sfg_app2.processing.readers import (
     CANONICAL_COLUMNS, ReadOptions, UnrecognizedFormatError, peek_columns,
     read_spectrum,
 )
+from sfg_app2.app.utils import recent_paths_settings
 
 logger = logging.getLogger(__name__)
 
@@ -194,8 +195,10 @@ class FileFormatDialog(QDialog):
 
     def _on_choose_sample(self):
         path, _ = QFileDialog.getOpenFileName(
-            self, "Choose a file to test", "", "Data files (*.csv *.txt *.dat *.asc *.tsv);;All files (*)")
+            self, "Choose a file to test", recent_paths_settings.get_last_dir("raw_data"),
+            "Data files (*.csv *.txt *.dat *.asc *.tsv);;All files (*)")
         if path:
+            recent_paths_settings.remember_dir("raw_data", path)
             self._sample_path = Path(path)
             self._refresh_sources()
             self._update_preview()

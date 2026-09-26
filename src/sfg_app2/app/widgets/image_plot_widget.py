@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
 from sfg_app2.app.widgets.spectrum_plot_widget import _ThemedFigureCanvas
 from sfg_app2.app.dialogs.save_plot_dialog import SavePlotDialog
 from sfg_app2.app.utils.loading_indicator import show_loading
+from sfg_app2.app.utils import recent_paths_settings
 from sfg_app2.processing.image_file import find_brightest_region
 
 _ARROW_STEP = 1
@@ -331,12 +332,14 @@ class ImagePlotWidget(QWidget):
             "tiff": "TIFF Image (*.tif *.tiff)",
             "svg": "SVG Image (*.svg)",
         }
-        path, _ = QFileDialog.getSaveFileName(self, "Save plot", "", filters[fmt])
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save plot", recent_paths_settings.get_last_dir("figures"), filters[fmt])
         if not path:
             return
         valid_exts = (".tif", ".tiff") if fmt == "tiff" else (f".{fmt}",)
         if not path.lower().endswith(valid_exts):
             path += f".{fmt}"
+        recent_paths_settings.remember_dir("figures", path)
 
         loading = show_loading(self, "Saving plot...")
         try:

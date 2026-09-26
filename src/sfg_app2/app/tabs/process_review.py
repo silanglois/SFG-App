@@ -164,9 +164,14 @@ class ProcessReviewTab(QWidget):
         from sfg_app2.app.utils import notebook_export, notebook_processing
         from sfg_app2.app.utils.loading_indicator import show_loading
 
+        from sfg_app2.app.utils import recent_paths_settings
+
         label = Path(matched.signal.path).stem if matched.signal else "processed"
+        last_dir = recent_paths_settings.get_last_dir("figures")
+        default_name = f"{label}_processing.ipynb"
+        default_path = str(Path(last_dir) / default_name) if last_dir else default_name
         path_str, _ = QFileDialog.getSaveFileName(
-            self, "Export processing notebook", f"{label}_processing.ipynb",
+            self, "Export processing notebook", default_path,
             "Jupyter Notebook (*.ipynb)",
         )
         if not path_str:
@@ -174,6 +179,7 @@ class ProcessReviewTab(QWidget):
         path = Path(path_str)
         if path.suffix.lower() != ".ipynb":
             path = path.with_suffix(".ipynb")
+        recent_paths_settings.remember_dir("figures", path)
 
         loading = show_loading(self, "Building notebook...")
         try:
