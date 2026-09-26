@@ -70,6 +70,13 @@ regions of interest in a figure.
   without touching the on-screen plot. This dialog is shared across the
   app, so the same controls are available from any plot that has its
   own "💾 Save plot" button (the Spectra Library, the Fitting tab, ...).
+- Right next to "💾 Save plot" is **📓 Export notebook…**, on every
+  plot in the app. It writes a self-contained Jupyter notebook that
+  reproduces exactly what's currently plotted — one editable `ax.plot`
+  cell per line, its data embedded and its color/style/label already
+  filled in — for full control over the figure outside the app. It
+  installs nothing and runs as-is on
+  [Google Colab](https://colab.research.google.com).
 
 In the Fit components panel, **Hide fit traces from legend** keeps
 fit-derived curves on screen but drops them from the legend — handy

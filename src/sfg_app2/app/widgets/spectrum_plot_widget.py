@@ -1,4 +1,6 @@
 from __future__ import annotations
+from pathlib import Path
+
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg, NavigationToolbar2QT
 from matplotlib.figure import Figure
 from PySide6.QtWidgets import (
@@ -10,17 +12,8 @@ from PySide6.QtCore import Qt, Signal
 from sfg_app2.app.utils.plotting_settings import style_figure
 from sfg_app2.app.dialogs.save_plot_dialog import SavePlotDialog
 from sfg_app2.app.utils.loading_indicator import show_loading
-
-
-def _is_overlay_line(xd, yd) -> bool:
-    """True for a 2-point axhline/axvline artist, which store one of their
-    two coordinate arrays as [0, 1] in axes-fraction space rather than real
-    data — axhline puts that placeholder in xdata, axvline in ydata, so
-    both must be checked or the un-checked one leaks into range/autoscale
-    computations as if it were real plotted data."""
-    import numpy as np
-    return ((len(xd) == 2 and np.allclose(xd, [0.0, 1.0])) or
-            (len(yd) == 2 and np.allclose(yd, [0.0, 1.0])))
+from sfg_app2.app.utils import notebook_export, notebook_plotting
+from sfg_app2.app.utils.notebook_plotting import is_overlay_line as _is_overlay_line
 
 
 class _ThemedFigureCanvas(FigureCanvasQTAgg):
@@ -71,6 +64,15 @@ class SpectrumPlotWidget(QWidget):
         self._save_plot_button.setToolTip("Save this plot to an image file")
         self._save_plot_button.clicked.connect(self._on_save_plot)
         layout.addWidget(self._save_plot_button)
+
+        self._export_notebook_button = QPushButton("📓 Export notebook…")
+        self._export_notebook_button.setToolTip(
+            "Write a self-contained notebook that reproduces this plot "
+            "from its own embedded data — for full control over the "
+            "figure outside the app."
+        )
+        self._export_notebook_button.clicked.connect(self._on_export_notebook)
+        layout.addWidget(self._export_notebook_button)
 
         layout.addStretch()
 
@@ -124,6 +126,35 @@ class SpectrumPlotWidget(QWidget):
             dlg.export(path)
         except Exception as e:
             QMessageBox.warning(self, "Save failed", f"Could not save plot: {e}")
+        finally:
+            loading.close()
+
+    def _on_export_notebook(self):
+        payload = notebook_plotting.build_payload(self.ax, self.ax2)
+        if not payload["traces"]:
+            QMessageBox.information(
+                self, "Nothing to export",
+                "There's nothing plotted yet — the notebook reproduces "
+                "whatever is currently on screen.",
+            )
+            return
+
+        path_str, _ = QFileDialog.getSaveFileName(
+            self, "Export plotting notebook", "figure.ipynb",
+            "Jupyter Notebook (*.ipynb)",
+        )
+        if not path_str:
+            return
+        path = Path(path_str)
+        if path.suffix.lower() != ".ipynb":
+            path = path.with_suffix(".ipynb")
+
+        loading = show_loading(self, "Building notebook...")
+        try:
+            payload["output_name"] = path.stem
+            notebook_export.write_notebook(notebook_plotting.build(payload), path)
+        except Exception as e:
+            QMessageBox.warning(self, "Couldn't export notebook", f"Could not export notebook: {e}")
         finally:
             loading.close()
 
