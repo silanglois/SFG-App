@@ -81,6 +81,19 @@ BG Subtracted → Normalized**, checking the plot at each stage:
   you've placed, and that curve becomes the offset subtracted from
   the background before the rest of the pipeline runs.
 
+- **Background smoothing** — at the bottom of the Background
+  Correction dock, choose a smoothing method separately for the
+  **Sample BG** and the **Reference BG**: Savitzky–Golay (window,
+  polynomial order), moving average (window), Gaussian (sigma) or
+  median (window, which also shrugs off leftover spikes). Windows and
+  widths are in data points. The frame-averaged background is smoothed
+  before the offset is added and before it's subtracted; in the
+  "Signal + Background" view, the raw background is drawn faintly
+  behind the smoothed one so you can judge it. Smoothing applies
+  whether or not the offset correction is ticked, and the method and
+  its parameters are written to the export header and to an exported
+  notebook.
+
 - **Frame exclusion** — per-component checkboxes let you exclude
   specific acquisition frames from averaging (e.g. a frame with a
   known glitch).

@@ -454,3 +454,57 @@ def test_processing_notebook_needs_no_network_or_install(raw_matched_files, tmp_
                    if c["cell_type"] == "code")
     assert "pip install" not in code
     assert "git+" not in code
+
+
+# ── Background smoothing: panel → result, provenance and notebook ─────────
+
+def test_homodyne_bg_smoothing_changes_result_and_is_recorded(process_tab):
+    import numpy as np
+    from sfg_app2.processing.smoothing import SmoothingSpec
+
+    tab, matched = process_tab("homodyne")
+    panel = tab._homodyne_panel
+    before = panel._get_step(0, "normalized").data["Intensity"].to_numpy().copy()
+
+    row = panel._bg_smoothing_editor.rows["sample"]
+    row.set_spec(SmoothingSpec("moving_average", {"window": 21}))
+    panel._on_bg_offset_changed()
+    after = panel._get_step(0, "normalized")
+    assert not np.allclose(after.data["Intensity"].to_numpy(), before)
+
+    recorded = after.provenance["bg_smoothing"]
+    assert recorded["sample"] == {"method": "moving_average", "window": 21}
+    assert recorded["reference"] == {"method": "none"}
+
+    source = _processing_source(tab, matched).replace('"', "'")
+    assert "'sample': {'method': 'moving_average', 'window': 21}" in source
+    assert "smoothing=BG_SMOOTHING.get('sample')" in source
+
+
+def test_heterodyne_bg_smoothing_reaches_config_and_notebook(process_tab):
+    tab, matched = process_tab("heterodyne")
+    panel = tab._hd_sfg_panel
+    panel._bg_smoothing_editor.rows["reference"].set_spec({"method": "gaussian", "sigma": 2.0})
+
+    cfg = panel._current_config()
+    assert cfg.ref_bg_smoothing.to_dict() == {"method": "gaussian", "sigma": 2.0}
+    assert not cfg.bg_smoothing.is_active
+    assert panel._build_provenance(cfg, 2)["bg_smoothing"]["reference"]["sigma"] == 2.0
+
+    source = _processing_source(tab, matched).replace('"', "'")
+    assert "'reference': {'method': 'gaussian', 'sigma': 2.0}" in source
+    assert "ref_bg_smoothing=BG_SMOOTHING.get('reference')" in source
+
+
+def test_smoothing_editor_keeps_values_per_method(qtbot):
+    from sfg_app2.app.widgets.smoothing_editor import BackgroundSmoothingEditor
+
+    editor = BackgroundSmoothingEditor()
+    qtbot.addWidget(editor)
+    row = editor.rows["sample"]
+    with qtbot.waitSignal(editor.changed):
+        row.combo.setCurrentIndex(row.combo.findData("savgol"))
+    row.set_spec({"method": "savgol", "window": 31, "order": 4})
+    row.combo.setCurrentIndex(row.combo.findData("median"))
+    row.combo.setCurrentIndex(row.combo.findData("savgol"))
+    assert editor.spec("sample").params == {"window": 31, "order": 4}

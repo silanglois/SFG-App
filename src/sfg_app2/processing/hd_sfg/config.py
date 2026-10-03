@@ -1,6 +1,7 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
 
+from sfg_app2.processing.smoothing import SmoothingSpec
 from sfg_app2.processing.utils import OffsetSpec
 
 
@@ -16,9 +17,16 @@ class HDSFGConfig:
     # None = use same number of points as input
     n_interpolation_points: int | None = None
 
-    # ── Smoothing — background (Savitzky-Golay) ───────────────────────────────
-    bg_smoothing_window: int = 0     # LengthSm — must be odd
-    bg_smoothing_order: int = 3      # orderSm
+    # ── Smoothing — background ────────────────────────────────────────────────
+    # Any registered method (processing/smoothing.py), separately for the
+    # sample and the reference background. An inactive bg_smoothing falls
+    # back to the legacy Savitzky-Golay window/order pair below (which then
+    # applies to both backgrounds, as it always did) -- see
+    # effective_bg_smoothing().
+    bg_smoothing: SmoothingSpec = field(default_factory=SmoothingSpec)
+    ref_bg_smoothing: SmoothingSpec = field(default_factory=SmoothingSpec)
+    bg_smoothing_window: int = 0     # LengthSm — must be odd (legacy)
+    bg_smoothing_order: int = 3      # orderSm (legacy)
 
     # ── Smoothing — signal / reference (Savitzky-Golay) ──────────────────────
     sig_smoothing_window: int = 0    # LengthSm2 — must be odd, 0 = no smoothing
@@ -66,6 +74,8 @@ class HDSFGConfig:
     exclude_frames: dict = field(default_factory=dict)
 
     def __post_init__(self):
+        self.bg_smoothing = SmoothingSpec.from_dict(self.bg_smoothing)
+        self.ref_bg_smoothing = SmoothingSpec.from_dict(self.ref_bg_smoothing)
         self.edge_left  = int(self.edge_left)
         self.edge_right = int(self.edge_right)
         self.fft_start  = int(self.fft_start)
@@ -74,3 +84,11 @@ class HDSFGConfig:
             self.bg_smoothing_window += 1
         if self.sig_smoothing_window > 0 and self.sig_smoothing_window % 2 == 0:
             self.sig_smoothing_window += 1
+    def effective_bg_smoothing(self) -> tuple[SmoothingSpec, SmoothingSpec]:
+        """(sample, reference) background smoothing actually applied."""
+        if (not self.bg_smoothing.is_active and not self.ref_bg_smoothing.is_active
+                and self.bg_smoothing_window > 0 and self.bg_smoothing_order > 0):
+            legacy = SmoothingSpec("savgol", {"window": self.bg_smoothing_window,
+                                              "order": self.bg_smoothing_order})
+            return legacy, legacy
+        return self.bg_smoothing, self.ref_bg_smoothing

@@ -9,6 +9,7 @@ from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib as mpl
+from matplotlib.legend_handler import HandlerTuple
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QUndoStack
@@ -25,6 +26,7 @@ from sfg_app2.processing.processed_spectrum import ProcessedSpectrum
 from sfg_app2.app.utils.loading_indicator import show_loading
 from sfg_app2.app.utils.phase_wrap import wrap_phase_for_plot
 from sfg_app2.app.utils.plotting_settings import PlottingSettings
+from sfg_app2.app.utils.legend_utils import build_legend
 # Re-exported for the dialogs and for callers that still import these
 # from here; they live in trace_style.py so those dialogs don't have to
 # import this tab module back.
@@ -113,6 +115,30 @@ _FIT_TO_HD_COMPONENT = {
     "Fit (imaginary)": "Imaginary",
     "Fit (homodyne)": "|χ⁽²⁾|² (Homodyne)",
 }
+
+
+def _data_key(spec) -> tuple:
+    """(entry, component) identifying a data trace -- what a fit pairs with."""
+    return (spec.entry, spec.component if spec.component is not None else AMPLITUDE_COMPONENT)
+
+
+def _fit_partner_key(spec) -> tuple | None:
+    """The _data_key() of the data trace whose color a fit curve takes --
+    on a homodyne entry every fit curve (peaks included) shares the one
+    amplitude trace's color."""
+    key = (_FIT_TO_HD_COMPONENT.get(spec.y_col)
+           if spec.entry.kind == "heterodyne" else AMPLITUDE_COMPONENT)
+    return (spec.entry, key) if key else None
+
+
+def _fit_legend_partner_key(spec) -> tuple | None:
+    """The _data_key() of the data trace a fit curve *models* -- stricter
+    than _fit_partner_key(): only the curve directly comparable to the
+    data (HD real/imaginary/homodyne, homodyne "Fit (total)") pairs; peaks
+    and the homodyne entry's real/imaginary chi stay separate."""
+    if spec.entry.kind != "heterodyne" and spec.y_col != "Fit (total)":
+        return None
+    return _fit_partner_key(spec)
 
 
 class SpectrumEntry:
@@ -467,14 +493,15 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         outer.addWidget(self._markers_checkbox)
 
         # Session-only (not persisted): resets to unchecked on every launch.
-        self._hide_fit_legend = False
-        self._hide_fit_legend_checkbox = QCheckBox("Hide fit traces from legend")
-        self._hide_fit_legend_checkbox.setToolTip(
-            "Keep fit-derived curves on the plot but leave them out of "
-            "the legend."
+        self._combine_fit_legend = False
+        self._combine_fit_legend_checkbox = QCheckBox("Combine fit and data in legend")
+        self._combine_fit_legend_checkbox.setToolTip(
+            "Show each fit curve and the data it was fit to as one legend "
+            "entry (the data's marker drawn over the fit's line), labelled "
+            "with the data's name. Individual peaks stay separate entries."
         )
-        self._hide_fit_legend_checkbox.toggled.connect(self._on_hide_fit_legend_toggled)
-        outer.addWidget(self._hide_fit_legend_checkbox)
+        self._combine_fit_legend_checkbox.toggled.connect(self._on_combine_fit_legend_toggled)
+        outer.addWidget(self._combine_fit_legend_checkbox)
 
         outer.addStretch()
         return widget
@@ -790,8 +817,7 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         entry_fallback_color = {}
         for idx, color in zip(data_indices, data_colors):
             spec = specs[idx]
-            key = spec.component if spec.component is not None else AMPLITUDE_COMPONENT
-            data_color_by_key[(spec.entry, key)] = color
+            data_color_by_key[_data_key(spec)] = color
             entry_fallback_color.setdefault(spec.entry, color)
             result[idx] = color
 
@@ -800,9 +826,8 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
             if not spec.is_fit:
                 continue   # already colored above
             entry = spec.entry
-            matched_key = (_FIT_TO_HD_COMPONENT.get(spec.y_col)
-                           if entry.kind == "heterodyne" else AMPLITUDE_COMPONENT)
-            color = data_color_by_key.get((entry, matched_key)) if matched_key else None
+            partner = _fit_partner_key(spec)
+            color = data_color_by_key.get(partner) if partner else None
             if color is None:
                 color = entry_fallback_color.get(entry)
             if color is None:
@@ -911,8 +936,8 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         self._decorate_axes(entries, axis_usage, specs)
         self.plot_widget.sync_x_range()
 
-    def _on_hide_fit_legend_toggled(self, checked: bool):
-        self._hide_fit_legend = checked
+    def _on_combine_fit_legend_toggled(self, checked: bool):
+        self._combine_fit_legend = checked
         self._refresh_plot()
 
     def _update_export_button_text(self, checked_count: int):
@@ -1047,6 +1072,9 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         show_error = self.ui.hdCheckShowError.isChecked()
         markers_mode = self._markers_checkbox.isChecked()
         colors = self._assign_spec_colors(specs)
+        # The Line2D each spec drew, for _decorate_axes() to pair fits with
+        # their data in a combined legend.
+        self._spec_lines = {}
         # Offset is per *spectrum*, not per plotted line: every component
         # and fit curve of one entry shares its entry's slot, so enabling
         # a second HD component doesn't widen the spacing or push a fit
@@ -1102,7 +1130,8 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
                         plot_kwargs["linewidth"] = style.linewidth
                     if style.alpha is not None:
                         plot_kwargs["alpha"] = style.alpha
-                target_ax.plot(x, y_offset, **plot_kwargs)
+                line, = target_ax.plot(x, y_offset, **plot_kwargs)
+                self._spec_lines[id(spec)] = line
 
                 if show_error and entry.kind == "heterodyne" and spec.err_col in data.columns:
                     y_err = data[spec.err_col].to_numpy() * factor
@@ -1125,6 +1154,38 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
                 logger.warning("Could not plot %s: %s", spec.label, e)
         return usage
 
+    def _combine_fit_handles(self, handles: list, labels: list[str],
+                             specs: list[PlotSpec]) -> tuple[list, list[str]]:
+        """Fold each fit curve into its data trace's legend entry.
+
+        A matched fit's own entry is dropped and its data trace's handle
+        becomes a (fit_line, data_line) tuple -- drawn by HandlerTuple as
+        one overlaid entry, the data last so its marker sits on top of the
+        fit's line -- keeping the data trace's label. Fits with no data
+        partner on the plot (see _fit_legend_partner_key) stay as their
+        own entries; a data trace takes only its first matched fit.
+        """
+        lines = getattr(self, "_spec_lines", {})
+        data_line_by_key = {}
+        for spec in specs:
+            if not spec.is_fit and id(spec) in lines:
+                data_line_by_key.setdefault(_data_key(spec), lines[id(spec)])
+        fit_for_data = {}
+        for spec in specs:
+            if not spec.is_fit or id(spec) not in lines:
+                continue
+            data_line = data_line_by_key.get(_fit_legend_partner_key(spec))
+            if data_line is not None and data_line not in fit_for_data:
+                fit_for_data[data_line] = lines[id(spec)]
+        absorbed = set(fit_for_data.values())
+        out_handles, out_labels = [], []
+        for h, label in zip(handles, labels):
+            if h in absorbed:
+                continue
+            out_handles.append((fit_for_data[h], h) if h in fit_for_data else h)
+            out_labels.append(label)
+        return out_handles, out_labels
+
     def _decorate_axes(
         self, entries: list[SpectrumEntry], usage: _AxisUsage, specs: list[PlotSpec],
     ):
@@ -1133,12 +1194,15 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         if self.plot_widget.ax2 is not None:
             h2, l2 = self.plot_widget.ax2.get_legend_handles_labels()
             handles, labels = handles + h2, labels + l2
-        if self._hide_fit_legend:
-            fit_labels = {s.label for s in specs if s.is_fit}
-            kept = [(h, l) for h, l in zip(handles, labels) if l not in fit_labels]
-            handles, labels = ([list(t) for t in zip(*kept)] if kept else ([], []))
-        if len(handles) > 1 and self._legend_fields != ["None"]:
-            self.plot_widget.ax.legend(handles, labels, fontsize=8)
+        legend_kwargs = {"fontsize": 8}
+        if self._combine_fit_legend:
+            handles, labels = self._combine_fit_handles(handles, labels, specs)
+            legend_kwargs["handler_map"] = {tuple: HandlerTuple(ndivide=1, pad=0)}
+        # One entry is normally not worth a legend -- unless it is a
+        # combined data+fit entry, which still names two curves.
+        worth_it = len(handles) > 1 or (handles and isinstance(handles[0], tuple))
+        if worth_it and self._legend_fields != ["None"]:
+            build_legend(self.plot_widget.ax, handles, labels, **legend_kwargs)
 
         # determine x column — use Wavenumber if available, else Wavelength
         first_data = entries[0].spectrum.data

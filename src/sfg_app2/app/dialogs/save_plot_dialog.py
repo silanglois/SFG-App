@@ -8,6 +8,8 @@ from PySide6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QHeaderView, QWidget, QLabel,
 )
 
+from sfg_app2.app.utils.legend_utils import legend_source
+
 # Preview image is capped to this box (px) and scaled down preserving
 # its true (possibly tight-cropped) aspect ratio -- see _refresh_preview().
 _PREVIEW_MAX_W = 700
@@ -140,9 +142,15 @@ class SavePlotDialog(QDialog):
                 break
 
         self._legend_created_by_dialog = False
+        # The panel's own Legend object, re-attached as-is on restore so
+        # whatever loc/ncol/frame it chose comes back exactly; a legend
+        # with rows dropped or relabelled is a separate rebuilt one.
+        self._orig_legend = legend
+        self._legend_rebuilt = False
+        self._legend_kwargs: dict = {"fontsize": 8}
         if legend is not None:
             self._orig_legend_visible = bool(legend.get_visible())
-            self._legend_labels = [t.get_text() for t in legend.get_texts()]
+            self._legend_handles, self._legend_labels, self._legend_kwargs = legend_source(legend)
         else:
             self._orig_legend_visible = False
             handles, labels = [], []
@@ -424,36 +432,36 @@ class SavePlotDialog(QDialog):
             return
 
         show = self._legend_check.isChecked()
-
-        if self._legend_ax is None:
-            if not show:
-                return
-            self.ax.legend(self._legend_handles, self._legend_labels, fontsize=8)
-            self._legend_ax = self.ax
-            self._legend_created_by_dialog = True
-
-        legend = self._legend_ax.get_legend()
-        if legend is None:
-            return
-        legend.set_visible(show)
-
-        # Individually hiding a row's handle/text (rather than rebuilding
-        # the legend without it) keeps this a pure visibility toggle --
-        # cheap to undo exactly in _restore_original_state(), and it never
-        # risks reconstructing a legend whose original loc/ncol/frameon
-        # some panel chose deliberately. The tradeoff is a blank gap where
-        # a hidden row sat, rather than the remaining rows reflowing.
-        handles = list(legend.legend_handles)
-        texts = legend.get_texts()
-        n = min(len(handles), len(texts), self._legend_table.rowCount())
-        for row in range(n):
+        kept_handles, kept_labels = [], []
+        for row, (handle, original) in enumerate(zip(self._legend_handles, self._legend_labels)):
+            if row >= self._legend_table.rowCount():
+                break
             keep_item = self._legend_table.item(row, 0)
-            keep = keep_item is None or keep_item.checkState() == Qt.CheckState.Checked
-            handles[row].set_visible(keep)
-            texts[row].set_visible(keep)
+            if keep_item is not None and keep_item.checkState() != Qt.CheckState.Checked:
+                continue
             label_item = self._legend_table.item(row, 1)
-            if label_item is not None:
-                texts[row].set_text(label_item.text())
+            kept_handles.append(handle)
+            kept_labels.append(label_item.text() if label_item is not None else original)
+
+        untouched = kept_labels == self._legend_labels
+        if self._orig_legend is not None and (untouched or not show or not kept_handles):
+            # Nothing to rebuild: just show/hide the panel's own legend.
+            self._orig_legend.set_visible(show and bool(kept_handles))
+            return
+        if not show or not kept_handles:
+            return
+
+        # Rebuilt from only the kept rows (rather than hiding rows in the
+        # existing legend), so the remaining entries close up instead of
+        # leaving blank gaps. _restore_original_state() puts the panel's
+        # own Legend object back afterwards.
+        ax = self._legend_ax or self.ax
+        ax.legend(kept_handles, kept_labels, **self._legend_kwargs)
+        self._legend_ax = ax
+        if self._orig_legend is None:
+            self._legend_created_by_dialog = True
+        else:
+            self._legend_rebuilt = True
 
     # ── Teardown / export ────────────────────────────────────────────────────
 
@@ -467,17 +475,16 @@ class SavePlotDialog(QDialog):
             self.ax2.set_ylabel(self._orig_ylabel2)
 
         if self._legend_ax is not None:
-            legend = self._legend_ax.get_legend()
-            if legend is not None:
-                if self._legend_created_by_dialog:
-                    legend.remove()
-                else:
-                    legend.set_visible(self._orig_legend_visible)
-                    for text, original in zip(legend.get_texts(), self._orig_legend_labels):
-                        text.set_visible(True)
-                        text.set_text(original)
-                    for handle in legend.legend_handles:
-                        handle.set_visible(True)
+            if self._legend_created_by_dialog or self._legend_rebuilt:
+                current = self._legend_ax.get_legend()
+                if current is not None and current is not self._orig_legend:
+                    current.remove()
+                if self._orig_legend is not None:
+                    self._legend_ax.legend_ = self._orig_legend
+                self._legend_created_by_dialog = False
+                self._legend_rebuilt = False
+            if self._orig_legend is not None:
+                self._orig_legend.set_visible(self._orig_legend_visible)
 
     def done(self, result):
         self._restore_original_state()

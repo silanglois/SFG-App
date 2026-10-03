@@ -78,10 +78,15 @@ regions of interest in a figure.
   installs nothing and runs as-is on
   [Google Colab](https://colab.research.google.com).
 
-In the Fit components panel, **Hide fit traces from legend** keeps
-fit-derived curves on screen but drops them from the legend — handy
-once a fit's curves start crowding out the data traces. It's
-session-only and resets on restart.
+In the Fit components panel, **Combine fit and data in legend** folds
+each fit curve into the legend entry of the data it was fit to: one
+row, labelled with the data's name, showing the data's marker drawn
+over the fit's line (pair it with **Show data as markers**). Fit total,
+real and imaginary curves pair with their data; individual peaks keep
+their own rows. It's session-only and resets on restart.
+
+When saving a plot, unticking a legend entry in the save dialog removes
+that row entirely: the remaining entries close up, with no gap.
 
 !!! tip "Processing notebooks"
     The Process / Review tab has a matching export: right-click a

@@ -163,41 +163,42 @@ def test_homodyne_ylabel_is_arbitrary_units(load_entries, make_homodyne_entry):
     assert tab.plot_widget.ax.get_ylabel() == "Intensity (a.u.)"
 
 
-# ── Hide fit traces from legend ─────────────────────────────────────────────
+# ── Combine fit and data in legend ──────────────────────────────────────────
 
-def test_hide_fit_legend_checkbox_drops_fit_traces_only(load_entries, make_fitted_entry):
-    # Two entries, so filtering out the (single) fit trace still leaves
-    # more than one line -- with just one entry, the remaining lone data
-    # trace wouldn't get a legend at all (same "no legend for a single
-    # line" rule that already applies without this toggle).
+def test_combine_fit_legend_merges_each_fit_into_its_data_entry(load_entries, make_fitted_entry):
     tab = load_entries(
-        make_fitted_entry(label="a"),
+        make_fitted_entry(label="a", components=("Fit (total)", "Peak 1")),
         make_fitted_entry(label="b", components=()),
     )
     tab._fit_checkboxes["Fit total"].setChecked(True)
+    tab._fit_checkboxes["Individual features"].setChecked(True)
 
     specs = tab._build_plot_specs(tab._checked_entries())
-    fit_label = next(s.label for s in specs if s.is_fit)
     data_labels = [s.label for s in specs if not s.is_fit]
-    assert len(data_labels) == 2
+    total_label = next(s.label for s in specs if s.y_col == "Fit (total)")
+    peak_label = next(s.label for s in specs if s.y_col == "Peak 1")
 
+    labels = [t.get_text() for t in tab.plot_widget.ax.get_legend().get_texts()]
+    assert total_label in labels and peak_label in labels
+
+    tab._combine_fit_legend_checkbox.setChecked(True)
     legend = tab.plot_widget.ax.get_legend()
     labels = [t.get_text() for t in legend.get_texts()]
-    assert fit_label in labels
-    assert all(l in labels for l in data_labels)
+    # The total fit folds into entry a's data row; the peak has no single
+    # data partner, so it stays its own entry.
+    assert sorted(labels) == sorted(data_labels + [peak_label])
+    assert total_label not in labels
+    handles = legend._sfg_source[0]
+    combined = [h for h in handles if isinstance(h, tuple)]
+    assert len(combined) == 1
+    fit_line, data_line = combined[0]
+    assert data_line.get_label() == data_labels[0]
+    assert fit_line.get_label() == total_label
 
-    tab._hide_fit_legend_checkbox.setChecked(True)
-
-    legend = tab.plot_widget.ax.get_legend()
-    labels = [t.get_text() for t in legend.get_texts()] if legend is not None else []
-    assert fit_label not in labels
-    assert all(l in labels for l in data_labels)
-
-    # Unchecking restores it -- this is a live, non-persisted toggle.
-    tab._hide_fit_legend_checkbox.setChecked(False)
-    legend = tab.plot_widget.ax.get_legend()
-    labels = [t.get_text() for t in legend.get_texts()]
-    assert fit_label in labels
+    # Live, non-persisted toggle.
+    tab._combine_fit_legend_checkbox.setChecked(False)
+    labels = [t.get_text() for t in tab.plot_widget.ax.get_legend().get_texts()]
+    assert total_label in labels
 
 
 # ── Empty-plot explanation ────────────────────────────────────────────────

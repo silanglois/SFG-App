@@ -9,6 +9,7 @@ from scipy.signal import savgol_filter
 from .config import HDSFGConfig
 from .windows import edge_window, fft_mask_window
 from sfg_app2.processing.baseline import _resolve_offset
+from sfg_app2.processing.smoothing import smooth
 
 logger = logging.getLogger(__name__)
 
@@ -227,14 +228,16 @@ def step_bg_smooth(
     averaged: AveragedData,
     config: HDSFGConfig,
 ) -> BGSubtractedData:
-    """Step 3 — smooth all components (Savitzky-Golay), subtract backgrounds,
-    apply edge window to deltas.
+    """Step 3 — smooth the backgrounds (config.bg_smoothing /
+    ref_bg_smoothing) and, optionally, signal/reference (Savitzky-Golay),
+    subtract backgrounds, apply edge window to deltas.
     """
     n = len(averaged.wavenumber)
     e_win = edge_window(n, config.edge_left, config.edge_right)
 
-    bg_sm     = _smooth(averaged.bg_avg,     config.bg_smoothing_window,  config.bg_smoothing_order)
-    ref_bg_sm = _smooth(averaged.ref_bg_avg, config.bg_smoothing_window,  config.bg_smoothing_order)
+    bg_spec, ref_bg_spec = config.effective_bg_smoothing()
+    bg_sm     = smooth(averaged.bg_avg,     bg_spec)
+    ref_bg_sm = smooth(averaged.ref_bg_avg, ref_bg_spec)
     sig_sm    = _smooth(averaged.sig_avg,    config.sig_smoothing_window, config.sig_smoothing_order)
     ref_sm    = _smooth(averaged.ref_avg,    config.sig_smoothing_window, config.sig_smoothing_order)
 

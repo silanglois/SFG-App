@@ -21,7 +21,7 @@ threshold 20, their backgrounds at window 300 / threshold 10.
 
 ## Background subtraction + edge window
 
-This dock combines two things:
+This dock combines three things:
 
 - **Edge low / Edge high (points)** — an edge-taper window applied to
   the background-subtracted delta before it goes into the FFT step.
@@ -31,6 +31,14 @@ This dock combines two things:
   marker, click an existing marker to remove it, or edit the table
   directly (the same interaction shown in **Process & Review —
   Homodyne**'s background-offset section).
+- **Background smoothing** — a method and its parameters for the
+  sample background and for the reference background, the same
+  choices as in the homodyne panel (Savitzky–Golay, moving average,
+  Gaussian, median; windows in points of the interpolated wavenumber
+  grid). The averaged backgrounds are smoothed before they're
+  subtracted. The settings are recorded in the export header, and
+  older exports that only carry a Savitzky–Golay "BG smoothing
+  window" still read back correctly.
 
 ## FFT filter window parameters
 

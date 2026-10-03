@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 
 from sfg_app2.app.dialogs._multi_entry_table import merge_entries_into_wide_rows
+from sfg_app2.processing.smoothing import SmoothingSpec
 
 
 def _fmt(value) -> str:
@@ -24,6 +25,14 @@ def _despike_rows(despike: dict) -> list[tuple[str, str]]:
         rows.append((f"Despike — {label} window", _fmt(c.get("window"))))
         rows.append((f"Despike — {label} threshold", _fmt(c.get("threshold"))))
     return rows
+
+
+def _bg_smoothing_rows(provenance: dict) -> list[tuple[str, str]]:
+    smoothing = provenance.get("bg_smoothing") or {}
+    return [
+        (f"{label} BG smoothing", SmoothingSpec.from_dict(smoothing.get(key)).describe())
+        for key, label in (("sample", "Sample"), ("reference", "Reference"))
+    ]
 
 
 def _source_rows(provenance: dict) -> list[tuple[str, str]]:
@@ -45,6 +54,7 @@ def _homodyne_rows(provenance: dict) -> list[tuple[str, str]]:
         ("Background subtraction — signal offset", _fmt(bg.get("signal_offset"))),
         ("Background subtraction — ref offset",    _fmt(bg.get("ref_offset"))),
     ]
+    rows += _bg_smoothing_rows(provenance)
 
     norm = provenance.get("normalization", {})
     rows.append(("Normalization", "applied" if norm.get("applied") else "not applied"))
@@ -66,8 +76,9 @@ def _heterodyne_rows(provenance: dict) -> list[tuple[str, str]]:
         ("BG subtraction — offset",          _fmt(bg.get("bg_offset"))),
         ("BG subtraction — edge left (pts)", _fmt(bg.get("edge_left"))),
         ("BG subtraction — edge right (pts)", _fmt(bg.get("edge_right"))),
-        ("BG smoothing — window",            _fmt(bg.get("bg_smoothing_window"))),
-        ("BG smoothing — order",             _fmt(bg.get("bg_smoothing_order"))),
+    ]
+    rows += _bg_smoothing_rows(provenance)
+    rows += [
         ("Signal smoothing — window",        _fmt(bg.get("sig_smoothing_window"))),
         ("Signal smoothing — order",         _fmt(bg.get("sig_smoothing_order"))),
     ]

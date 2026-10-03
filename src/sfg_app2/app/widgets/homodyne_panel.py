@@ -17,6 +17,8 @@ from sfg_app2.app.widgets.dockable_panels import DockablePlotPanel
 from sfg_app2.app.widgets.frame_exclude_widget import FrameCheckStrip
 from sfg_app2.app.utils.loading_indicator import show_loading
 from sfg_app2.processing.baseline import subtract_background, apply_offset, fit_offset_from_markers
+from sfg_app2.processing.smoothing import smooth
+from sfg_app2.app.widgets.smoothing_editor import BackgroundSmoothingEditor
 from sfg_app2.processing.normalization import normalize
 
 logger = logging.getLogger(__name__)
@@ -339,6 +341,12 @@ class HomodynePanel(QWidget, DockablePlotPanel):
         marker_btn_row.addStretch()
         layout.addLayout(marker_btn_row)
 
+        # Independent of the "Apply background correction" checkbox (which
+        # governs the marker offset): smoothing applies whenever a method
+        # other than None is chosen.
+        self._bg_smoothing_editor = BackgroundSmoothingEditor()
+        layout.addWidget(self._bg_smoothing_editor)
+
         return w
 
     # ── Signal wiring ─────────────────────────────────────────────────────────
@@ -374,6 +382,7 @@ class HomodynePanel(QWidget, DockablePlotPanel):
         self._clear_marker_btn.clicked.connect(self._on_clear_markers)
         self._marker_table.cellChanged.connect(self._on_marker_cell_changed)
         self._bg_apply_checkbox.toggled.connect(lambda _checked: self._on_bg_offset_changed())
+        self._bg_smoothing_editor.changed.connect(self._on_bg_offset_changed)
 
         self._process_btn.clicked.connect(self._on_process)
         self._finish_btn.clicked.connect(self._on_finish)
@@ -589,10 +598,17 @@ class HomodynePanel(QWidget, DockablePlotPanel):
             return None
         bg_frame = bg_data.frame(1)
         degree = self._offset_degree_spin[target].value()
+        # Fit against the background as it will actually be subtracted
+        # (smoothed), so the corrected curve passes through the markers.
         return fit_offset_from_markers(
             markers, degree,
-            bg_frame["Wavelength"].to_numpy(), bg_frame["Intensity"].to_numpy(),
+            bg_frame["Wavelength"].to_numpy(),
+            smooth(bg_frame["Intensity"].to_numpy(), self._bg_smoothing(target)),
         )
+
+    def _bg_smoothing(self, target: str):
+        """Smoothing spec for the "signal" (sample) or "reference" background."""
+        return self._bg_smoothing_editor.spec("sample" if target == "signal" else "reference")
 
     def _on_bg_offset_changed(self):
         for idx in range(len(self._matched_sets)):
@@ -685,6 +701,7 @@ class HomodynePanel(QWidget, DockablePlotPanel):
                         exclude_frames=self._get_exclude_frames(idx, "background"))
                     c["bg_subtracted"] = subtract_background(
                         c["averaged_signal"], bg_avg, offset=sig_offset,
+                        smoothing=self._bg_smoothing("signal"),
                     )
                 c["_sig_offset"] = sig_offset
                 c["_ref_offset"] = ref_offset
@@ -696,6 +713,7 @@ class HomodynePanel(QWidget, DockablePlotPanel):
                         exclude_frames=self._get_exclude_frames(idx, "ref_background"))
                     c["bg_subtracted_ref"] = subtract_background(
                         c["averaged_ref"], ref_bg_avg, offset=ref_offset,
+                        smoothing=self._bg_smoothing("reference"),
                     )
             return c["bg_subtracted"]
 
@@ -712,7 +730,8 @@ class HomodynePanel(QWidget, DockablePlotPanel):
                 if m.reference_background:
                     ref_bg = c.get("averaged_ref_bg") or m.reference_background.average_spectrum(
                         exclude_frames=self._get_exclude_frames(idx, "ref_background"))
-                    ref = subtract_background(ref, ref_bg, offset=ref_offset)
+                    ref = subtract_background(ref, ref_bg, offset=ref_offset,
+                                              smoothing=self._bg_smoothing("reference"))
                 c["normalized"] = normalize(bg_sub, ref).upconvert_to_wavenumber(wl)
                 c["normalized"].provenance = self._build_provenance(idx, wl)
                 c["_upconversion_wl"] = wl
@@ -747,6 +766,7 @@ class HomodynePanel(QWidget, DockablePlotPanel):
             "bg_offset": sig_offset if isinstance(sig_offset, (int, float)) else None,
             "upconversion_wavelength": self._upconversion_wl() or upconversion_wavelength,
             "exclude_frames": {k: v for k, v in exclude.items() if v},
+            "bg_smoothing": self._bg_smoothing_editor.to_dict(),
         }
 
     def _build_provenance(self, idx: int, wl: float) -> dict:
@@ -775,6 +795,7 @@ class HomodynePanel(QWidget, DockablePlotPanel):
                 "ref_offset_markers":   [list(pt) for pt in self._ref_markers],
                 "ref_offset":           str(ref_offset) if ref_offset is not None else "None",
             },
+            "bg_smoothing":   self._bg_smoothing_editor.to_dict(),
             "normalization":  {"applied": m.reference is not None},
             "upconversion":   {"applied": m.reference is not None,
                                 "wavelength_nm": wl if m.reference is not None else None},
@@ -1031,7 +1052,17 @@ class HomodynePanel(QWidget, DockablePlotPanel):
                 )
             bg_data = c.get(bg_key)
             if bg_data is not None:
-                bg_data = apply_offset(bg_data, offset)
+                smoothing = self._bg_smoothing(sig_comp)
+                if smoothing.is_active:
+                    # The raw (unsmoothed, offset-free) background, faint,
+                    # so the smoothing can be judged against it.
+                    raw = bg_data.frame(1)
+                    self.plot_widget.ax.plot(
+                        raw["Wavelength"].to_numpy(), raw["Intensity"].to_numpy(),
+                        color=color, linestyle=COMPONENT_LINESTYLE[bg_comp], alpha=0.25,
+                        linewidth=0.8,
+                    )
+                bg_data = apply_offset(bg_data, offset, smoothing)
                 fd = bg_data.frame(1)
                 self.plot_widget.ax.plot(
                     fd["Wavelength"].to_numpy(), fd["Intensity"].to_numpy(),

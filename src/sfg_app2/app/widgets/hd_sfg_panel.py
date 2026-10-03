@@ -18,6 +18,8 @@ from sfg_app2.app.widgets.frame_exclude_widget import FrameCheckStrip
 from sfg_app2.app.utils.loading_indicator import show_loading
 from sfg_app2.app.utils.phase_wrap import wrap_phase_for_plot
 from sfg_app2.processing.baseline import fit_offset_from_markers, _resolve_offset
+from sfg_app2.processing.smoothing import smooth
+from sfg_app2.app.widgets.smoothing_editor import BackgroundSmoothingEditor
 
 logger = logging.getLogger(__name__)
 
@@ -403,9 +405,10 @@ class HDSFGPanel(QWidget, DockablePlotPanel):
         if not self._bg_markers:
             return None
         degree = self._bg_offset_degree.value()
+        # Against the smoothed background, i.e. the one actually subtracted.
         return fit_offset_from_markers(
             self._bg_markers, degree,
-            averaged.wavenumber, averaged.bg_avg,
+            averaged.wavenumber, smooth(averaged.bg_avg, self._bg_smoothing_editor.spec("sample")),
         )
 
     def _build_bg_smooth_section(self) -> QWidget:
@@ -471,6 +474,9 @@ class HDSFGPanel(QWidget, DockablePlotPanel):
         marker_btn_row.addWidget(self._clear_bg_marker_btn)
         marker_btn_row.addStretch()
         layout.addLayout(marker_btn_row)
+
+        self._bg_smoothing_editor = BackgroundSmoothingEditor()
+        layout.addWidget(self._bg_smoothing_editor)
 
         return w
 
@@ -671,6 +677,7 @@ class HDSFGPanel(QWidget, DockablePlotPanel):
         self._bg_offset_degree.valueChanged.connect(
             lambda: self._auto_process_from("bg_smooth")
         )
+        self._bg_smoothing_editor.changed.connect(lambda: self._auto_process_from("bg_smooth"))
         self._add_bg_marker_btn.clicked.connect(self._on_add_bg_marker_row)
         self._remove_bg_marker_btn.clicked.connect(self._on_remove_bg_marker_row)
         self._clear_bg_marker_btn.clicked.connect(self._on_clear_bg_markers)
@@ -1026,6 +1033,15 @@ class HDSFGPanel(QWidget, DockablePlotPanel):
         view = self._view_combo.currentText()
 
         if view == "Signal + Background":
+            averaged = self._cache.get(self._matched_index, {}).get("averaged")
+            if averaged is not None and len(averaged.bg_avg) == len(wn):
+                # Raw (unsmoothed) backgrounds, faint, to judge the smoothing.
+                if self._bg_smoothing_editor.spec("sample").is_active:
+                    self.plot_widget.ax.plot(wn, averaged.bg_avg, color="gray",
+                                             alpha=0.3, linewidth=0.8)
+                if self._bg_smoothing_editor.spec("reference").is_active:
+                    self.plot_widget.ax.plot(wn, averaged.ref_bg_avg, color="gray",
+                                             alpha=0.3, linewidth=0.8, linestyle="--")
             self.plot_widget.ax.plot(wn, data.sig_sm,
                                     label="Signal (smoothed)")
             self.plot_widget.ax.plot(wn, data.bg_sm,
@@ -1375,8 +1391,6 @@ class HDSFGPanel(QWidget, DockablePlotPanel):
                 "bg_offset":            str(cfg.bg_offset) if cfg.bg_offset is not None else "None",
                 "edge_left":            cfg.edge_left,
                 "edge_right":           cfg.edge_right,
-                "bg_smoothing_window":  cfg.bg_smoothing_window,
-                "bg_smoothing_order":   cfg.bg_smoothing_order,
                 "sig_smoothing_window": cfg.sig_smoothing_window,
                 "sig_smoothing_order":  cfg.sig_smoothing_order,
             },
@@ -1396,6 +1410,10 @@ class HDSFGPanel(QWidget, DockablePlotPanel):
                 "reference_exposure_s": cfg.reference_exposure,
                 "phase_correction_deg": cfg.phase_correction_deg,
             },
+            "bg_smoothing": {
+                "sample":    cfg.bg_smoothing.to_dict(),
+                "reference": cfg.ref_bg_smoothing.to_dict(),
+            },
             "upconversion": {"wavelength_nm": cfg.upconversion_wavelength},
             "n_frames": n_frames,
             "excluded_frames": {
@@ -1412,7 +1430,9 @@ class HDSFGPanel(QWidget, DockablePlotPanel):
         from sfg_app2.processing.hd_sfg import HDSFGConfig
         return HDSFGConfig(
             upconversion_wavelength = self._upconversion_wl(),
-            bg_smoothing_window     = 0,   # disabled
+            bg_smoothing            = self._bg_smoothing_editor.spec("sample"),
+            ref_bg_smoothing        = self._bg_smoothing_editor.spec("reference"),
+            bg_smoothing_window     = 0,   # legacy Savitzky-Golay pair, unused
             bg_smoothing_order      = 0,
             sig_smoothing_window    = 0,   # disabled
             sig_smoothing_order     = 0,
@@ -1467,8 +1487,7 @@ class HDSFGPanel(QWidget, DockablePlotPanel):
             "upconversion_wavelength": config.upconversion_wavelength or upconversion_wavelength,
             "despike_window": despike.window,
             "despike_threshold": despike.threshold,
-            "bg_smoothing_window": config.bg_smoothing_window,
-            "bg_smoothing_order": config.bg_smoothing_order,
+            "bg_smoothing": self._bg_smoothing_editor.to_dict(),
             "bg_offset": resolved_offset if isinstance(resolved_offset, (int, float)) else None,
             "edge_left": config.edge_left,
             "edge_right": config.edge_right,

@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 
 from .processed_spectrum import ProcessedSpectrum
+from .smoothing import SmoothingSpec, smooth
 from .utils import OffsetSpec
 
 
@@ -62,14 +63,18 @@ def fit_offset_from_markers(
     return float(coeffs[0]) if deg == 0 else list(coeffs)
 
 
-def apply_offset(background, offset: OffsetSpec = None) -> ProcessedSpectrum:
+def apply_offset(background, offset: OffsetSpec = None,
+                 smoothing: SmoothingSpec | dict | None = None) -> ProcessedSpectrum:
     """Apply an offset to a background spectrum and return it as a
     plottable ProcessedSpectrum, without subtracting from anything.
     Useful for visually checking the offset before calling subtract_background.
+
+    ``smoothing`` (if active) smooths the frame-averaged background first,
+    on its own wavelength grid, then the offset is added on top.
     """
-    bg_avg = background.average_spectrum().frame(1)
+    bg_avg = background.average_spectrum().frame(1).sort_values("Wavelength")
     bg_wavelength = bg_avg["Wavelength"].to_numpy()
-    bg_intensity = bg_avg["Intensity"].to_numpy()
+    bg_intensity = smooth(bg_avg["Intensity"].to_numpy(), smoothing)
 
     offset_values = _resolve_offset(bg_wavelength, offset)
     adjusted = bg_intensity + offset_values
@@ -83,12 +88,16 @@ def apply_offset(background, offset: OffsetSpec = None) -> ProcessedSpectrum:
     return ProcessedSpectrum(
         df,
         metadata=background.metadata,
-        history=background.history + [f"apply_offset(offset={offset})"],
+        history=background.history + [
+            f"apply_offset(offset={offset})" if smoothing is None
+            else f"apply_offset(offset={offset}, smoothing={SmoothingSpec.from_dict(smoothing).to_dict()})"
+        ],
     )
 
 
-def subtract_background(signal, background, offset: OffsetSpec = None) -> ProcessedSpectrum:
-    bg_adjusted = apply_offset(background, offset)
+def subtract_background(signal, background, offset: OffsetSpec = None,
+                        smoothing: SmoothingSpec | dict | None = None) -> ProcessedSpectrum:
+    bg_adjusted = apply_offset(background, offset, smoothing)
     bg_lookup = pd.Series(
         bg_adjusted.data["Intensity"].to_numpy(),
         index=bg_adjusted.data["Wavelength"].to_numpy(),

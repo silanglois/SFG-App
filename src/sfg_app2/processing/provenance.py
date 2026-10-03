@@ -6,6 +6,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from .smoothing import SmoothingSpec
+
 
 def build_provenance_from_history(spectrum) -> dict:
     """Fallback provenance for spectra not processed via the pipeline."""
@@ -42,6 +44,43 @@ def parse_markers(text: str | None) -> list[list[float]]:
         except ValueError:
             continue
     return points
+
+
+def format_bg_smoothing(provenance: dict) -> list[str]:
+    """Background smoothing as one JSON line per background -- JSON keeps
+    the method + its parameters lossless whatever the method is, and the
+    header parser splits only on the first colon, so the JSON's own
+    colons survive."""
+    smoothing = provenance.get("bg_smoothing") or {}
+    lines = []
+    for key, label in (("sample", "Sample"), ("reference", "Reference")):
+        spec = SmoothingSpec.from_dict(smoothing.get(key))
+        lines.append(f"# {label} BG smoothing json:  {json.dumps(spec.to_dict())}")
+    return lines
+
+
+def parse_bg_smoothing(raw: dict) -> dict:
+    """Inverse of format_bg_smoothing(). An older heterodyne export only
+    has the Savitzky-Golay "BG smoothing window/order" pair (applied to
+    both backgrounds); a file with neither had no smoothing."""
+    out = {}
+    for key in ("sample", "reference"):
+        text = raw.get(f"{key} bg smoothing json")
+        try:
+            out[key] = SmoothingSpec.from_dict(json.loads(text)).to_dict() if text else None
+        except (ValueError, TypeError):
+            out[key] = None
+    if out["sample"] is None and out["reference"] is None:
+        try:
+            window = int(float(raw.get("bg smoothing window") or 0))
+            order = int(float(raw.get("bg smoothing order") or 0))
+        except ValueError:
+            window = order = 0
+        if window > 0 and order > 0:
+            legacy = SmoothingSpec("savgol", {"window": window, "order": order}).to_dict()
+            return {"sample": legacy, "reference": dict(legacy)}
+    none = SmoothingSpec().to_dict()
+    return {key: value or dict(none) for key, value in out.items()}
 
 
 def format_homodyne_provenance(provenance: dict) -> list[str]:
@@ -85,6 +124,7 @@ def format_homodyne_provenance(provenance: dict) -> list[str]:
         ]
     else:
         lines.append("# Background subtraction: not applied")
+    lines += format_bg_smoothing(provenance)
 
     norm = provenance.get("normalization", {})
     lines.append(
@@ -138,8 +178,9 @@ def format_heterodyne_provenance(provenance: dict) -> list[str]:
         f"# BG subtraction offset:              {bg.get('bg_offset', 'N/A')}",
         f"# BG subtraction edge_left_pts:       {bg.get('edge_left', 'N/A')}",
         f"# BG subtraction edge_right_pts:      {bg.get('edge_right', 'N/A')}",
-        f"# BG smoothing window:                {bg.get('bg_smoothing_window', 'N/A')}",
-        f"# BG smoothing order:                 {bg.get('bg_smoothing_order', 'N/A')}",
+    ]
+    lines += format_bg_smoothing(provenance)
+    lines += [
         f"# Signal smoothing window:            {bg.get('sig_smoothing_window', 'N/A')}",
         f"# Signal smoothing order:             {bg.get('sig_smoothing_order', 'N/A')}",
         f"# FFT window_type:                    {fft.get('window_type', 'N/A')}",
@@ -339,8 +380,6 @@ def parse_export_header(path: Path) -> tuple[list[str], dict, dict]:
             "bg_offset": raw.get("bg subtraction offset"),
             "edge_left": raw.get("bg subtraction edge_left_pts"),
             "edge_right": raw.get("bg subtraction edge_right_pts"),
-            "bg_smoothing_window": raw.get("bg smoothing window"),
-            "bg_smoothing_order": raw.get("bg smoothing order"),
             "sig_smoothing_window": raw.get("signal smoothing window"),
             "sig_smoothing_order": raw.get("signal smoothing order"),
         }
@@ -390,6 +429,7 @@ def parse_export_header(path: Path) -> tuple[list[str], dict, dict]:
             "wavelength_nm": raw.get("wavelength"),
         }
 
+    provenance["bg_smoothing"] = parse_bg_smoothing(raw)
     provenance["fit_json"] = raw.get("fit json")
 
     metadata["source_filename"] = path.name

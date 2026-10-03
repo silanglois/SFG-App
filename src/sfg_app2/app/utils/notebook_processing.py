@@ -99,6 +99,11 @@ OUTPUT_NAME = {as_literal(cfg.get("label", "processed"))}  #@param {{type:"strin
 # Frames excluded from the averages, as set in the app. Not a form
 # field -- it's per component, so edit it here.
 EXCLUDE_FRAMES = {as_literal(cfg.get("exclude_frames") or {})}
+
+# Background smoothing (method + parameters, windows in data points), as
+# set in the app. Methods: "none", "savgol" (window, order),
+# "moving_average" (window), "gaussian" (sigma), "median" (window).
+BG_SMOOTHING = {as_literal(cfg.get("bg_smoothing") or {"sample": {"method": "none"}, "reference": {"method": "none"}})}
 """
 
 
@@ -111,8 +116,6 @@ DESPIKE_WINDOW = {as_literal(int(cfg.get("despike_window", 50)))}  #@param {{typ
 DESPIKE_THRESHOLD = {as_literal(float(cfg.get("despike_threshold", 10.0)))}  #@param {{type:"number"}}
 UPCONVERSION_NM = {as_literal(float(cfg.get("upconversion_wavelength", 1030.7)))}  #@param {{type:"number"}}
 
-BG_SMOOTHING_WINDOW = {as_literal(int(cfg.get("bg_smoothing_window", 0)))}  #@param {{type:"integer"}}
-BG_SMOOTHING_ORDER = {as_literal(int(cfg.get("bg_smoothing_order", 3)))}  #@param {{type:"integer"}}
 BACKGROUND_OFFSET = {as_literal(float(cfg.get("bg_offset") or 0.0))}  #@param {{type:"number"}}
 
 EDGE_LEFT = {as_literal(int(cfg.get("edge_left", 15)))}  #@param {{type:"integer"}}
@@ -130,6 +133,10 @@ SAMPLE_EXPOSURE_S = {as_literal(float(cfg.get("sample_exposure", 300.0)))}  #@pa
 REFERENCE_EXPOSURE_S = {as_literal(float(cfg.get("reference_exposure", 30.0)))}  #@param {{type:"number"}}
 
 OUTPUT_NAME = {as_literal(cfg.get("label", "processed"))}  #@param {{type:"string"}}
+# Background smoothing (method + parameters, windows in data points), as
+# set in the app. Methods: "none", "savgol" (window, order),
+# "moving_average" (window), "gaussian" (sigma), "median" (window).
+BG_SMOOTHING = {as_literal(cfg.get("bg_smoothing") or {"sample": {"method": "none"}, "reference": {"method": "none"}})}
 """
 
 
@@ -245,8 +252,10 @@ plt.show()
 # COMPUTE — replace this cell to change background subtraction; the
 # cell below only needs `sample_corrected` and `reference_corrected`.
 offset = BACKGROUND_OFFSET or None
-sample_corrected = subtract_background(averaged["signal"], averaged["background"], offset=offset)
-reference_corrected = subtract_background(averaged["reference"], averaged["reference_bg"])
+sample_corrected = subtract_background(averaged["signal"], averaged["background"], offset=offset,
+                                       smoothing=BG_SMOOTHING.get("sample"))
+reference_corrected = subtract_background(averaged["reference"], averaged["reference_bg"],
+                                          smoothing=BG_SMOOTHING.get("reference"))
 """.strip()),
         code_cell("""
 # PLOT — safe to restyle without touching the cell above.
@@ -297,8 +306,8 @@ def _heterodyne_config_cell(cfg: dict) -> str:
 # `config` to stay an HDSFGConfig.
 config = HDSFGConfig(
     upconversion_wavelength=UPCONVERSION_NM,
-    bg_smoothing_window=BG_SMOOTHING_WINDOW,
-    bg_smoothing_order=BG_SMOOTHING_ORDER,
+    bg_smoothing=BG_SMOOTHING.get("sample"),
+    ref_bg_smoothing=BG_SMOOTHING.get("reference"),
     bg_offset=BACKGROUND_OFFSET or None,
     edge_left=EDGE_LEFT,
     edge_right=EDGE_RIGHT,
