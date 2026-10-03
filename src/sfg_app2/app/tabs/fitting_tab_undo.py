@@ -105,6 +105,32 @@ class ApplyTemplateCommand(QUndoCommand):
         self._apply(self._before)
 
 
+class ReplaceModelSpecCommand(QUndoCommand):
+    """A one-shot rewrite of the model's settings that leaves the last fit
+    result alone -- "Share peak shapes", per-polarization sign rules.
+    Both specs are deepcopied for the same reason as ApplyTemplateCommand."""
+
+    def __init__(self, tab: "FittingTab", old_spec: "FitModelSpec", new_spec: "FitModelSpec",
+                 description: str):
+        super().__init__(description)
+        self._tab = tab
+        self._old_spec = deepcopy(old_spec)
+        self._new_spec = deepcopy(new_spec)
+
+    def _apply(self, spec: "FitModelSpec"):
+        tab = self._tab
+        tab._model_spec = deepcopy(spec)
+        tab._rebuild_parameter_table()
+        tab._apply_fit_result_to_table()
+        tab._schedule_preview()
+
+    def redo(self):
+        self._apply(self._new_spec)
+
+    def undo(self):
+        self._apply(self._old_spec)
+
+
 class RunFitCommand(QUndoCommand):
     """The "undo a fit" ask. redo() restores the already-computed
     result rather than re-running the (potentially slow) minimizer."""

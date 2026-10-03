@@ -32,10 +32,10 @@ from sfg_app2.processing.fitting import (
     fit_homodyne, fit_heterodyne, compute_weights, compute_heterodyne_weights,
     available_lineshapes, get_lineshape, fit_model_spec_from_provenance_payload,
     BatchDataset, fit_sequential_batch, fit_independent_batch, fit_one_dataset, advance_seed,
-    fit_global_batch,
+    fit_global_batch, fit_polarization_set, apply_sign_constraints, restore_amplitude_bounds,
 )
 from sfg_app2.app.tabs.fitting_tab_undo import (
-    AddPeakCommand, ApplyTemplateCommand, RemovePeakCommand,
+    AddPeakCommand, ApplyTemplateCommand, RemovePeakCommand, ReplaceModelSpecCommand,
     RunBatchFitCommand, RunFitCommand,
 )
 
@@ -130,6 +130,11 @@ def _parse_bound(text: str, default: float) -> float:
         return float(text)
     except ValueError:
         return default
+
+
+def _format_sign_rules(signs: dict[str, str]) -> str:
+    """"ppp −, ssp +" -- the Parameters table's inline summary."""
+    return ", ".join(f"{pol} {'−' if rule == '-' else rule}" for pol, rule in sorted(signs.items()))
 
 
 def _lmfit_key(key: tuple) -> str:
@@ -240,6 +245,16 @@ class _FittableSpectrum:
     imag_err: np.ndarray | None = None
     source_spectrum: object | None = None   # the original ProcessedSpectrum, if loaded from Results tab
     fit_json_payload: dict | None = None    # a previous fit's payload, if the file carried one
+    metadata: dict | None = None            # a file-loaded spectrum's header metadata (else source_spectrum's)
+
+
+# Keys parse_export_header() adds on its own, not the user's metadata
+# fields -- never offered as a "Polarization from" choice.
+_HEADER_ONLY_METADATA_KEYS = {"label", "exported", "source_filename"}
+
+
+def _user_metadata(meta: dict) -> dict:
+    return {k: v for k, v in meta.items() if k not in _HEADER_ONLY_METADATA_KEYS and v is not None}
 
 
 class FittingTab(QWidget, DockablePlotPanel):
@@ -473,7 +488,10 @@ class FittingTab(QWidget, DockablePlotPanel):
                     f"{path.name}: no Wavenumber/Intensity or Wavenumber/Real/Imaginary columns found.",
                 )
                 continue
-            spectrum = ProcessedSpectrum(df, metadata={}, history=["loaded_from_file"], provenance={})
+            # The header's metadata fields (e.g. a polarization) are kept so
+            # "Polarization from" can read them -- see _batch_polarization().
+            spectrum = ProcessedSpectrum(df, metadata=_user_metadata(meta), history=["loaded_from_file"],
+                                         provenance={})
             entry = _FileLoadedEntry(label=meta.get("label", path.stem), spectrum=spectrum, kind=channels["kind"])
             file_entries.append(entry)
             list_widget.addItem(_make_list_item(entry, checkable=checkable))
@@ -584,7 +602,7 @@ class FittingTab(QWidget, DockablePlotPanel):
             return
         self._data = _FittableSpectrum(
             label=meta.get("label", path.stem), source_spectrum=None,
-            fit_json_payload=provenance.parse_fit_json(prov), **channels,
+            fit_json_payload=provenance.parse_fit_json(prov), metadata=_user_metadata(meta), **channels,
         )
         self._on_data_loaded()
 
@@ -788,6 +806,20 @@ class FittingTab(QWidget, DockablePlotPanel):
     def _build_parameters_section(self) -> QWidget:
         widget = QWidget()
         layout = QVBoxLayout(widget)
+
+        share_row = QHBoxLayout()
+        share_btn = QPushButton("Share peak shapes")
+        share_btn.setToolTip(
+            "For spectra of one sample (e.g. several polarizations): mark "
+            "every peak's center and width(s) Shared and every amplitude "
+            "independent, so a batch fit finds one set of peak positions "
+            "and widths with per-spectrum amplitudes."
+        )
+        share_btn.clicked.connect(self._on_share_peak_shapes)
+        share_row.addWidget(share_btn)
+        share_row.addStretch()
+        layout.addLayout(share_row)
+
         self._param_table = QTableWidget(0, 9)
         self._param_table.setHorizontalHeaderLabels(
             ["Peak", "Parameter", "Fixed", "Value", "Error", "Min", "Max", "Expr", "Shared"]
@@ -827,8 +859,11 @@ class FittingTab(QWidget, DockablePlotPanel):
         for i, peak in enumerate(self._model_spec.peaks):
             ls = get_lineshape(peak.lineshape_key)
             for p in ls.params:
+                pname = p.display_name
+                if p.name == "amplitude" and peak.amplitude_signs:
+                    pname += f" ({_format_sign_rules(peak.amplitude_signs)})"
                 rows.append((("peak", i, p.name), f"Peak {i + 1} ({ls.display_name})",
-                             p.display_name, peak.params[p.name]))
+                             pname, peak.params[p.name]))
 
         table = self._param_table
         table.setRowCount(len(rows))
@@ -836,7 +871,13 @@ class FittingTab(QWidget, DockablePlotPanel):
 
         for row, (key, label, pname, fp) in enumerate(rows):
             table.setItem(row, _COL_LABEL, _readonly_item(label))
-            table.setItem(row, _COL_PARAM, _readonly_item(pname))
+            param_item = _readonly_item(pname)
+            if key[0] == "peak" and key[2] == "amplitude" and self._model_spec.peaks[key[1]].amplitude_signs:
+                param_item.setToolTip(
+                    "Sign rules per polarization (Batch fit dock → Sign constraints...). "
+                    "They apply to any fit of a spectrum whose polarization has a rule."
+                )
+            table.setItem(row, _COL_PARAM, param_item)
 
             value_spin = QDoubleSpinBox()
             value_spin.setRange(-1e9, 1e9)
@@ -957,6 +998,19 @@ class FittingTab(QWidget, DockablePlotPanel):
     def _on_param_shared_changed(self, row: int, checked: bool):
         key = self._param_row_keys[row]
         self._param_at(key).shared = checked
+
+    def _on_share_peak_shapes(self):
+        """Every peak's non-amplitude parameters (center, width,
+        gauss_width, ... -- whatever its lineshape has) Shared; amplitudes
+        and the non-resonant terms per spectrum."""
+        new = deepcopy(self._model_spec)
+        for fp in new.nonresonant.values():
+            fp.shared = False
+        for peak in new.peaks:
+            for name, fp in peak.params.items():
+                fp.shared = name != "amplitude"
+        if new != self._model_spec:
+            self._undo_stack.push(ReplaceModelSpecCommand(self, self._model_spec, new, "Share peak shapes"))
 
     def _on_param_min_changed(self, row: int):
         key = self._param_row_keys[row]
@@ -1287,6 +1341,8 @@ class FittingTab(QWidget, DockablePlotPanel):
         weighting = self._weighting_combo.currentData()
         old_spec = self._model_spec
         old_result = self._last_result
+        constrained = apply_sign_constraints(self._model_spec, self._data_polarization(),
+                                             mirror_ok=self._data.kind == "homodyne")
 
         loading = show_loading(self, "Fitting...")
         try:
@@ -1297,7 +1353,7 @@ class FittingTab(QWidget, DockablePlotPanel):
                 imag_err = self._data.imag_err[mask] if self._data.imag_err is not None else None
                 weights_real, weights_imag = compute_heterodyne_weights(weighting, real, imag, real_err, imag_err)
                 result = fit_heterodyne(
-                    omega, real, imag, self._model_spec,
+                    omega, real, imag, constrained,
                     weights_real=weights_real, weights_imag=weights_imag,
                 )
             else:
@@ -1305,7 +1361,7 @@ class FittingTab(QWidget, DockablePlotPanel):
                 intensity_std = self._data.intensity_std[mask] if self._data.intensity_std is not None else None
                 count = self._data.count[mask] if self._data.count is not None else None
                 weights = compute_weights(weighting, intensity, intensity_std, count)
-                result = fit_homodyne(omega, intensity, self._model_spec, weights=weights)
+                result = fit_homodyne(omega, intensity, constrained, weights=weights)
         except Exception as e:
             logger.warning("Fit failed: %s", e)
             QMessageBox.warning(self, "Fit failed", str(e))
@@ -1313,7 +1369,28 @@ class FittingTab(QWidget, DockablePlotPanel):
         finally:
             loading.close()
 
+        restore_amplitude_bounds(result.spec, self._model_spec)
         self._undo_stack.push(RunFitCommand(self, old_spec, old_result, result.spec, result))
+
+    def _data_polarization(self) -> str | None:
+        """The loaded spectrum's value for the Batch dock's "Polarization
+        from" field, which selects its amplitude sign rules -- None when
+        no field is chosen or the spectrum doesn't have it."""
+        if self._data is None:
+            return None
+        if self._data.metadata is not None:
+            metadata = self._data.metadata
+        elif self._data.source_spectrum is not None:
+            metadata = self._data.source_spectrum.metadata
+        else:
+            metadata = {}
+        return self._polarization_of(metadata)
+
+    def _polarization_of(self, metadata: dict) -> str | None:
+        key = self._polarization_combo.currentData()
+        if not key or metadata.get(key) in (None, ""):
+            return None
+        return str(metadata[key])
 
     def _update_quality_readout(self):
         if self._last_result is None:
@@ -1449,10 +1526,12 @@ class FittingTab(QWidget, DockablePlotPanel):
         widget = QWidget()
         layout = QVBoxLayout(widget)
         label = QLabel(
-            "Every spectrum in the list below is fit independently from "
-            "the model currently configured in the Model/Parameters "
-            "docks — order doesn't matter. Uses the Fit dock's current "
-            "fit range and weighting. Right-click a row to remove it."
+            "Every spectrum in the list below is fit from the model "
+            "currently configured in the Model/Parameters docks — "
+            "independently, or jointly for any parameter marked Shared "
+            "(e.g. via \"Share peak shapes\"). Order doesn't matter. Uses "
+            "the Fit dock's current fit range and weighting. Right-click "
+            "a row to remove it."
         )
         label.setWordWrap(True)
         layout.addWidget(label)
@@ -1471,6 +1550,37 @@ class FittingTab(QWidget, DockablePlotPanel):
         )
         layout.addWidget(load_files_btn)
 
+        form = QFormLayout()
+        self._polarization_combo = QComboBox()
+        self._polarization_combo.addItem("(none)", userData=None)
+        self._polarization_combo.setToolTip(
+            "The metadata field that tells spectra of different polarization "
+            "combinations apart. Selects each spectrum's amplitude sign rules "
+            "(Sign constraints...), in Batch, Sequential and Run fit alike."
+        )
+        self._polarization_combo.currentIndexChanged.connect(lambda _i: self._refresh_sign_rules_button())
+        form.addRow("Polarization from:", self._polarization_combo)
+        layout.addLayout(form)
+
+        self._sign_rules_btn = QPushButton("Sign constraints...")
+        self._sign_rules_btn.setToolTip(
+            "Force a peak's amplitude to be positive, negative or free, per polarization."
+        )
+        self._sign_rules_btn.clicked.connect(self._on_sign_constraints)
+        layout.addWidget(self._sign_rules_btn)
+
+        self._seed_amplitudes_check = QCheckBox("Seed amplitudes per spectrum")
+        self._seed_amplitudes_check.setChecked(True)
+        self._seed_amplitudes_check.setToolTip(
+            "Joint (Shared) fits only. Before the joint fit, solve each "
+            "spectrum's own amplitudes with the shared peak shapes held "
+            "fixed, then start the joint fit from those -- for spectra "
+            "whose amplitudes differ a lot (e.g. polarizations of one "
+            "sample). The joint fit also runs from the plain template, and "
+            "the better of the two is kept."
+        )
+        layout.addWidget(self._seed_amplitudes_check)
+
         self._run_batch_btn = QPushButton("Run batch fit")
         self._run_batch_btn.setEnabled(False)
         self._run_batch_btn.clicked.connect(self._on_run_batch_fit)
@@ -1482,6 +1592,80 @@ class FittingTab(QWidget, DockablePlotPanel):
 
     def _refresh_batch_controls(self):
         self._run_batch_btn.setEnabled(self._batch_list.count() >= 2)
+        self._refresh_polarization_combo()
+
+    def _refresh_polarization_combo(self):
+        """Offers the metadata fields present on the Batch and Sequential
+        lists' spectra. Keeps the current choice; a field whose name
+        starts with "pol" is picked automatically the first time it
+        appears, unless the user already chose one."""
+        combo = self._polarization_combo
+        current = combo.currentData()
+        previous_keys = {combo.itemData(i) for i in range(combo.count())}
+        keys = set()
+        for entry in self._all_batch_entries() + [e for e, _cp in self._all_sequential_rows()]:
+            keys.update(_user_metadata(entry.spectrum.metadata))
+        keys = sorted(keys, key=str.lower)
+
+        selected = current
+        if current is None:
+            selected = next((k for k in keys if k.lower().startswith("pol") and k not in previous_keys), None)
+        if current is not None and current not in keys:
+            keys.append(current)   # keep a choice whose spectra were removed
+
+        combo.blockSignals(True)
+        combo.clear()
+        combo.addItem("(none)", userData=None)
+        for k in keys:
+            combo.addItem(k, userData=k)
+        combo.setCurrentIndex(max(combo.findData(selected), 0) if selected is not None else 0)
+        combo.blockSignals(False)
+        self._refresh_sign_rules_button()
+
+    def _refresh_sign_rules_button(self):
+        self._sign_rules_btn.setEnabled(self._polarization_combo.currentData() is not None)
+
+    def _batch_polarization_values(self) -> list[str]:
+        """Distinct polarization values over the Batch and Sequential
+        lists, in first-seen order."""
+        values = []
+        for entry in self._all_batch_entries() + [e for e, _cp in self._all_sequential_rows()]:
+            pol = self._polarization_of(entry.spectrum.metadata)
+            if pol is not None and pol not in values:
+                values.append(pol)
+        return values
+
+    def _on_sign_constraints(self):
+        from sfg_app2.app.dialogs.sign_constraints_dialog import SignConstraintsDialog
+
+        key = self._polarization_combo.currentData()
+        if key is None:
+            return
+        if not self._model_spec.peaks:
+            QMessageBox.information(self, "No peaks", "Add peaks to the model first.")
+            return
+        values = self._batch_polarization_values()
+        # Polarizations that already have a rule stay editable even when
+        # no spectrum in the lists carries them right now.
+        for peak in self._model_spec.peaks:
+            values += [pol for pol in peak.amplitude_signs if pol not in values]
+        if not values:
+            QMessageBox.information(
+                self, "No polarizations found",
+                f"No spectrum in the Batch or Sequential list has a \"{key}\" value.",
+            )
+            return
+        dialog = SignConstraintsDialog(self._model_spec, values, key, self)
+        if dialog.exec() != SignConstraintsDialog.DialogCode.Accepted:
+            return
+        self._apply_sign_rules(dialog.rules())
+
+    def _apply_sign_rules(self, rules: list[dict[str, str]]):
+        new = deepcopy(self._model_spec)
+        for peak, signs in zip(new.peaks, rules):
+            peak.amplitude_signs = dict(signs)
+        if new != self._model_spec:
+            self._undo_stack.push(ReplaceModelSpecCommand(self, self._model_spec, new, "Set amplitude sign rules"))
 
     def _build_batch_datasets(self, entries: list) -> list[BatchDataset] | None:
         """Returns None (after warning the user) if any entry's columns
@@ -1496,7 +1680,8 @@ class FittingTab(QWidget, DockablePlotPanel):
                     f"{e.label}: no Wavenumber/Intensity or Wavenumber/Real/Imaginary columns found.",
                 )
                 return None
-            datasets.append(BatchDataset(label=e.label, **channels))
+            datasets.append(BatchDataset(label=e.label, polarization=self._polarization_of(e.spectrum.metadata),
+                                         **channels))
         return datasets
 
     def _run_progress_dialog(self, n: int, title: str) -> tuple[QProgressDialog, object]:
@@ -1593,16 +1778,30 @@ class FittingTab(QWidget, DockablePlotPanel):
                 "Global batch fit", f"Fitting {len(datasets)} spectra jointly...",
             )
             dialog.show()
+
+            def seed_progress(i: int, total: int, label: str) -> bool:
+                dialog.setLabelText(f"Seeding amplitudes {i + 1} of {total}: {label}")
+                QApplication.processEvents()
+                return not dialog.wasCanceled()
+
             try:
-                global_result = fit_global_batch(
-                    datasets, self._model_spec, weighting=weighting, fit_range=fit_range,
-                    iter_cb=iter_cb,
-                )
+                if self._seed_amplitudes_check.isChecked():
+                    global_result = fit_polarization_set(
+                        datasets, self._model_spec, weighting=weighting, fit_range=fit_range,
+                        progress_cb=seed_progress, iter_cb=iter_cb,
+                    )
+                else:
+                    global_result = fit_global_batch(
+                        datasets, self._model_spec, weighting=weighting, fit_range=fit_range,
+                        iter_cb=iter_cb,
+                    )
             except Exception as e:
                 dialog.close()
                 QMessageBox.warning(self, "Global fit failed", str(e))
                 return
             dialog.close()
+            if global_result is None:   # canceled while seeding
+                return
             self._batch_global_result = global_result
             results = global_result.per_dataset
         else:
@@ -1982,6 +2181,8 @@ class FittingTab(QWidget, DockablePlotPanel):
             # tooltips instead (on the label itself, and on the redchi
             # column header), not inline in the label text.
             status += f" — global fit ({shared_labels} shared), {converged}, combined redchi={global_result.redchi:.4g}"
+            if global_result.seeded:
+                status += ", amplitudes seeded per spectrum"
             status_tooltip = (
                 "Each row's own redchi in the table below is that spectrum's "
                 "own diagnostic, not this combined value -- see the redchi "

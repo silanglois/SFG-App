@@ -121,6 +121,11 @@ term and every peak — label, value, error, min/max bounds, a
 **fixed** checkbox, an **expr** field for writing lmfit expression
 constraints between parameters, and a **shared** checkbox (see
 **Batch fit** below — it has no effect on a single-spectrum "Run fit").
+**Share peak shapes** (above the table) marks every peak's center and
+width(s) shared and every amplitude independent in one click — the
+setup for fitting several polarizations of one sample (see below).
+An amplitude with sign rules shows them next to its name, e.g.
+"Amplitude (ppp −, ssp +)".
 
 Rows can optionally be tinted by which peak they belong to — enable
 **Preferences → Fitting → Color parameter table by peak** (off by
@@ -188,6 +193,48 @@ not free, for that row), not the one combined redchi for the whole
 joint fit shown in the status line above the table. Has no effect on
 Sequential fit, whose seeded-chain design is a different thing
 entirely.
+
+### Fitting several polarizations of one sample
+
+The same sample measured as ssp, ppp, sps, ... has the same resonances
+— so the same peak centers and widths — but amplitudes that can differ
+by orders of magnitude or in sign, or nearly vanish in one combination.
+That makes a single good starting point hard to find. The workflow:
+
+1. Load the clearest spectrum (often ssp) on its own, place peaks, and
+   **Run fit** until it looks right. This sets the peak shapes.
+2. Click **Share peak shapes** in the Parameters dock.
+3. Add every polarization to the Batch list and click **Run batch fit**.
+
+With **Seed amplitudes per spectrum** checked (the default), the joint
+fit doesn't start every spectrum from step 1's amplitudes. First, with
+the shared shapes held fixed, each spectrum's own amplitudes and
+non-resonant background are solved on their own. For heterodyne data
+that is an exact linear solve that needs no starting guess. For homodyne
+data the app tries every combination of amplitude signs, which is where
+|χ|² fits usually go wrong. The joint fit then starts from those values.
+It also runs once from the plain template, and the better of the two
+(lower combined redchi) is kept, so seeding never does worse than an
+unseeded joint fit. The status line says "amplitudes seeded per
+spectrum" when the seeded start won.
+
+A peak that is absent in one polarization is fine: its amplitude goes
+to about zero there and doesn't disturb the shared shape.
+
+**Sign constraints.** If you know a peak's sign in a polarization (for
+instance + in ssp and − in ppp), choose the metadata field that holds
+the polarization under **Polarization from** in the Batch dock. The
+field comes from your filename patterns or metadata edits, and a field
+whose name starts with "pol" is picked automatically. Then click **Sign
+constraints...**: a grid of peaks × polarizations where each cell is +,
+− or free. A rule keeps that amplitude ≥ 0 or ≤ 0 whenever a spectrum
+with that polarization is fit, in Batch, Sequential and a plain **Run
+fit** alike. The rules are saved with the model, in fit templates and
+exported fits. For homodyne data, where only |χ|² is measured and the
+whole model with every sign flipped fits equally well, a rule chooses
+which of those two mirror solutions you get. If a rule disagrees with
+the data, the amplitude ends up pinned at 0 and its value is
+highlighted as being at a bound. That is the signal to recheck the rule.
 
 **Export batch summary (CSV)** writes one summary CSV covering every
 row (label, status, redchi/R²/AIC/BIC, and every parameter's
