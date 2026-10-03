@@ -1,6 +1,6 @@
 """Build a self-contained processing notebook for one matched set.
 
-Walks the homodyne or heterodyne pipeline a stage at a time, with a
+Walks the homodyne or phase-resolved pipeline a stage at a time, with a
 short note and an intermediate plot at each, mirroring the hand-written
 walkthroughs in tests/. The parameters are pre-filled with whatever the
 app was using, exposed as Colab form fields so they can be re-tuned.
@@ -107,7 +107,7 @@ BG_SMOOTHING = {as_literal(cfg.get("bg_smoothing") or {"sample": {"method": "non
 """
 
 
-def _heterodyne_params(cfg: dict) -> str:
+def _phase_resolved_params(cfg: dict) -> str:
     return f"""
 #@title Processing parameters {{ run: "auto" }}
 #@markdown Pre-filled with the values the app was using.
@@ -292,8 +292,8 @@ plt.show()
     ]
 
 
-def _heterodyne_config_cell(cfg: dict) -> str:
-    """The HDSFGConfig the stages run on.
+def _phase_resolved_config_cell(cfg: dict) -> str:
+    """The PRSFGConfig the stages run on.
 
     The form fields above cover the parameters worth sweeping; the
     values written out here are the rest of what the app was using —
@@ -303,8 +303,8 @@ def _heterodyne_config_cell(cfg: dict) -> str:
     return f"""
 # COMPUTE — replace this cell to override any pipeline setting directly
 # (instead of through the form fields); the cells below only need
-# `config` to stay an HDSFGConfig.
-config = HDSFGConfig(
+# `config` to stay a PRSFGConfig.
+config = PRSFGConfig(
     upconversion_wavelength=UPCONVERSION_NM,
     bg_smoothing=BG_SMOOTHING.get("sample"),
     ref_bg_smoothing=BG_SMOOTHING.get("reference"),
@@ -331,7 +331,7 @@ config
 """.strip()
 
 
-def _heterodyne_cells(payload: dict) -> list[dict]:
+def _phase_resolved_cells(payload: dict) -> list[dict]:
     return [
         markdown_cell("## 1. Load the matched set\n\n"
                       "The same four raw files as homodyne, processed very "
@@ -343,8 +343,8 @@ def _heterodyne_cells(payload: dict) -> list[dict]:
 # the cells below only need `matched` to stay a MatchedSet.
 from sfg_app2.processing.data_file import DataFile
 from sfg_app2.processing.matcher import MatchedSet
-from sfg_app2.processing.hd_sfg import (
-    HDSFGConfig, DeSpikeParams,
+from sfg_app2.processing.pr_sfg import (
+    PRSFGConfig, DeSpikeParams,
     step_despike, step_average, step_bg_smooth, step_fft_filter, step_normalize,
 )
 
@@ -355,7 +355,7 @@ reference_bg = DataFile(os.path.join("data", RAW["reference_background"]))
 
 matched = MatchedSet(signal=signal, background=background,
                      reference=reference, reference_background=reference_bg,
-                     spectrum_type="heterodyne")
+                     spectrum_type="phase_resolved")
 print("complete set:", matched.is_complete())
 """.strip()),
         code_cell("""
@@ -379,7 +379,7 @@ plt.show()
 
         markdown_cell("## 2. Configuration\n\nOne config object drives every "
                       "step below, built from the form fields above."),
-        code_cell(_heterodyne_config_cell(payload["config"])),
+        code_cell(_phase_resolved_config_cell(payload["config"])),
 
         markdown_cell("## 3. Despike\n\nOne `DeSpikeParams` per component — a "
                       "long-exposure sample is noisier than a short reference, "
@@ -557,8 +557,8 @@ plt.show()
 
 
 def _export_cell(kind: str) -> str:
-    if kind == "heterodyne":
-        # Same shape the app builds when an HDSFGResult enters the
+    if kind == "phase_resolved":
+        # Same shape the app builds when a PRSFGResult enters the
         # Library, so the CSV reloads identically.
         to_spectrum = """
 from sfg_app2.processing.processed_spectrum import ProcessedSpectrum
@@ -587,19 +587,19 @@ print("wrote", out)
 def build(payload: dict) -> dict:
     """Assemble the notebook.
 
-    `payload` keys: kind ("homodyne"/"heterodyne"), label, roles
+    `payload` keys: kind ("homodyne"/"phase_resolved"), label, roles
     {role: filename}, raw_files {filename: csv text}, config (the
     pipeline parameters the app was using).
     """
     kind = payload["kind"]
     label = payload.get("label", "processed")
-    is_het = kind == "heterodyne"
+    is_pr = kind == "phase_resolved"
     sources = "\n".join(f"- `{name}` ({role.replace('_', ' ')})"
                         for role, name in payload.get("roles", {}).items())
 
     cells = [
         markdown_cell(f"""
-# {label} — {'heterodyne (HD-SFG)' if is_het else 'homodyne'} processing
+# {label} — {'phase-resolved (PR-SFG)' if is_pr else 'homodyne'} processing
 
 Exported from SFG-App {app_version()} on {_timestamp()}, from:
 
@@ -633,11 +633,11 @@ frames, the FFT window — matches what the app was using.
         code_cell(_roles_cell(payload)),
         code_cell(_UPLOAD_FALLBACK.strip()),
 
-        code_cell(_heterodyne_params(payload["config"]) if is_het
+        code_cell(_phase_resolved_params(payload["config"]) if is_pr
                   else _homodyne_params(payload["config"])),
     ]
 
-    cells += _heterodyne_cells(payload) if is_het else _homodyne_cells(payload)
+    cells += _phase_resolved_cells(payload) if is_pr else _homodyne_cells(payload)
 
     cells += [
         markdown_cell("## Export\n\nWrites a CSV the app can read back."),

@@ -6,8 +6,8 @@ from sfg_app2.processing.utils import OffsetSpec
 
 
 @dataclass
-class HDSFGConfig:
-    """All parameters for the HD-SFG processing pipeline.
+class PRSFGConfig:
+    """All parameters for the PR-SFG processing pipeline.
     Mirrors the configurable values in the original processing script.
     """
     # ── Upconversion ──────────────────────────────────────────────────────────

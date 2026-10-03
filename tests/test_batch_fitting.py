@@ -65,11 +65,11 @@ def test_sequential_batch_seeds_from_previous_result_not_the_template(datasets, 
     assert warm.lmfit_result.nfev <= cold.lmfit_result.nfev
 
 
-def test_sequential_batch_rejects_mixed_homodyne_heterodyne_kinds(datasets, far_template):
-    het_ds = BatchDataset(label="het", kind="heterodyne", omega=OMEGA,
+def test_sequential_batch_rejects_mixed_homodyne_phase_resolved_kinds(datasets, far_template):
+    pr_ds = BatchDataset(label="pr", kind="phase_resolved", omega=OMEGA,
                            real=np.zeros_like(OMEGA), imag=np.zeros_like(OMEGA))
     with pytest.raises(ValueError):
-        fit_sequential_batch(datasets + [het_ds], far_template)
+        fit_sequential_batch(datasets + [pr_ds], far_template)
 
 
 def test_sequential_batch_unfittable_template_fills_every_slot_with_none(datasets):

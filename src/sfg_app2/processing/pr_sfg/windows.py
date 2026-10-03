@@ -1,6 +1,6 @@
 from __future__ import annotations
 import numpy as np
-from .config import HDSFGConfig
+from .config import PRSFGConfig
 
 
 def edge_window(n: int, left_smooth: int, right_smooth: int) -> np.ndarray:
@@ -24,7 +24,7 @@ def edge_window(n: int, left_smooth: int, right_smooth: int) -> np.ndarray:
     return w
 
 
-def fft_mask_window(n: int, config: HDSFGConfig) -> np.ndarray:
+def fft_mask_window(n: int, config: PRSFGConfig) -> np.ndarray:
     """FFT-domain mask window. Selects the resonant signal in time domain
     and suppresses non-resonant background.
 

@@ -1,6 +1,6 @@
-# Process & Review — Heterodyne (HD-SFG)
+# Process & Review — Phase-resolved (PR-SFG)
 
-Matched sets classified as **heterodyne** use a different panel from
+Matched sets classified as **phase-resolved** use a different panel from
 homodyne data, laid out as a central plot surrounded by several
 dockable parameter panels. See **Process & Review — Homodyne** for
 the homodyne equivalent.
@@ -42,7 +42,7 @@ This dock combines three things:
 
 ## FFT filter window parameters
 
-This is the heart of the HD-SFG pipeline: it isolates the
+This is the heart of the PR-SFG pipeline: it isolates the
 signal-of-interest in frequency space before inverse-transforming
 back. The **Type** dropdown controls the filter's shape:
 
@@ -102,7 +102,7 @@ without reprocessing.
 ## Export to a notebook
 
 Right-click a matched set and choose **Export processing notebook…** to
-write a Jupyter notebook that walks the HD-SFG pipeline one stage at a
+write a Jupyter notebook that walks the PR-SFG pipeline one stage at a
 time — despike, average and interpolate, background subtraction and
 edge taper, FFT filter, normalization — with your current parameters
 pre-filled as editable form fields. It is the clearest way to see what

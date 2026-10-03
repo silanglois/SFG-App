@@ -5,8 +5,8 @@ import pandas as pd
 
 
 @dataclass
-class HDSFGResult:
-    """Output of the HD-SFG processing pipeline.
+class PRSFGResult:
+    """Output of the PR-SFG processing pipeline.
 
     Contains the complex χ⁽²⁾ (from the per-frame mean -- mathematically
     identical to normalizing the once-averaged signal, since every step
@@ -74,7 +74,7 @@ class HDSFGResult:
         xlim: tuple[float, float] | None = None,
         **kwargs,
     ):
-        """Plot one component of the HD-SFG result.
+        """Plot one component of the PR-SFG result.
 
         Parameters
         ----------
@@ -120,6 +120,6 @@ class HDSFGResult:
 
     def __repr__(self) -> str:
         return (
-            f"HDSFGResult(n_frames={self.n_frames}, "
+            f"PRSFGResult(n_frames={self.n_frames}, "
             f"wavenumber=[{self.wavenumber[0]:.0f}–{self.wavenumber[-1]:.0f}] cm⁻¹)"
         )

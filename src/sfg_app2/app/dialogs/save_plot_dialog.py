@@ -60,7 +60,7 @@ class SavePlotDialog(QDialog):
 
         # Debounces rapid settings changes (typing in a text field, etc.)
         # into one re-render -- same coalescing-rapid-input pattern used
-        # elsewhere in this app (HDSFGPanel._redraw_timer,
+        # elsewhere in this app (PRSFGPanel._redraw_timer,
         # FittingTab._preview_timer, ...), since a full savefig() per
         # keystroke would otherwise feel laggy.
         self._preview_timer = QTimer(self)

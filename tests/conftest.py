@@ -93,12 +93,12 @@ def make_homodyne_entry():
 
 
 @pytest.fixture
-def make_heterodyne_entry():
-    """Builds a checked heterodyne SpectrumEntry with all four plottable
+def make_phase_resolved_entry():
+    """Builds a checked phase-resolved SpectrumEntry with all four plottable
     components plus their 95%-CI error columns."""
     from sfg_app2.app.tabs.processed_results import SpectrumEntry
 
-    def _make(label="heterodyne-1", metadata=None, checked=True):
+    def _make(label="phase-resolved-1", metadata=None, checked=True):
         real = np.sin(_WAVENUMBERS / 40.0)
         imag = np.cos(_WAVENUMBERS / 40.0)
         df = _frame(
@@ -111,7 +111,7 @@ def make_heterodyne_entry():
             Homodyne_err=np.full_like(real, 0.05),
         )
         spectrum = ProcessedSpectrum(df=df, metadata=dict(metadata or {}), history=[])
-        entry = SpectrumEntry(spectrum, label, kind="heterodyne")
+        entry = SpectrumEntry(spectrum, label, kind="phase_resolved")
         entry.checked = checked
         return entry
 
@@ -141,12 +141,12 @@ def raw_matched_files(tmp_path):
     1030.7 nm, they land on the C-H stretch region (~2800-3000 cm^-1) --
     a nonsense range would send the pipeline negative and make any
     resulting plot meaningless. `fringes` adds the interference the
-    heterodyne FFT step expects to isolate.
+    phase-resolved FFT step expects to isolate.
     """
     def _make(fringes: bool = False):
         rng = np.random.default_rng(0)
         wl = np.linspace(787.27, 799.86, 512)     # nm -> ~3000..2800 cm^-1
-        folder = tmp_path / ("raw_het" if fringes else "raw_homo")
+        folder = tmp_path / ("raw_pr" if fringes else "raw_homo")
         folder.mkdir(exist_ok=True)
 
         def write(name, scale, peak_nm=None):
@@ -196,3 +196,29 @@ def load_entries(results_tab):
         return results_tab
 
     return _load
+
+
+@pytest.fixture
+def process_tab(qtbot, raw_matched_files):
+    """A Process & Review tab holding one matched set of the given kind."""
+    from sfg_app2.app.tabs.process_review import ProcessReviewTab
+    from sfg_app2.processing.data_file import DataFile
+    from sfg_app2.processing.matcher import MatchedSet
+
+    def _make(kind="homodyne"):
+        folder, roles = raw_matched_files(fringes=(kind == "phase_resolved"))
+        matched = MatchedSet(
+            signal=DataFile(folder / roles["signal"]),
+            background=DataFile(folder / roles["background"]),
+            reference=DataFile(folder / roles["reference"]),
+            reference_background=DataFile(folder / roles["reference_background"]),
+            spectrum_type=kind,
+        )
+        tab = ProcessReviewTab()
+        qtbot.addWidget(tab)
+        tab.set_matched_sets([matched])
+        if kind == "phase_resolved":
+            tab._pr_sfg_panel.set_matched_set(matched, 0)
+        return tab, matched
+
+    return _make

@@ -1,7 +1,7 @@
 # SFG-App
 
 A desktop application for processing and analyzing Sum-Frequency
-Generation (SFG) spectroscopy data — homodyne and heterodyne — built
+Generation (SFG) spectroscopy data — homodyne and phase-resolved — built
 with PySide6.
 
 This is the second-generation SFG-App, rewritten from the ground up
@@ -16,13 +16,13 @@ internally as the Python package/distribution name (`sfg_app2` /
   automatically or manually match signal/background/reference files,
   and parse metadata from filenames using customizable patterns.
 - **Process/Review** — homodyne (despike → background subtraction →
-  normalize → upconvert) and heterodyne (despike → average →
+  normalize → upconvert) and phase-resolved (despike → average →
   background subtraction → FFT filter → iFFT → normalize) processing
   pipelines with live preview.
 - **Spectra Library** — view, compare, and normalize processed
   spectra, export to CSV, and save publication-ready plots.
 - **Fitting** — fit peaks/lineshapes (homodyne intensity or
-  heterodyne real/imaginary) to a processed spectrum, with independent
+  phase-resolved real/imaginary) to a processed spectrum, with independent
   batch, sequential (seeded-chain), and global (shared-parameter,
   jointly-optimized) multi-spectrum fitting.
 - Customizable metadata patterns, auto-matching rules, plotting styles,

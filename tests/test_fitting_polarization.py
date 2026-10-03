@@ -35,7 +35,7 @@ def _datasets(kind, truth=_TRUE, centers=_CENTERS, widths=_WIDTHS, noise=0.0, rn
     out = []
     for pol, (amps, nr) in truth.items():
         chi = evaluate_chi(_OMEGA, _spec(amps, nr, centers, widths))
-        if kind == "heterodyne":
+        if kind == "phase_resolved":
             out.append(BatchDataset(pol, kind, _OMEGA,
                                     real=chi.real + noise * rng.normal(size=_OMEGA.size),
                                     imag=chi.imag + noise * rng.normal(size=_OMEGA.size),
@@ -61,9 +61,9 @@ def _amplitudes(spec):
 
 # ── seed_amplitudes ───────────────────────────────────────────────────────
 
-def test_heterodyne_seed_recovers_amplitudes_exactly_from_wrong_ones():
+def test_phase_resolved_seed_recovers_amplitudes_exactly_from_wrong_ones():
     template = _shared_shapes(_spec([1.0, 1.0, 1.0], 0.3, phase_vary=True))
-    for ds in _datasets("heterodyne"):
+    for ds in _datasets("phase_resolved"):
         seeded = seed_amplitudes(ds, template)
         amps, nr = _TRUE[ds.label]
         np.testing.assert_allclose(_amplitudes(seeded), amps, atol=1e-8)
@@ -74,7 +74,7 @@ def test_heterodyne_seed_recovers_amplitudes_exactly_from_wrong_ones():
 def test_seed_changes_values_only():
     template = _shared_shapes(_spec([1.0, 1.0, 1.0], 0.3, phase_vary=True))
     template.peaks[0].params["amplitude"].min = -50.0
-    seeded = seed_amplitudes(_datasets("heterodyne")[0], template)
+    seeded = seed_amplitudes(_datasets("phase_resolved")[0], template)
     for t_peak, s_peak in zip(template.peaks, seeded.peaks):
         for name, fp in t_peak.params.items():
             sp = s_peak.params[name]
@@ -94,11 +94,11 @@ def test_homodyne_seed_recovers_amplitudes_up_to_global_sign():
 
 # ── fit_polarization_set ──────────────────────────────────────────────────
 
-@pytest.mark.parametrize("kind", ["homodyne", "heterodyne"])
+@pytest.mark.parametrize("kind", ["homodyne", "phase_resolved"])
 def test_polarization_set_recovers_shared_shapes_and_per_spectrum_amplitudes(kind):
     centers = [c + 3 for c in _CENTERS]
     widths = [w * 1.3 for w in _WIDTHS]
-    template = _shared_shapes(_spec([1.0, 1.0, 1.0], 0.3, centers, widths, phase_vary=(kind == "heterodyne")))
+    template = _shared_shapes(_spec([1.0, 1.0, 1.0], 0.3, centers, widths, phase_vary=(kind == "phase_resolved")))
     result = fit_polarization_set(_datasets(kind, noise=0.01), template)
 
     shared = result.per_dataset[0].spec
@@ -191,7 +191,7 @@ def test_homodyne_start_mirrors_instead_of_flipping_one_amplitude():
     np.testing.assert_allclose(_amplitudes(mirrored), [-3.0, -5.0, -2.0])
     assert mirrored.nonresonant["amplitude"].value == -0.5
 
-    flipped = apply_sign_constraints(spec, "ssp")   # heterodyne: no symmetry to use
+    flipped = apply_sign_constraints(spec, "ssp")   # phase-resolved: no symmetry to use
     np.testing.assert_allclose(_amplitudes(flipped), [-3.0, 5.0, 2.0])
 
     spec.peaks[2].params["amplitude"].vary = False   # pinned -> mirror would change the model
@@ -208,7 +208,7 @@ def test_sign_rules_fix_homodyne_signs_outright():
 
 
 def test_contradicting_rule_pins_amplitude_at_zero_and_flags_at_bound():
-    ds = _datasets("heterodyne")[0]                                   # ssp: peak 2 is +5
+    ds = _datasets("phase_resolved")[0]                                   # ssp: peak 2 is +5
     spec = _ruled(_spec([3.0, 5.0, 2.0], 0.5, phase_vary=True), [{}, {"ssp": "-"}, {}])
     # Shapes held fixed, as in a polarization set: with them free, the fit
     # escapes a wrong-signed rule by deforming the peak instead.
@@ -223,7 +223,7 @@ def test_contradicting_rule_pins_amplitude_at_zero_and_flags_at_bound():
 
 
 def test_sign_rules_respected_in_every_batch_mode():
-    datasets = _datasets("heterodyne", noise=0.01)
+    datasets = _datasets("phase_resolved", noise=0.01)
     rules = [{"ppp": "+"}, {}, {}]   # truth for ppp peak 1 is -1
     template = _ruled(_spec([1.0, 1.0, 1.0], 0.3, phase_vary=True), rules)
 
@@ -250,6 +250,6 @@ def test_single_fit_keeps_shared_flags_and_rules():
     """_spec_from_param_results used to drop the Shared flag, so a plain
     Run fit after "Share peak shapes" silently un-shared everything."""
     spec = _ruled(_shared_shapes(_spec([3.0, 5.0, 2.0], 0.5, phase_vary=True)), [{"ssp": "+"}, {}, {}])
-    result = fit_one_dataset(_datasets("heterodyne")[0], spec)
+    result = fit_one_dataset(_datasets("phase_resolved")[0], spec)
     assert all(p.params["center"].shared and p.params["width"].shared for p in result.spec.peaks)
     assert result.spec.peaks[0].amplitude_signs == {"ssp": "+"}

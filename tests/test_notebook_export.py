@@ -212,32 +212,6 @@ def test_processing_stage_cells_stay_visible(process_tab):
 # test that reads the value back out of the generated notebook catches
 # that class of bug.
 
-@pytest.fixture
-def process_tab(qtbot, raw_matched_files):
-    """A Process & Review tab holding one matched set of the given kind."""
-    from sfg_app2.app.tabs.process_review import ProcessReviewTab
-    from sfg_app2.processing.data_file import DataFile
-    from sfg_app2.processing.matcher import MatchedSet
-
-    def _make(kind="homodyne"):
-        folder, roles = raw_matched_files(fringes=(kind == "heterodyne"))
-        matched = MatchedSet(
-            signal=DataFile(folder / roles["signal"]),
-            background=DataFile(folder / roles["background"]),
-            reference=DataFile(folder / roles["reference"]),
-            reference_background=DataFile(folder / roles["reference_background"]),
-            spectrum_type=kind,
-        )
-        tab = ProcessReviewTab()
-        qtbot.addWidget(tab)
-        tab.set_matched_sets([matched])
-        if kind == "heterodyne":
-            tab._hd_sfg_panel.set_matched_set(matched, 0)
-        return tab, matched
-
-    return _make
-
-
 def _processing_source(tab, matched, idx=0) -> str:
     from sfg_app2.app.utils import notebook_processing
     nb = notebook_processing.build(tab._notebook_payload(matched, idx))
@@ -247,9 +221,9 @@ def _processing_source(tab, matched, idx=0) -> str:
 def test_exposure_times_reach_the_notebook(process_tab):
     """chi is multiplied by (reference / sample) exposure, so dropping
     these rescales the entire result -- 10x at the stock defaults."""
-    tab, matched = process_tab("heterodyne")
-    tab._hd_sfg_panel._sample_exp.setValue(42.0)
-    tab._hd_sfg_panel._ref_exp.setValue(7.0)
+    tab, matched = process_tab("phase_resolved")
+    tab._pr_sfg_panel._sample_exp.setValue(42.0)
+    tab._pr_sfg_panel._ref_exp.setValue(7.0)
 
     config = tab._notebook_payload(matched, 0)["config"]
     assert config["sample_exposure"] == 42.0
@@ -260,13 +234,13 @@ def test_exposure_times_reach_the_notebook(process_tab):
     assert "REFERENCE_EXPOSURE_S = 7.0" in source
 
 
-def test_heterodyne_excluded_frames_reach_the_notebook(process_tab):
+def test_phase_resolved_excluded_frames_reach_the_notebook(process_tab):
     """The panel keys the reference background 'ref_background' but
     step_average() reads 'reference_background' -- the translation has to
     survive into the notebook or those exclusions quietly do nothing."""
-    tab, matched = process_tab("heterodyne")
-    tab._hd_sfg_panel._set_exclude_frames(0, "signal", {2})
-    tab._hd_sfg_panel._set_exclude_frames(0, "ref_background", {1})
+    tab, matched = process_tab("phase_resolved")
+    tab._pr_sfg_panel._set_exclude_frames(0, "signal", {2})
+    tab._pr_sfg_panel._set_exclude_frames(0, "ref_background", {1})
 
     excluded = tab._notebook_payload(matched, 0)["config"]["exclude_frames"]
     assert excluded["signal"] == [2]
@@ -292,16 +266,16 @@ def test_homodyne_excluded_frames_reach_the_notebook(process_tab):
 def test_type_4_mask_geometry_reaches_the_notebook(process_tab):
     """WINDOW_TYPE 4 is selectable in the notebook, so the mask geometry
     behind it has to travel too."""
-    tab, matched = process_tab("heterodyne")
-    tab._hd_sfg_panel._mask_start.setValue(123)
+    tab, matched = process_tab("phase_resolved")
+    tab._pr_sfg_panel._mask_start.setValue(123)
     source = _processing_source(tab, matched)
     assert "mask_start=123" in source
 
 
-def test_heterodyne_notebook_plots_amplitude_and_error_bands(process_tab):
-    """The app's HD-SFG panel offers |chi|^2 and 95% CI bands; the
+def test_phase_resolved_notebook_plots_amplitude_and_error_bands(process_tab):
+    """The app's PR-SFG panel offers |chi|^2 and 95% CI bands; the
     notebook should not quietly drop them."""
-    tab, matched = process_tab("heterodyne")
+    tab, matched = process_tab("phase_resolved")
     source = _processing_source(tab, matched)
     assert "result.homodyne" in source
     assert "result.imag_err" in source and "result.real_err" in source
@@ -333,7 +307,7 @@ def test_bundle_carries_the_pipeline_but_not_the_fitting_code():
 
     assert "sfg_app2/__init__.py" in names, "namespace root needed for the import to work"
     assert any(n.endswith("processing/data_file.py") for n in names)
-    assert any(n.endswith("hd_sfg/steps.py") for n in names)
+    assert any(n.endswith("pr_sfg/steps.py") for n in names)
     # lmfit isn't on Colab and no processing notebook fits.
     assert not any("fitting.py" in n for n in names)
 
@@ -415,19 +389,19 @@ def test_homodyne_processing_notebook_runs_end_to_end(raw_matched_files, tmp_pat
 
 
 @pytest.mark.slow
-def test_heterodyne_processing_notebook_runs_end_to_end(raw_matched_files, tmp_path):
+def test_phase_resolved_processing_notebook_runs_end_to_end(raw_matched_files, tmp_path):
     from sfg_app2.app.utils import notebook_processing
 
     folder, roles = raw_matched_files(fringes=True)
     payload = _processing_payload(
-        "heterodyne", folder, roles,
+        "phase_resolved", folder, roles,
         despike_window=50, despike_threshold=10.0,
         bg_smoothing_window=0, bg_smoothing_order=3, bg_offset=None,
         edge_left=15, edge_right=15, window_type=3,
         fft_start=30, fft_end=110, hg_left=10, hg_right=10,
         phase_correction_deg=0.0,
     )
-    path = tmp_path / "heterodyne.ipynb"
+    path = tmp_path / "phase-resolved.ipynb"
     notebook_export.write_notebook(notebook_processing.build(payload), path)
 
     nb = _run_notebook(path, tmp_path)
@@ -481,9 +455,9 @@ def test_homodyne_bg_smoothing_changes_result_and_is_recorded(process_tab):
     assert "smoothing=BG_SMOOTHING.get('sample')" in source
 
 
-def test_heterodyne_bg_smoothing_reaches_config_and_notebook(process_tab):
-    tab, matched = process_tab("heterodyne")
-    panel = tab._hd_sfg_panel
+def test_phase_resolved_bg_smoothing_reaches_config_and_notebook(process_tab):
+    tab, matched = process_tab("phase_resolved")
+    panel = tab._pr_sfg_panel
     panel._bg_smoothing_editor.rows["reference"].set_spec({"method": "gaussian", "sigma": 2.0})
 
     cfg = panel._current_config()

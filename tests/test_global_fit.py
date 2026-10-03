@@ -129,11 +129,11 @@ def test_build_global_params_shared_key_added_once_independent_keys_per_dataset(
         assert f"d{i}_nr_amplitude" in names
 
 
-def test_global_fit_rejects_mixed_homodyne_heterodyne_kinds(datasets):
-    het_ds = BatchDataset(label="het", kind="heterodyne", omega=OMEGA,
+def test_global_fit_rejects_mixed_homodyne_phase_resolved_kinds(datasets):
+    pr_ds = BatchDataset(label="pr", kind="phase_resolved", omega=OMEGA,
                            real=np.zeros_like(OMEGA), imag=np.zeros_like(OMEGA))
     with pytest.raises(ValueError):
-        fit_global_batch(datasets + [het_ds], _template(width_shared=True))
+        fit_global_batch(datasets + [pr_ds], _template(width_shared=True))
 
 
 def test_fit_param_shared_round_trips_through_dict():

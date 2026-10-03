@@ -90,7 +90,7 @@ class SpectrumDataMixin:
             # wherever this Wavenumber column is used as an x-axis (e.g.
             # CubicSpline, which requires finite values). Raising clearly
             # here instead is caught and shown to the user by the callers
-            # of this pipeline (e.g. HomodynePanel/HDSFGPanel's bulk
+            # of this pipeline (e.g. HomodynePanel/PRSFGPanel's bulk
             # "Process" actions).
             raise ValueError(
                 f"{int(bad.sum())} wavelength value(s) are zero or negative "

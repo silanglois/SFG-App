@@ -76,7 +76,7 @@ nav:
   - Getting Started: 00_overview.md
   - Load & Match: 01_load_match.md
   - Process & Review — Homodyne: 02_process_review_homodyne.md
-  - Process & Review — Heterodyne: 03_process_review_heterodyne.md
+  - Process & Review — Phase-resolved: 03_process_review_phase_resolved.md
   - Spectra Library: 04_results.md
   - Fitting: 05_fitting.md
   - Settings & Preferences: 06_settings_preferences.md

@@ -533,7 +533,7 @@ def test_estimate_peak_seed_handles_edge_click(idx):
     assert np.isfinite(width) and width > 0
 
 
-def test_estimate_peak_seed_heterodyne_linear_relation():
+def test_estimate_peak_seed_phase_resolved_linear_relation():
     ls = get_lineshape("lorentzian")
     omega = np.linspace(3200.0, 3400.0, 400)
     true_amplitude, true_center, true_width = 4.0, 3300.0, 12.0

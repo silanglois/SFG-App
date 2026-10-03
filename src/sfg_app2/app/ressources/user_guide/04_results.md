@@ -22,7 +22,7 @@ restyle, annotate, and export.
   drives automatic per-curve coloring.
 - A **normalization** dropdown lets you rescale displayed curves for
   easier comparison.
-- For heterodyne entries, the same component checkboxes as the
+- For phase-resolved entries, the same component checkboxes as the
   processing panel — **Real, |χ⁽²⁾|² (Homodyne), Phase, Imaginary,
   Show error** — control which parts of each entry are plotted.
 - **X axis label / Y axis label / Legend** fields customize plot
@@ -91,7 +91,7 @@ that row entirely: the remaining entries close up, with no gap.
 !!! tip "Processing notebooks"
     The Process / Review tab has a matching export: right-click a
     matched set and choose **Export processing notebook…** to get a
-    step-by-step walkthrough of that set's homodyne or heterodyne
+    step-by-step walkthrough of that set's homodyne or phase-resolved
     pipeline, with your current parameters pre-filled. It embeds the
     four raw files *and* the processing code, and its final cell writes
     a CSV you can load straight back into this tab.

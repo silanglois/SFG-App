@@ -7,6 +7,8 @@ from typing import Callable
 import numpy as np
 import lmfit
 
+from .kinds import normalize_kind
+
 logger = logging.getLogger(__name__)
 
 
@@ -416,7 +418,7 @@ def estimate_peak_seed(omega: np.ndarray, response: np.ndarray, idx: int,
 
     squared=True: response is |chi|^2 (homodyne intensity) -- amplitude
       relates to height via height = (amplitude / (width/2))^2.
-    squared=False: response is |chi| (heterodyne magnitude) -- linear:
+    squared=False: response is |chi| (phase-resolved magnitude) -- linear:
       height = amplitude / (width/2).
 
     Both relations are the Lorentzian ones. For a Gaussian-broadened
@@ -553,7 +555,7 @@ def compute_weights(mode: str, intensity: np.ndarray,
 
 
 def _sigma_from_ci95(err: np.ndarray) -> np.ndarray:
-    """err is a 95% CI half-width (1.96*SEM, per processing.hd_sfg.steps),
+    """err is a 95% CI half-width (1.96*SEM, per processing.pr_sfg.steps),
     not a raw SEM -- convert back to SEM before inverting, so the returned
     weight stays on the same 1/sigma footing as compute_weights()'s
     "measurement_error" mode."""
@@ -563,11 +565,11 @@ def _sigma_from_ci95(err: np.ndarray) -> np.ndarray:
     return np.where(sem > 0, sem, fallback)
 
 
-def compute_heterodyne_weights(mode: str, real: np.ndarray, imag: np.ndarray,
+def compute_phase_resolved_weights(mode: str, real: np.ndarray, imag: np.ndarray,
                                 real_err: np.ndarray | None = None,
                                 imag_err: np.ndarray | None = None,
                                 ) -> tuple[np.ndarray | None, np.ndarray | None]:
-    """Per-channel weights for fit_heterodyne(). Unlike compute_weights(),
+    """Per-channel weights for fit_phase_resolved(). Unlike compute_weights(),
     there is no "statistical" mode here -- the shot-noise justification for
     1/sqrt(intensity) doesn't carry over to signed Real/Imaginary values,
     so only "none" and "measurement_error" are supported."""
@@ -577,7 +579,7 @@ def compute_heterodyne_weights(mode: str, real: np.ndarray, imag: np.ndarray,
         if real_err is None or imag_err is None:
             return None, None
         return 1.0 / _sigma_from_ci95(real_err), 1.0 / _sigma_from_ci95(imag_err)
-    raise ValueError(f"Unknown heterodyne weighting mode: {mode!r}")
+    raise ValueError(f"Unknown phase-resolved weighting mode: {mode!r}")
 
 
 # ── Fit result ───────────────────────────────────────────────────────────────
@@ -695,11 +697,11 @@ def fit_homodyne(omega: np.ndarray, intensity: np.ndarray, spec: FitModelSpec,
     return FitResult.from_lmfit(result, spec, data=intensity, best_fit=best_fit, minimizer=minimizer)
 
 
-def fit_heterodyne(omega: np.ndarray, real: np.ndarray, imag: np.ndarray, spec: FitModelSpec,
+def fit_phase_resolved(omega: np.ndarray, real: np.ndarray, imag: np.ndarray, spec: FitModelSpec,
                     weights_real: np.ndarray | None = None, weights_imag: np.ndarray | None = None,
                     method: str = "leastsq") -> FitResult:
     """Fit the Real and Imaginary parts of chi_eff simultaneously (one
-    joint least-squares problem) against measured heterodyne data,
+    joint least-squares problem) against measured phase-resolved data,
     reusing the same complex model (_chi_eff) that homodyne mode only
     ever squares. The residual is the concatenation of the (optionally
     weighted) real and imaginary residuals -- lmfit.Minimizer only cares
@@ -749,11 +751,12 @@ def fit_model_spec_from_provenance_payload(payload: dict | None) -> FitModelSpec
 
 
 def fit_kind_from_provenance_payload(payload: dict | None) -> str | None:
-    """"homodyne" | "heterodyne" | None, from the same payload dict --
+    """"homodyne" | "phase_resolved" | None, from the same payload dict --
     see fit_model_spec_from_provenance_payload()."""
-    if not payload:
+    if not payload or not payload.get("kind"):
         return None
-    return payload.get("kind")
+    # Fits saved before the rename say "heterodyne".
+    return normalize_kind(payload["kind"])
 
 
 def describe_local_params(spec: FitModelSpec) -> list[tuple[str, str]]:
@@ -785,7 +788,7 @@ def describe_local_params(spec: FitModelSpec) -> list[tuple[str, str]]:
 @dataclass
 class BatchDataset:
     label: str
-    kind: str                      # "homodyne" | "heterodyne"
+    kind: str                      # "homodyne" | "phase_resolved"
     omega: np.ndarray
     intensity: np.ndarray | None = None
     intensity_std: np.ndarray | None = None
@@ -821,12 +824,12 @@ def fit_one_dataset(dataset: BatchDataset, spec: FitModelSpec,
     constrained = apply_sign_constraints(spec, dataset.polarization, mirror_ok=dataset.kind == "homodyne")
 
     try:
-        if dataset.kind == "heterodyne":
+        if dataset.kind == "phase_resolved":
             real, imag = dataset.real[mask], dataset.imag[mask]
             real_err = dataset.real_err[mask] if dataset.real_err is not None else None
             imag_err = dataset.imag_err[mask] if dataset.imag_err is not None else None
-            w_real, w_imag = compute_heterodyne_weights(weighting, real, imag, real_err, imag_err)
-            result = fit_heterodyne(omega, real, imag, constrained, weights_real=w_real, weights_imag=w_imag)
+            w_real, w_imag = compute_phase_resolved_weights(weighting, real, imag, real_err, imag_err)
+            result = fit_phase_resolved(omega, real, imag, constrained, weights_real=w_real, weights_imag=w_imag)
         else:
             intensity = dataset.intensity[mask]
             intensity_std = dataset.intensity_std[mask] if dataset.intensity_std is not None else None
@@ -906,7 +909,7 @@ def fit_independent_batch(datasets: list[BatchDataset], template: FitModelSpec,
 # documented pattern for global fitting across multiple datasets: one
 # shared lmfit.Parameters object, a residual that concatenates every
 # dataset's own residual, fed to a single Minimizer -- the same
-# concatenation trick fit_heterodyne() already uses across the
+# concatenation trick fit_phase_resolved() already uses across the
 # real/imaginary channels of one spectrum, just extended across datasets.
 
 def _local_params(template: FitModelSpec) -> list[tuple[str, FitParam]]:
@@ -1000,7 +1003,7 @@ def _unpack_global_result(lmfit_result, template: FitModelSpec, datasets: list[B
             )
         best_spec = restore_amplitude_bounds(_spec_from_param_results(template, local_results), template)
 
-        if kind == "heterodyne":
+        if kind == "phase_resolved":
             omega, real, imag, _w_real, _w_imag = prepared[i]
             best_chi = evaluate_chi(omega, best_spec)
             raw_residual = np.concatenate([real - best_chi.real, imag - best_chi.imag])
@@ -1057,11 +1060,11 @@ def fit_global_batch(datasets: list[BatchDataset], template: FitModelSpec,
             lo, hi = fit_range
             mask = (ds.omega >= lo) & (ds.omega <= hi)
         omega = ds.omega[mask]
-        if kind == "heterodyne":
+        if kind == "phase_resolved":
             real, imag = ds.real[mask], ds.imag[mask]
             real_err = ds.real_err[mask] if ds.real_err is not None else None
             imag_err = ds.imag_err[mask] if ds.imag_err is not None else None
-            w_real, w_imag = compute_heterodyne_weights(weighting, real, imag, real_err, imag_err)
+            w_real, w_imag = compute_phase_resolved_weights(weighting, real, imag, real_err, imag_err)
             prepared.append((omega, real, imag, w_real, w_imag))
         else:
             intensity = ds.intensity[mask]
@@ -1079,7 +1082,7 @@ def fit_global_batch(datasets: list[BatchDataset], template: FitModelSpec,
         parts = []
         for i, pack in enumerate(prepared):
             key_fn = _key_fn_for(i)
-            if kind == "heterodyne":
+            if kind == "phase_resolved":
                 omega, real, imag, w_real, w_imag = pack
                 chi = _chi_eff(omega, p, template, key_fn=key_fn)
                 r_real = real - chi.real
@@ -1123,7 +1126,7 @@ def fit_global_batch(datasets: list[BatchDataset], template: FitModelSpec,
 # joint fit from those per-spectrum starting points.
 #
 # With centers/widths fixed, chi is linear in the amplitudes (see the
-# LineshapeSpec contract). Heterodyne data constrains chi itself, so the
+# LineshapeSpec contract). Phase-resolved data constrains chi itself, so the
 # amplitudes are one bounded linear least-squares solve -- no starting
 # guess, no local minima. Homodyne data only constrains |chi|^2, which is
 # quadratic in them; the local minima there are essentially the choice of
@@ -1154,7 +1157,7 @@ def _copy_amplitude_values(dst: FitModelSpec, src: FitModelSpec) -> FitModelSpec
     return dst
 
 
-def _seed_heterodyne(dataset: BatchDataset, spec: FitModelSpec, weighting: str,
+def _seed_phase_resolved(dataset: BatchDataset, spec: FitModelSpec, weighting: str,
                       fit_range: tuple[float, float] | None) -> FitModelSpec:
     from scipy.optimize import lsq_linear
 
@@ -1166,7 +1169,7 @@ def _seed_heterodyne(dataset: BatchDataset, spec: FitModelSpec, weighting: str,
     real, imag = dataset.real[mask], dataset.imag[mask]
     real_err = dataset.real_err[mask] if dataset.real_err is not None else None
     imag_err = dataset.imag_err[mask] if dataset.imag_err is not None else None
-    w_real, w_imag = compute_heterodyne_weights(weighting, real, imag, real_err, imag_err)
+    w_real, w_imag = compute_phase_resolved_weights(weighting, real, imag, real_err, imag_err)
     w_real = np.ones_like(real) if w_real is None else w_real
     w_imag = np.ones_like(imag) if w_imag is None else w_imag
 
@@ -1321,8 +1324,8 @@ def seed_amplitudes(dataset: BatchDataset, template: FitModelSpec, weighting: st
     values change: bounds, vary flags and Shared marks are `template`'s,
     so the result can go straight into fit_global_batch(seeds=...)."""
     constrained = apply_sign_constraints(template, dataset.polarization)
-    if dataset.kind == "heterodyne":
-        solved = _seed_heterodyne(dataset, constrained, weighting, fit_range)
+    if dataset.kind == "phase_resolved":
+        solved = _seed_phase_resolved(dataset, constrained, weighting, fit_range)
     else:
         solved = _seed_homodyne(dataset, constrained, weighting, fit_range, max_starts)
     return _copy_amplitude_values(deepcopy(template), solved)

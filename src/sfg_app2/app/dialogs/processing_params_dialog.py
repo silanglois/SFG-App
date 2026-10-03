@@ -67,7 +67,7 @@ def _homodyne_rows(provenance: dict) -> list[tuple[str, str]]:
     return rows
 
 
-def _heterodyne_rows(provenance: dict) -> list[tuple[str, str]]:
+def _phase_resolved_rows(provenance: dict) -> list[tuple[str, str]]:
     rows = _source_rows(provenance)
     rows += _despike_rows(provenance.get("despike", {}))
 
@@ -173,8 +173,8 @@ class ProcessingParamsDialog(QDialog):
     @staticmethod
     def _rows_for_entry(entry) -> list[tuple[str, str]]:
         provenance = getattr(entry.spectrum, "provenance", None) or {}
-        if entry.kind == "heterodyne":
-            return _heterodyne_rows(provenance)
+        if entry.kind == "phase_resolved":
+            return _phase_resolved_rows(provenance)
         return _homodyne_rows(provenance)
 
     def _on_mode_changed(self, combined: bool):

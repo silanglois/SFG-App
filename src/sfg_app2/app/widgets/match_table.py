@@ -13,7 +13,9 @@ from sfg_app2.app.tabs.load_match_undo import ReplaceMatchTableCommand
 logger = logging.getLogger(__name__)
 
 COLUMNS = ["Signal", "Sample BG", "Reference", "Ref BG", "Type"]
-SPECTRUM_TYPES = ["Homodyne", "Heterodyne"]
+from sfg_app2.processing.kinds import HOMODYNE, PHASE_RESOLVED, kind_label, normalize_kind
+
+SPECTRUM_TYPES = [kind_label(HOMODYNE), kind_label(PHASE_RESOLVED)]
 MIME_FILE = "application/sfg-app-file"
 MIME_SOURCE = "application/sfg-app-source-cell"
 
@@ -194,7 +196,7 @@ class MatchTableModel(QAbstractTableModel):
                 background           = get(1),
                 reference            = get(2),
                 reference_background = get(3),
-                spectrum_type        = self._types[i].lower(),
+                spectrum_type        = normalize_kind(self._types[i]),
             ))
         return [m for m in results if m.signal is not None]
 

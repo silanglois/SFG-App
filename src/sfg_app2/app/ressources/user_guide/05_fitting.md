@@ -3,7 +3,7 @@
 The **Fitting** tab fits peaks/lineshapes to a single processed
 spectrum. Homodyne data is fit as
 $\lvert \chi_{\mathrm{NR}}\,e^{i\varphi} + \sum_j \chi_j(\omega)\rvert^2$
-against measured intensity; heterodyne data is fit as simultaneous
+against measured intensity; phase-resolved data is fit as simultaneous
 real/imaginary fits of the same complex χ⁽²⁾ against measured
 Real/Imaginary data. The fit mode is chosen automatically from the
 kind of spectrum you load.
@@ -53,13 +53,13 @@ These sum to one complex susceptibility:
 
 $$\chi_{\mathrm{eff}}(\omega) = \chi_{\mathrm{NR}} + \sum_j \chi_j(\omega)$$
 
-which is where **homodyne** and **heterodyne** fitting diverge:
+which is where **homodyne** and **phase-resolved** fitting diverge:
 
 - **Homodyne** only ever measures intensity, so it fits against
   $I(\omega) = \lvert\chi_{\mathrm{eff}}(\omega)\rvert^2$ — the model
   curve you see is this squared magnitude, and the fit itself works on
   the intensity residual.
-- **Heterodyne** measures Real(ω) and Imaginary(ω) directly, so it
+- **Phase-resolved** measures Real(ω) and Imaginary(ω) directly, so it
   fits Re(χ_eff(ω)) and Im(χ_eff(ω)) simultaneously against them — one
   joint least-squares problem, both channels sharing the same
   parameters, rather than two separate fits.
@@ -135,7 +135,7 @@ default; see **Settings & Preferences**).
 
 Controls which computed series — Data, Fit total/real/imaginary,
 Residual, and per-peak curves (the exact set differs for homodyne vs.
-heterodyne) — appear on Plot 1 vs. Plot 2, each with its own color
+phase-resolved) — appear on Plot 1 vs. Plot 2, each with its own color
 and line style.
 
 ## 5. Fit
@@ -151,10 +151,10 @@ and line style.
   spinboxes copies the plot's current zoomed x-axis into the fit range
   in one click, if you'd rather not type the bounds by hand.
 - **Weighting** — for homodyne: None, Statistical (1/√intensity), or
-  Measurement error (SEM). For heterodyne: None or Measurement error
+  Measurement error (SEM). For phase-resolved: None or Measurement error
   (95% CI, per channel) — there's no statistical option here, since
   shot-noise weighting doesn't apply to signed real/imaginary values.
-  Despite the similar names, homodyne's "SEM" and heterodyne's "95% CI"
+  Despite the similar names, homodyne's "SEM" and phase-resolved's "95% CI"
   are computed differently (one's a plain standard error, the other's
   1.96× that) — see the error/uncertainty glossary in
   **Reference & Tips** if you want the exact formulas.
@@ -177,7 +177,7 @@ Fits every spectrum in a list **independently**, using whatever
 model/parameters are currently configured in the Model/Parameters/Fit
 docks (list order doesn't matter). Pull spectra in from the Spectra
 Library and/or load files directly; right-click a row to remove it. All
-spectra in a batch must be the same kind (homodyne or heterodyne) —
+spectra in a batch must be the same kind (homodyne or phase-resolved) —
 mixed kinds are rejected with a warning. Progress is shown in a
 cancelable dialog.
 
@@ -209,7 +209,7 @@ That makes a single good starting point hard to find. The workflow:
 With **Seed amplitudes per spectrum** checked (the default), the joint
 fit doesn't start every spectrum from step 1's amplitudes. First, with
 the shared shapes held fixed, each spectrum's own amplitudes and
-non-resonant background are solved on their own. For heterodyne data
+non-resonant background are solved on their own. For phase-resolved data
 that is an exact linear solve that needs no starting guess. For homodyne
 data the app tries every combination of amplitude signs, which is where
 |χ|² fits usually go wrong. The joint fit then starts from those values.

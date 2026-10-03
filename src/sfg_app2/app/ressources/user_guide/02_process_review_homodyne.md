@@ -2,9 +2,9 @@
 
 Once matched sets are ready, **Process / Review** lets you configure
 and preview the processing pipeline before committing a result to
-the **Spectra Library**. This page covers the **homodyne** panel; heterodyne
-(HD-SFG) data uses a different panel — see **Process & Review —
-Heterodyne**.
+the **Spectra Library**. This page covers the **homodyne** panel; phase-resolved
+(PR-SFG) data uses a different panel — see **Process & Review —
+Phase-resolved**.
 
 ## Picking what to work on
 

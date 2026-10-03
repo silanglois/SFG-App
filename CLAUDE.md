@@ -16,7 +16,7 @@ import Qt.
   signal/background/reference/reference_background quartet plus
   `spectrum_type`.
 - Homodyne pipeline order: despike → background subtract → normalize →
-  upconvert. Heterodyne: despike → average → background subtract → FFT
+  upconvert. Phase-resolved: despike → average → background subtract → FFT
   filter → iFFT → normalize. Each step assumes the previous ones already
   ran — don't reorder without re-checking those assumptions.
 - `SpectrumPlotWidget.soft_clear()` (same-step redraw, preserves axes
@@ -25,7 +25,7 @@ import Qt.
   after a style change — otherwise orphaned twin axes accumulate, or
   stale chrome is left behind.
 - `DockablePlotPanel` mixin gives each tab (`ProcessedResultsTab`,
-  `FittingTab`, `HomodynePanel`, `HDSFGPanel`) its own nested
+  `FittingTab`, `HomodynePanel`, `PRSFGPanel`) its own nested
   `QMainWindow` of `QDockWidget`s. This exists because `QDockWidget`
   needs a `QMainWindow` to dock into, and docking against the app's one
   real `MainWindow` would snap panels to the whole app window instead of

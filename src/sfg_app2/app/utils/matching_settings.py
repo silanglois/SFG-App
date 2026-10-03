@@ -14,6 +14,8 @@ logger = logging.getLogger(__name__)
 CONFIG_DIR = Path(user_config_dir("SFG-App"))
 SETTINGS_FILE = CONFIG_DIR / "matching_settings.json"
 
+from sfg_app2.processing.kinds import HOMODYNE, PHASE_RESOLVED, normalize_kind
+
 DEFAULT_REFERENCE_NAMES = ["Au", "gold", "quartz"]
 DEFAULT_BACKGROUND_REQUIRED_KEYS = ["polarization", "date"]
 DEFAULT_BACKGROUND_OPTIONAL_KEYS = ["center_wavelength", "acquisition_time"]
@@ -29,7 +31,7 @@ DEFAULT_BACKGROUND_ROLE_VALUES = sorted(DEFAULT_ROLE_SUFFIXES)
 DEFAULT_BACKGROUND_ROLE_FIELD = ""
 DEFAULT_BACKGROUND_ROLE_PRIORITY: dict[str, list[str]] = {}
 
-TYPE_RULE_TYPES = ("heterodyne", "homodyne")
+TYPE_RULE_TYPES = (PHASE_RESOLVED, HOMODYNE)
 TYPE_RULE_SCOPES = ("signal", "background", "both")
 ROLE_MODES = ("suffix", "prefix", "field")
 
@@ -91,7 +93,7 @@ class MatchingSettings:
     or a metadata field), which metadata keys must (required), may
     (optional), or should be matched to the nearest value (closest) between
     a signal and its background/reference candidates, and rules forcing a
-    signal/background pair to homodyne or heterodyne processing.
+    signal/background pair to homodyne or phase-resolved processing.
 
     Persistence lives in `MatchingProfileManager` (multiple named profiles,
     organized in a tree) — this class just holds one profile's fields, with
@@ -124,6 +126,15 @@ class MatchingSettings:
         for name, default in _FIELDS:
             fallback = copy.deepcopy(default) if isinstance(default, (list, dict)) else default
             setattr(obj, name, data.get(name, fallback))
+        # Profiles saved before the rename say "heterodyne".
+        obj.type_rules = [
+            {**rule, "type": normalize_kind(rule.get("type"))} if isinstance(rule, dict) else rule
+            for rule in (obj.type_rules or [])
+        ]
+        obj.background_role_priority = {
+            normalize_kind(kind): order
+            for kind, order in (obj.background_role_priority or {}).items()
+        }
         return obj
 
     def background_config(self) -> MatchingConfig:

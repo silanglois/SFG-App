@@ -1,4 +1,4 @@
-"""Background smoothing: the method registry, the homodyne/heterodyne
+"""Background smoothing: the method registry, the homodyne/phase-resolved
 pipeline hooks, and the provenance round trip."""
 import json
 
@@ -8,8 +8,8 @@ import pytest
 
 from sfg_app2.processing import provenance
 from sfg_app2.processing.baseline import apply_offset, subtract_background
-from sfg_app2.processing.hd_sfg.config import HDSFGConfig
-from sfg_app2.processing.hd_sfg.steps import AveragedData, step_bg_smooth
+from sfg_app2.processing.pr_sfg.config import PRSFGConfig
+from sfg_app2.processing.pr_sfg.steps import AveragedData, step_bg_smooth
 from sfg_app2.processing.processed_spectrum import ProcessedSpectrum
 from sfg_app2.processing.smoothing import SmoothingSpec, smooth, smoothing_methods
 
@@ -86,18 +86,18 @@ def _averaged():
     )
 
 
-def test_heterodyne_backgrounds_use_their_own_specs():
+def test_phase_resolved_backgrounds_use_their_own_specs():
     averaged = _averaged()
-    cfg = HDSFGConfig(bg_smoothing={"method": "gaussian", "sigma": 4},
+    cfg = PRSFGConfig(bg_smoothing={"method": "gaussian", "sigma": 4},
                       ref_bg_smoothing=SmoothingSpec("none"))
     out = step_bg_smooth(averaged, cfg)
     np.testing.assert_allclose(out.bg_sm, smooth(averaged.bg_avg, {"method": "gaussian", "sigma": 4}))
     np.testing.assert_array_equal(out.ref_bg_sm, averaged.ref_bg_avg)
 
 
-def test_heterodyne_legacy_savgol_fields_still_apply():
+def test_phase_resolved_legacy_savgol_fields_still_apply():
     averaged = _averaged()
-    out = step_bg_smooth(averaged, HDSFGConfig(bg_smoothing_window=11, bg_smoothing_order=3))
+    out = step_bg_smooth(averaged, PRSFGConfig(bg_smoothing_window=11, bg_smoothing_order=3))
     expected = smooth(averaged.bg_avg, {"method": "savgol", "window": 11, "order": 3})
     np.testing.assert_allclose(out.bg_sm, expected)
     np.testing.assert_allclose(out.ref_bg_sm, smooth(averaged.ref_bg_avg,
@@ -105,11 +105,11 @@ def test_heterodyne_legacy_savgol_fields_still_apply():
 
 
 @pytest.mark.parametrize("formatter", [provenance.format_homodyne_provenance,
-                                       provenance.format_heterodyne_provenance])
+                                       provenance.format_phase_resolved_provenance])
 def test_smoothing_round_trips_through_the_header(formatter, tmp_path):
     smoothing = {"sample": SmoothingSpec("savgol", {"window": 15, "order": 2}).to_dict(),
                  "reference": SmoothingSpec("gaussian", {"sigma": 1.5}).to_dict()}
-    kind = "heterodyne" if "heterodyne" in formatter.__name__ else "homodyne"
+    kind = "phase_resolved" if "phase_resolved" in formatter.__name__ else "homodyne"
     lines = ([f"# Type: {kind}"] + formatter({"bg_smoothing": smoothing}))
     path = tmp_path / "x.csv"
     path.write_text("\n".join(lines) + "\nWavenumber,Intensity\n1,2\n", encoding="utf-8")
@@ -118,9 +118,9 @@ def test_smoothing_round_trips_through_the_header(formatter, tmp_path):
     assert prov["bg_smoothing"] == smoothing
 
 
-def test_old_heterodyne_header_reads_as_savgol(tmp_path):
+def test_old_phase_resolved_header_reads_as_savgol(tmp_path):
     path = tmp_path / "old.csv"
-    path.write_text("# Type: heterodyne\n# BG smoothing window:  11\n# BG smoothing order:  3\n"
+    path.write_text("# Type: phase-resolved\n# BG smoothing window:  11\n# BG smoothing order:  3\n"
                     "Wavenumber,Intensity\n1,2\n", encoding="utf-8")
     _, prov, _ = provenance.parse_export_header(path)
     assert prov["bg_smoothing"]["sample"] == {"method": "savgol", "window": 11, "order": 3}

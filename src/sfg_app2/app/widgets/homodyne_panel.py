@@ -75,7 +75,7 @@ def _colors(n: int) -> list:
 class HomodynePanel(QWidget, DockablePlotPanel):
     """Right panel for homodyne sets in the Process/Review tab.
 
-    Mirrors HDSFGPanel's UX (live per-component despike grid, sample/
+    Mirrors PRSFGPanel's UX (live per-component despike grid, sample/
     reference x signal/background plot selectors, a step selector, and a
     Process/Send-to-Results button split) but operates over whichever
     matched set(s) are currently selected in the list — 1 in single mode,

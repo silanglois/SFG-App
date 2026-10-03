@@ -11,7 +11,7 @@ from enum import Enum
 
 
 # key used for the (sole) plotted line of a homodyne entry in
-# SpectrumEntry.styles — heterodyne entries use the _HD_COMPONENT_COLUMN
+# SpectrumEntry.styles — phase-resolved entries use the _PR_COMPONENT_COLUMN
 # display names ("Imaginary"/"Real"/"Phase"/"|χ⁽²⁾|² (Homodyne)") instead
 AMPLITUDE_COMPONENT = "__amplitude__"
 
@@ -54,7 +54,7 @@ _DEFAULT_AXIS_BY_COMPONENT = {"Phase": "secondary"}
 
 def _default_trace_style(component: str) -> TraceStyle:
     # Every component (including a reloaded fit's derived curves) now
-    # defaults to visible=True, matching the fixed HD/amplitude
+    # defaults to visible=True, matching the fixed PR/amplitude
     # components -- the global "Fit components" checkbox panel (default
     # unchecked) is what prevents clutter on load, not per-entry hiding.
     # Trace Properties is still available as a per-entry override.
@@ -85,7 +85,7 @@ class HiddenReason(Enum):
     several apply at once.
     """
     HIDE_DATA = "the \"Hide data\" option, in the Data display panel"
-    HD_COMPONENT_UNCHECKED = "no HD-SFG components being selected, in the HD-SFG components panel"
+    PR_COMPONENT_UNCHECKED = "no PR-SFG components being selected, in the PR-SFG components panel"
     FIT_COMPONENT_UNCHECKED = "no fit components being selected, in the Fit components panel"
     TRACE_OVERRIDE = "per-trace visibility overrides (right-click a spectrum to reset them)"
 
@@ -97,7 +97,7 @@ def resolve_visibility(
     """None when the trace should be drawn, else why it was suppressed.
 
     `component_checked` is the relevant global panel's answer for this
-    trace -- the HD component panel for a heterodyne component, the fit
+    trace -- the PR component panel for a phase-resolved component, the fit
     component panel for a fit curve, and always True for a homodyne
     amplitude line, which no panel gates.
     """
@@ -108,7 +108,7 @@ def resolve_visibility(
         if hide_data:
             return HiddenReason.HIDE_DATA
         if not component_checked:
-            return HiddenReason.HD_COMPONENT_UNCHECKED
+            return HiddenReason.PR_COMPONENT_UNCHECKED
     if not style.visible:
         return HiddenReason.TRACE_OVERRIDE
     return None

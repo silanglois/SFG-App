@@ -23,11 +23,11 @@ from sfg_app2.app.widgets.smoothing_editor import BackgroundSmoothingEditor
 
 logger = logging.getLogger(__name__)
 
-HD_STEPS = [
+PR_STEPS = [
     "raw", "despiked", "averaged",
     "bg_smooth", "fft_filter", "ifft", "normalization",
 ]
-HD_STEP_LABELS = {
+PR_STEP_LABELS = {
     "raw":           "Raw",
     "despiked":      "Despiked",
     "averaged":      "Averaged",
@@ -56,8 +56,8 @@ COMPONENT_STEPS = {
 }
 
 
-class HDSFGPanel(QWidget, DockablePlotPanel):
-    """Right panel for heterodyne sets in the Process/Review tab."""
+class PRSFGPanel(QWidget, DockablePlotPanel):
+    """Right panel for phase-resolved sets in the Process/Review tab."""
 
     processing_complete = Signal(dict)
 
@@ -68,7 +68,7 @@ class HDSFGPanel(QWidget, DockablePlotPanel):
         self._matched_index: int = -1
 
         # per-step cache — keyed by matched_set_index
-        # each entry: dict with keys matching HD_STEPS
+        # each entry: dict with keys matching PR_STEPS
         self._cache: dict[int, dict] = {}
         self._exclude_frames: dict[int, dict[str, set]] = {}
         self._last_step: str | None = None
@@ -141,8 +141,8 @@ class HDSFGPanel(QWidget, DockablePlotPanel):
 
         self._step_group  = QButtonGroup(self)
         self._step_radios: dict[str, QRadioButton] = {}
-        for step in HD_STEPS:
-            rb = QRadioButton(HD_STEP_LABELS[step])
+        for step in PR_STEPS:
+            rb = QRadioButton(PR_STEP_LABELS[step])
             rb.setEnabled(step == "raw")
             self._step_radios[step] = rb
             self._step_group.addButton(rb)
@@ -179,17 +179,9 @@ class HDSFGPanel(QWidget, DockablePlotPanel):
         self._view_combo.setFixedWidth(170)
         self._view_combo.setToolTip("Select which view to show in the plot")
 
-        self._comp_label = QLabel("Show:")
-        self._comp_combo = QComboBox()
-        self._comp_combo.addItems(["Sample", "Reference", "Both"])
-        self._comp_combo.setFixedWidth(110)
-        self._comp_combo.setToolTip("Select which component(s) to show in the plot")
-        self._comp_combo.setCurrentIndex(2)   # default to both
-
         for w in [self._pair_label, self._pair_combo,
                 self._source_label, self._source_combo,
-                self._view_label, self._view_combo,
-                self._comp_label, self._comp_combo]:
+                self._view_label, self._view_combo]:
             layout.addWidget(w)
 
         layout.addStretch()
@@ -270,7 +262,7 @@ class HDSFGPanel(QWidget, DockablePlotPanel):
 
 
     def _get_despike_params(self, key: str):
-        from sfg_app2.processing.hd_sfg.steps import DeSpikeParams
+        from sfg_app2.processing.pr_sfg.steps import DeSpikeParams
         p = self._despike_params[key]
         return DeSpikeParams(
             window=p["window"].value(),
@@ -400,7 +392,7 @@ class HDSFGPanel(QWidget, DockablePlotPanel):
         line._is_bg_marker = True
 
     def _fit_bg_offset(self, averaged):
-        """averaged: hd_sfg.steps.AveragedData — its bg_avg/wavenumber are
+        """averaged: pr_sfg.steps.AveragedData — its bg_avg/wavenumber are
         used as the curve the markers' residuals are fit against."""
         if not self._bg_markers:
             return None
@@ -481,7 +473,7 @@ class HDSFGPanel(QWidget, DockablePlotPanel):
         return w
 
     # window type -> human-readable name, and which params each type reads
-    # (see src/sfg_app2/processing/hd_sfg/windows.py:fft_mask_window)
+    # (see src/sfg_app2/processing/pr_sfg/windows.py:fft_mask_window)
     _FFT_WINDOW_TYPE_NAMES = {
         1: "Box-Car",
         2: "Box-Car + HG",
@@ -644,8 +636,7 @@ class HDSFGPanel(QWidget, DockablePlotPanel):
             )
 
         # view combos — just replot, no reprocess needed
-        for widget in [self._pair_combo, self._source_combo,
-                    self._view_combo, self._comp_combo]:
+        for widget in [self._pair_combo, self._source_combo, self._view_combo]:
             widget.currentIndexChanged.connect(self._redraw_timer.start)
 
         # normalization checkboxes — just replot
@@ -707,18 +698,18 @@ class HDSFGPanel(QWidget, DockablePlotPanel):
     def _on_step_changed(self):
         step = self._current_step()
 
-        pair_source_steps = {"raw", "despiked", "averaged"}
-        view_steps        = {"bg_smooth"}
-        comp_steps        = {"fft_filter", "ifft"}
+        # One Pair selector for every step that has a sample and a
+        # reference side, so the choice carries from step to step.
+        pair_steps   = {"raw", "despiked", "averaged", "bg_smooth", "fft_filter", "ifft"}
+        source_steps = {"raw", "despiked", "averaged"}
+        view_steps   = {"bg_smooth"}
 
-        self._pair_label.setVisible(step in pair_source_steps)
-        self._pair_combo.setVisible(step in pair_source_steps)
-        self._source_label.setVisible(step in pair_source_steps)
-        self._source_combo.setVisible(step in pair_source_steps)
+        self._pair_label.setVisible(step in pair_steps)
+        self._pair_combo.setVisible(step in pair_steps)
+        self._source_label.setVisible(step in source_steps)
+        self._source_combo.setVisible(step in source_steps)
         self._view_label.setVisible(step in view_steps)
         self._view_combo.setVisible(step in view_steps)
-        self._comp_label.setVisible(step in comp_steps)
-        self._comp_combo.setVisible(step in comp_steps)
 
         self._component_row.setVisible(True)
         self._process_btn.setVisible(step != "normalization")
@@ -779,12 +770,12 @@ class HDSFGPanel(QWidget, DockablePlotPanel):
             if step in {"despiked", "averaged"}:
                 self._plot_raw()
                 self.plot_widget.ax.set_title(
-                    f"{HD_STEP_LABELS[step]} — showing raw data. "
+                    f"{PR_STEP_LABELS[step]} — showing raw data. "
                     f"Adjust parameters — changes apply automatically."
                 )
             else:
                 self.plot_widget.set_labels(
-                    title=f"{HD_STEP_LABELS[step]} — adjust parameters to compute"
+                    title=f"{PR_STEP_LABELS[step]} — adjust parameters to compute"
                 )
             self.plot_widget.sync_x_range()
             self.plot_widget.canvas.draw_idle()
@@ -802,7 +793,7 @@ class HDSFGPanel(QWidget, DockablePlotPanel):
             if plotter:
                 plotter(cache[step])
         except Exception as e:
-            logger.warning("HD-SFG plot failed at '%s': %s", step, e, exc_info=True)
+            logger.warning("PR-SFG plot failed at '%s': %s", step, e, exc_info=True)
 
         if step_changed:
             self.plot_widget.sync_x_range()
@@ -813,7 +804,8 @@ class HDSFGPanel(QWidget, DockablePlotPanel):
         self.plot_widget.canvas.draw_idle()
 
     def _component(self) -> str:
-        return self._comp_combo.currentText().lower()   # "sample"/"reference"/"both"
+        """'sample' / 'reference' / 'both', from the Pair combo."""
+        return self._pair_combo.currentText().lower().split()[0]
 
     def _upconversion_wl(self) -> float:
         try:
@@ -823,7 +815,7 @@ class HDSFGPanel(QWidget, DockablePlotPanel):
 
     def on_upconversion_changed(self) -> int:
         """Called by ProcessReviewTab when the shared upconversion
-        wavelength spinbox changes. HD-SFG bakes the wavelength into the
+        wavelength spinbox changes. PR-SFG bakes the wavelength into the
         wavenumber axis during averaging itself, so every wavelength-
         dependent cached step (averaged and everything downstream) is
         invalidated for *every* matched set, not just the currently-viewed
@@ -1032,38 +1024,47 @@ class HDSFGPanel(QWidget, DockablePlotPanel):
         wn = data.wavenumber
         view = self._view_combo.currentText()
 
+        show_sample, show_ref = self._show_sample(), self._show_reference()
+
         if view == "Signal + Background":
             averaged = self._cache.get(self._matched_index, {}).get("averaged")
             if averaged is not None and len(averaged.bg_avg) == len(wn):
                 # Raw (unsmoothed) backgrounds, faint, to judge the smoothing.
-                if self._bg_smoothing_editor.spec("sample").is_active:
+                if show_sample and self._bg_smoothing_editor.spec("sample").is_active:
                     self.plot_widget.ax.plot(wn, averaged.bg_avg, color="gray",
                                              alpha=0.3, linewidth=0.8)
-                if self._bg_smoothing_editor.spec("reference").is_active:
+                if show_ref and self._bg_smoothing_editor.spec("reference").is_active:
                     self.plot_widget.ax.plot(wn, averaged.ref_bg_avg, color="gray",
                                              alpha=0.3, linewidth=0.8, linestyle="--")
-            self.plot_widget.ax.plot(wn, data.sig_sm,
-                                    label="Signal (smoothed)")
-            self.plot_widget.ax.plot(wn, data.bg_sm,
-                                    linestyle="--", alpha=0.7,
-                                    label="Background (smoothed)")
-            self.plot_widget.ax.plot(wn, data.ref_sm,
-                                    alpha=0.6, label="Reference (smoothed)")
-            self.plot_widget.ax.plot(wn, data.ref_bg_sm,
-                                    linestyle="--", alpha=0.5,
-                                    label="Ref BG (smoothed)")
-            self._plot_bg_markers()
+            if show_sample:
+                self.plot_widget.ax.plot(wn, data.sig_sm,
+                                        label="Signal (smoothed)")
+                self.plot_widget.ax.plot(wn, data.bg_sm,
+                                        linestyle="--", alpha=0.7,
+                                        label="Background (smoothed)")
+            if show_ref:
+                self.plot_widget.ax.plot(wn, data.ref_sm,
+                                        alpha=0.6, label="Reference (smoothed)")
+                self.plot_widget.ax.plot(wn, data.ref_bg_sm,
+                                        linestyle="--", alpha=0.5,
+                                        label="Ref BG (smoothed)")
+            if show_sample:
+                # the markers fit the *sample* background's offset
+                self._plot_bg_markers()
             title = "BG Subtraction — Signal + Background"
         else:
             # subtracted result + edge window mask on twin axis
-            self.plot_widget.ax.plot(wn, data.sig_delta_windowed,
-                                    label="Sample delta (windowed)")
-            self.plot_widget.ax.plot(wn, data.ref_delta_windowed,
-                                    linestyle="--", alpha=0.7,
-                                    label="Ref delta (windowed)")
-            self.plot_widget.ax.plot(wn, data.sig_delta,
-                                    alpha=0.3, linestyle=":",
-                                    label="Sample delta (raw)")
+            if show_sample:
+                self.plot_widget.ax.plot(wn, data.sig_delta_windowed,
+                                        label="Sample delta (windowed)")
+            if show_ref:
+                self.plot_widget.ax.plot(wn, data.ref_delta_windowed,
+                                        linestyle="--", alpha=0.7,
+                                        label="Ref delta (windowed)")
+            if show_sample:
+                self.plot_widget.ax.plot(wn, data.sig_delta,
+                                        alpha=0.3, linestyle=":",
+                                        label="Sample delta (raw)")
             ax2 = self.plot_widget.ax.twinx()
             ax2.plot(wn, data.edge_win, color="gray",
                     linewidth=0.8, linestyle=":", label="Edge window")
@@ -1120,6 +1121,8 @@ class HDSFGPanel(QWidget, DockablePlotPanel):
         if comp in ("reference", "both"):
             self.plot_widget.ax.plot(wn, data.ref_ifft.imag,
                                      alpha=0.7, label="Reference iFFT (imag)")
+            self.plot_widget.ax.plot(wn, data.ref_ifft.real,
+                                     linestyle="--", alpha=0.7, label="Reference iFFT (real)")
         self.plot_widget.ax.axhline(0, color="gray", linewidth=0.5)
         self.plot_widget.set_labels(
             xlabel="Wavenumber (cm$^{-1}$)", ylabel="Amplitude, real & imaginary (a.u.)",
@@ -1241,7 +1244,7 @@ class HDSFGPanel(QWidget, DockablePlotPanel):
         self.plot_widget.set_labels(
             xlabel="Wavenumber (cm$^{-1}$)",
             ylabel=r"$\chi^{(2)}$: Re / Im (a.u.)",
-            title="Normalized HD-SFG result"
+            title="Normalized PR-SFG result"
         )
 
     # ── Apply / Process ───────────────────────────────────────────────────────
@@ -1283,7 +1286,7 @@ class HDSFGPanel(QWidget, DockablePlotPanel):
 
     def _run_from_step(self, from_step: str, emit_result: bool = False):
         """Run pipeline from from_step onward, using cached results for earlier steps."""
-        from sfg_app2.processing.hd_sfg.steps import (
+        from sfg_app2.processing.pr_sfg.steps import (
             step_despike, step_average, step_bg_smooth,
             step_fft_filter, step_normalize,
         )
@@ -1331,14 +1334,14 @@ class HDSFGPanel(QWidget, DockablePlotPanel):
             if "normalization" not in c:
                 result = step_normalize(c["fft_filter"], cfg)
                 result.metadata   = self._matched_set.signal.metadata.copy()
-                result.history    = ["hd_sfg_processing"]
+                result.history    = ["pr_sfg_processing"]
                 result.provenance = self._build_provenance(cfg, result.n_frames)
                 c["normalization"] = result
 
         except Exception as e:
             from PySide6.QtWidgets import QMessageBox
             QMessageBox.critical(self, "Processing error", str(e))
-            logger.error("HD-SFG step failed: %s", e, exc_info=True)
+            logger.error("PR-SFG step failed: %s", e, exc_info=True)
             return
 
         order = ["despiked", "averaged", "bg_smooth",
@@ -1362,7 +1365,7 @@ class HDSFGPanel(QWidget, DockablePlotPanel):
             )
 
     def _build_provenance(self, cfg, n_frames: int) -> dict:
-        """Captures the actual HD-SFG processing parameters used, for the
+        """Captures the actual PR-SFG processing parameters used, for the
         CSV export provenance header (see ProcessedResultsTab)."""
         ms = self._matched_set
 
@@ -1374,7 +1377,7 @@ class HDSFGPanel(QWidget, DockablePlotPanel):
             return {"window": p["window"].value(), "threshold": p["threshold"].value()}
 
         return {
-            "kind": "heterodyne",
+            "kind": "phase_resolved",
             "signal":               name(ms.signal),
             "background":           name(ms.background),
             "reference":            name(ms.reference),
@@ -1427,8 +1430,8 @@ class HDSFGPanel(QWidget, DockablePlotPanel):
     # ── Config ────────────────────────────────────────────────────────────────
 
     def _current_config(self):
-        from sfg_app2.processing.hd_sfg import HDSFGConfig
-        return HDSFGConfig(
+        from sfg_app2.processing.pr_sfg import PRSFGConfig
+        return PRSFGConfig(
             upconversion_wavelength = self._upconversion_wl(),
             bg_smoothing            = self._bg_smoothing_editor.spec("sample"),
             ref_bg_smoothing        = self._bg_smoothing_editor.spec("reference"),
@@ -1583,6 +1586,3 @@ class HDSFGPanel(QWidget, DockablePlotPanel):
 
     def _source(self) -> str:
         return self._source_combo.currentText().lower() # "signal"/"background"/"both"
-
-    def _comp(self) -> str:
-        return self._comp_combo.currentText().lower()   # "sample"/"reference"/"both"

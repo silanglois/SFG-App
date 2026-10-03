@@ -30,7 +30,7 @@ _EDITABLE_COLS = {
 class TraceStyleDialog(QDialog):
     """Per-component trace styling for one or more selected SpectrumEntry
     objects — one row per (entry, component) pair (one component row for a
-    homodyne entry, up to four for a heterodyne entry), all editable
+    homodyne entry, up to four for a phase-resolved entry), all editable
     together regardless of how many files are selected.
     """
 

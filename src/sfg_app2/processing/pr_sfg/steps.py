@@ -6,7 +6,7 @@ import numpy as np
 from scipy.interpolate import CubicSpline
 from scipy.signal import savgol_filter
 
-from .config import HDSFGConfig
+from .config import PRSFGConfig
 from .windows import edge_window, fft_mask_window
 from sfg_app2.processing.baseline import _resolve_offset
 from sfg_app2.processing.smoothing import smooth
@@ -177,7 +177,7 @@ def step_despike(
 
 def step_average(
     despiked: DespikedData,
-    config: HDSFGConfig,
+    config: PRSFGConfig,
 ) -> AveragedData:
     """Step 2 — average frames and interpolate to uniform wavenumber grid.
     Signal keeps per-frame arrays for downstream error statistics.
@@ -226,7 +226,7 @@ def step_average(
 
 def step_bg_smooth(
     averaged: AveragedData,
-    config: HDSFGConfig,
+    config: PRSFGConfig,
 ) -> BGSubtractedData:
     """Step 3 — smooth the backgrounds (config.bg_smoothing /
     ref_bg_smoothing) and, optionally, signal/reference (Savitzky-Golay),
@@ -270,7 +270,7 @@ def step_bg_smooth(
 
 def step_fft_filter(
     bg_sub: BGSubtractedData,
-    config: HDSFGConfig,
+    config: PRSFGConfig,
 ) -> FFTFilterData:
     """Step 4 — FFT each delta, apply frequency-domain mask, iFFT.
     Both the time-domain view (step 5) and wavenumber view (step 6)
@@ -309,8 +309,8 @@ def step_fft_filter(
 
 def step_normalize(
     fft_data: FFTFilterData,
-    config: HDSFGConfig,
-) -> "HDSFGResult":
+    config: PRSFGConfig,
+) -> "PRSFGResult":
     """Step 5 — normalize sample by reference, compute per-frame statistics.
 
     complex_chi is computed from the per-frame mean rather than also
@@ -327,7 +327,7 @@ def step_normalize(
     for phase. Only the *spread* across frames (the error bars) needs
     the per-frame decomposition.
     """
-    from .result import HDSFGResult
+    from .result import PRSFGResult
 
     # per-frame normalization -- both the point estimate and the error
     # statistics come from this one decomposition
@@ -358,7 +358,7 @@ def step_normalize(
         zeros = np.zeros(len(fft_data.wavenumber))
         real_err = imag_err = phase_err = homodyne_err = zeros
 
-    return HDSFGResult(
+    return PRSFGResult(
         wavenumber   = fft_data.wavenumber,
         complex_chi  = chi_avg,
         phase        = phase,

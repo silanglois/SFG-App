@@ -45,18 +45,18 @@ def test_checked_entry_is_plotted_unchecked_is_not(load_entries, make_homodyne_e
     assert _lines(tab) == []
 
 
-def test_heterodyne_components_are_opt_in(load_entries, make_heterodyne_entry):
-    """A heterodyne entry plots one line per *checked* HD component.
+def test_phase_resolved_components_are_opt_in(load_entries, make_phase_resolved_entry):
+    """A phase-resolved entry plots one line per *checked* PR component.
 
     Phase lands on the secondary axis, so this counts both axes.
     """
-    tab = load_entries(make_heterodyne_entry())
+    tab = load_entries(make_phase_resolved_entry())
     baseline = len(_all_lines(tab))
 
-    tab._hd_checkboxes["Phase"].setChecked(True)
+    tab._pr_checkboxes["Phase"].setChecked(True)
     assert len(_all_lines(tab)) == baseline + 1
 
-    tab._hd_checkboxes["Phase"].setChecked(False)
+    tab._pr_checkboxes["Phase"].setChecked(False)
     assert len(_all_lines(tab)) == baseline
 
 
@@ -127,8 +127,8 @@ def test_offset_separates_two_spectra(load_entries, make_homodyne_entry):
     assert offset[1] - offset[0] == pytest.approx(10.0)
 
 
-def test_offset_is_per_spectrum_not_per_line(load_entries, make_heterodyne_entry):
-    """Two HD components of the SAME spectrum share one offset slot.
+def test_offset_is_per_spectrum_not_per_line(load_entries, make_phase_resolved_entry):
+    """Two PR components of the SAME spectrum share one offset slot.
 
     Measured as the shift each trace gains when the offset is switched
     on, which isolates the offset from the components' own differing
@@ -138,11 +138,11 @@ def test_offset_is_per_spectrum_not_per_line(load_entries, make_heterodyne_entry
     components enabled.
     """
     tab = load_entries(
-        make_heterodyne_entry(label="a"),
-        make_heterodyne_entry(label="b"),
+        make_phase_resolved_entry(label="a"),
+        make_phase_resolved_entry(label="b"),
     )
-    tab._hd_checkboxes["Real"].setChecked(True)
-    tab._hd_checkboxes["Imaginary"].setChecked(True)
+    tab._pr_checkboxes["Real"].setChecked(True)
+    tab._pr_checkboxes["Imaginary"].setChecked(True)
 
     tab.ui.offsetSpectraSpinner.setValue(0.0)
     flat = [_baseline_of(line) for line in _lines(tab)]
@@ -268,14 +268,14 @@ def _row_text(tab, row=0):
     return tab.ui.spectraList.item(row).text()
 
 
-def test_untouched_entry_carries_no_override_badge(load_entries, make_heterodyne_entry):
+def test_untouched_entry_carries_no_override_badge(load_entries, make_phase_resolved_entry):
     """Reading a style must not look like customizing it.
 
     style_for() materializes a TraceStyle on first read, and Phase's
     automatic default differs from the bare dataclass default -- both
     would fool a naive "has overrides" check.
     """
-    tab = load_entries(make_heterodyne_entry(label="het"))
+    tab = load_entries(make_phase_resolved_entry(label="pr"))
     for component in ("Real", "Imaginary", "Phase"):
         tab._entries[0].style_for(component)
     tab._rebuild_list()

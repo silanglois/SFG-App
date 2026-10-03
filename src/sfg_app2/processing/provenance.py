@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from .kinds import PHASE_RESOLVED, header_token, normalize_kind
 from .smoothing import SmoothingSpec
 
 
@@ -60,7 +61,7 @@ def format_bg_smoothing(provenance: dict) -> list[str]:
 
 
 def parse_bg_smoothing(raw: dict) -> dict:
-    """Inverse of format_bg_smoothing(). An older heterodyne export only
+    """Inverse of format_bg_smoothing(). An older phase-resolved export only
     has the Savitzky-Golay "BG smoothing window/order" pair (applied to
     both backgrounds); a file with neither had no smoothing."""
     out = {}
@@ -143,7 +144,7 @@ def format_homodyne_provenance(provenance: dict) -> list[str]:
     return lines
 
 
-def format_heterodyne_provenance(provenance: dict) -> list[str]:
+def format_phase_resolved_provenance(provenance: dict) -> list[str]:
     d = provenance.get("despike", {})
     bg = provenance.get("background_subtraction", {})
     fft = provenance.get("fft_filter", {})
@@ -208,7 +209,7 @@ def format_fit_section(model_dict: dict, weighting: str, redchi: float,
     one compact JSON line (rather than a bespoke per-parameter line
     format) so it round-trips exactly via parse_fit_json() — colons
     inside the JSON are safe since header parsing only splits on the
-    *first* colon in a line. `kind` ("homodyne"/"heterodyne") records
+    *first* colon in a line. `kind` ("homodyne"/"phase_resolved") records
     which fit function produced this payload, since a restored
     FitModelSpec looks identical either way. `param_errors` (local
     param key -> stderr|None, e.g. from FitResult.param_results) is
@@ -257,8 +258,8 @@ def csv_with_provenance_text(spectrum, kind: str, label: str,
         build_provenance_from_history(spectrum)
 
     header_lines = ["# SFG-App export"]
-    if kind == "heterodyne":
-        header_lines.append("# Type:        heterodyne")
+    if normalize_kind(kind) == PHASE_RESOLVED:
+        header_lines.append(f"# Type:        {header_token(kind)}")
     header_lines += [
         f"# Label:       {label}",
         f"# Exported:    {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
@@ -273,8 +274,8 @@ def csv_with_provenance_text(spectrum, kind: str, label: str,
         "# --- Processing parameters ---",
     ]
 
-    if kind == "heterodyne":
-        header_lines += format_heterodyne_provenance(provenance)
+    if normalize_kind(kind) == PHASE_RESOLVED:
+        header_lines += format_phase_resolved_provenance(provenance)
     else:
         header_lines += format_homodyne_provenance(provenance)
 
@@ -300,7 +301,7 @@ def write_csv_with_provenance(spectrum, kind: str, label: str, out_path: Path,
                                fit_section: list[str] | None = None):
     """Write a CSV with a commented provenance header, readable by pandas
     via pd.read_csv(path, comment='#'). `kind` is "homodyne" or
-    "heterodyne". `fit_section` (from format_fit_section()) is appended
+    "phase_resolved". `fit_section` (from format_fit_section()) is appended
     after sample metadata, if given.
     """
     text = csv_with_provenance_text(spectrum, kind, label, fit_section)
@@ -347,8 +348,9 @@ def parse_export_header(path: Path) -> tuple[list[str], dict, dict]:
         if history_str else ["loaded_from_file"]
     )
 
-    is_heterodyne = raw.get("type", "").strip().lower() == "heterodyne"
-    provenance["kind"] = "heterodyne" if is_heterodyne else "homodyne"
+    # normalize_kind() also accepts the pre-rename "heterodyne".
+    provenance["kind"] = normalize_kind(raw.get("type"))
+    is_phase_resolved = provenance["kind"] == PHASE_RESOLVED
 
     def parse_excluded(key: str) -> list[int]:
         v = raw.get(key, "").strip().lower()
@@ -363,7 +365,7 @@ def parse_export_header(path: Path) -> tuple[list[str], dict, dict]:
         "reference_background": parse_excluded("excluded frames reference_background"),
     }
 
-    if is_heterodyne:
+    if is_phase_resolved:
         provenance["despike"] = {
             "signal": {"window": raw.get("despike signal window"),
                        "threshold": raw.get("despike signal threshold")},

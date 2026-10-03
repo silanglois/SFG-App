@@ -1,13 +1,13 @@
-"""Tests for src/sfg_app2/processing/hd_sfg/steps.py::step_normalize --
+"""Tests for src/sfg_app2/processing/pr_sfg/steps.py::step_normalize --
 pure-Python physics, no Qt involved.
 
 Run with:
-    uv run pytest tests/test_hd_sfg_steps.py -v
+    uv run pytest tests/test_pr_sfg_steps.py -v
 """
 import numpy as np
 
-from sfg_app2.processing.hd_sfg.steps import step_normalize, FFTFilterData, _normalize_chi
-from sfg_app2.processing.hd_sfg.config import HDSFGConfig
+from sfg_app2.processing.pr_sfg.steps import step_normalize, FFTFilterData, _normalize_chi
+from sfg_app2.processing.pr_sfg.config import PRSFGConfig
 
 
 def _make_fft_data(sig_ifft_frames, ref_ifft, wavenumber):
@@ -37,7 +37,7 @@ def test_step_normalize_single_frame_has_zero_error():
     ref_ifft = np.full(50, 2.0 + 0j)
     frame = np.full(50, 1.0 + 0.5j)
     fft_data = _make_fft_data([frame], ref_ifft, wavenumber)
-    config = HDSFGConfig()
+    config = PRSFGConfig()
 
     result = step_normalize(fft_data, config)
 
@@ -59,7 +59,7 @@ def test_step_normalize_matches_direct_per_frame_average():
     n = 40
     wavenumber = np.linspace(2800, 3400, n)
     ref_ifft = np.full(n, 3.0 + 0j)
-    config = HDSFGConfig(sample_exposure=2.0, reference_exposure=5.0, phase_correction_deg=15.0)
+    config = PRSFGConfig(sample_exposure=2.0, reference_exposure=5.0, phase_correction_deg=15.0)
 
     frames = [rng.normal(0, 1, n) + 1j * rng.normal(0, 1, n) for _ in range(8)]
     fft_data = _make_fft_data(frames, ref_ifft, wavenumber)
@@ -88,7 +88,7 @@ def test_step_normalize_homodyne_avoids_incoherent_averaging_bias():
     n = 60
     wavenumber = np.linspace(2800, 3400, n)
     ref_ifft = np.full(n, 3.0 + 0j)
-    config = HDSFGConfig(sample_exposure=1.0, reference_exposure=1.0, phase_correction_deg=0.0)
+    config = PRSFGConfig(sample_exposure=1.0, reference_exposure=1.0, phase_correction_deg=0.0)
 
     n_frames = 20
     frames = [
