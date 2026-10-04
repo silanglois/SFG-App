@@ -84,7 +84,7 @@ windowing, FFT/mask/iFFT, dividing by the reference) is linear, so
 "average the raw frames, then run the pipeline once" and "run the
 pipeline on each frame, then average the results" arrive at exactly
 the same complex χ⁽²⁾ — not just approximately, mathematically
-identical. Phase and homodyne intensity (|χ|²), though, are *nonlinear*
+identical. Phase and |χ|², though, are *nonlinear*
 functions of χ, so those two orders of operation genuinely disagree —
 and one of them is measurably wrong: averaging each frame's own
 |χ|² **systematically overestimates** the true intensity (a basic
@@ -95,7 +95,7 @@ equality only when there's zero frame-to-frame noise). Averaging
 each frame's own phase angle directly is also risky, independent of
 that bias — it can distort badly if frames scatter across the ±180°
 seam. SFG-App avoids both problems by always deriving phase and
-homodyne intensity from the single, coherently-averaged χ⁽²⁾ (never
+|χ|² from the single, coherently-averaged χ⁽²⁾ (never
 by averaging per-frame phase/intensity values separately) — the error
 bars still come from the per-frame spread, they just don't change
 which central value is displayed.
@@ -106,7 +106,7 @@ different things in different corners of this app:
 | Where | What it actually is |
 |---|---|
 | Phase-resolved "Show errors" (this section) | Empirical 95% CI from per-frame spread, pre-fit — describes measurement reproducibility. |
-| Homodyne's "Measurement error (SEM)" fit weighting | A plain standard error of the mean ($\operatorname{std}/\sqrt{n}$, **no** 1.96 factor, despite the similar name) from `average_spectrum()`'s per-wavelength frame statistics — and that std uses the *opposite* convention (`ddof=1`) from the phase-resolved CI above. |
+| Conventional fits' "Measurement error (SEM)" weighting | A plain standard error of the mean ($\operatorname{std}/\sqrt{n}$, **no** 1.96 factor, despite the similar name) from `average_spectrum()`'s per-wavelength frame statistics — and that std uses the *opposite* convention (`ddof=1`) from the phase-resolved CI above. |
 | Fitting tab's parameter-table "Value ± stderr" | Always shown after **Run fit** — `lmfit`'s asymptotic covariance-matrix estimate. Post-fit: describes how uncertain a *fitted parameter* is, unrelated to either measurement-spread quantity above. This is the only per-parameter uncertainty this app computes -- there is no separate profile-likelihood/confidence-interval step. |
 | Multi-fit results' trend-plot error bars | The same parameter `stderr` as above, just plotted across a batch of independent fits. |
 

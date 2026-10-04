@@ -33,7 +33,7 @@ def _load_batch_entries(tab, count=2):
             "Intensity": np.sin(_OMEGA / 40.0) + i,
         })
         spectrum = ProcessedSpectrum(df, metadata={}, history=[], provenance={})
-        entry = _FileLoadedEntry(label=f"batch-{i}", spectrum=spectrum, kind="homodyne")
+        entry = _FileLoadedEntry(label=f"batch-{i}", spectrum=spectrum, kind="conventional")
         tab._batch_file_entries.append(entry)
         tab._batch_list.addItem(_make_list_item(entry, checkable=False))
 

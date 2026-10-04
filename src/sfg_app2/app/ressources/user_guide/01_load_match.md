@@ -58,7 +58,7 @@ Click **Auto-match Files** to run the matcher using the currently
 active auto-matching profile (**Preferences → Auto-matching
 parameters**). Matched sets populate the table on the right, with one
 column each for **Signal, Sample BG, Reference, Ref BG,** and
-**Type** (homodyne/phase-resolved).
+**Type** (conventional/phase-resolved).
 
 If the matcher finds ambiguous matches, a warning dialog lists them
 (up to 10 at a time; the rest are logged).
@@ -72,7 +72,7 @@ The match table is editable directly:
   the target cell (any of the Signal / Sample BG / Reference / Ref BG
   columns, on any row), and release to drop it in. This works even if
   the auto-matcher got that one cell wrong, or left it empty.
-- Click the **Type** cell to change homodyne/phase-resolved via a
+- Click the **Type** cell to change conventional/phase-resolved via a
   dropdown.
 
 ## 5. Reload files and confirm matches
@@ -87,5 +87,5 @@ The match table is editable directly:
   and offered the option to skip it rather than block the whole
   batch.
 
-Continue to **Process & Review — Homodyne** or **Process & Review —
+Continue to **Process & Review — Conventional** or **Process & Review —
 Phase-resolved**, depending on which kind of data you're working with.

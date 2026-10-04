@@ -131,7 +131,7 @@ class SavePlotDialog(QDialog):
         # Prefer whatever legend already exists (its texts reflect however
         # the panel built it — combined axes, proxy handles, etc.) rather
         # than recomputing handles/labels ourselves, since that recompute
-        # can't see proxy artists (e.g. homodyne_panel's mlines.Line2D
+        # can't see proxy artists (e.g. conventional_panel's mlines.Line2D
         # handles) that were never added to an axes as real children.
         self._legend_ax = None
         legend = None

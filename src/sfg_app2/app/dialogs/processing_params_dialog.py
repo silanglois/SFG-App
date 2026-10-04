@@ -44,7 +44,7 @@ def _source_rows(provenance: dict) -> list[tuple[str, str]]:
     ]
 
 
-def _homodyne_rows(provenance: dict) -> list[tuple[str, str]]:
+def _conventional_rows(provenance: dict) -> list[tuple[str, str]]:
     rows = _source_rows(provenance)
     rows += _despike_rows(provenance.get("despike", {}))
 
@@ -175,7 +175,7 @@ class ProcessingParamsDialog(QDialog):
         provenance = getattr(entry.spectrum, "provenance", None) or {}
         if entry.kind == "phase_resolved":
             return _phase_resolved_rows(provenance)
-        return _homodyne_rows(provenance)
+        return _conventional_rows(provenance)
 
     def _on_mode_changed(self, combined: bool):
         self._prev_button.setVisible(not combined)

@@ -10,9 +10,9 @@ from dataclasses import dataclass
 from enum import Enum
 
 
-# key used for the (sole) plotted line of a homodyne entry in
+# key used for the (sole) plotted line of a conventional entry in
 # SpectrumEntry.styles — phase-resolved entries use the _PR_COMPONENT_COLUMN
-# display names ("Imaginary"/"Real"/"Phase"/"|χ⁽²⁾|² (Homodyne)") instead
+# display names ("Imaginary"/"Real"/"Phase"/"|χ⁽²⁾|²") instead
 AMPLITUDE_COMPONENT = "__amplitude__"
 
 _LINESTYLE_CHOICES = [
@@ -98,7 +98,7 @@ def resolve_visibility(
 
     `component_checked` is the relevant global panel's answer for this
     trace -- the PR component panel for a phase-resolved component, the fit
-    component panel for a fit curve, and always True for a homodyne
+    component panel for a fit curve, and always True for a conventional
     amplitude line, which no panel gates.
     """
     if is_fit:

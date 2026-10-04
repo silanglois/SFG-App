@@ -74,7 +74,7 @@ _PR_COMPONENT_COLUMN = {
     "Imaginary": "Imaginary",
     "Real": "Real",
     "Phase": "Phase",
-    "|χ⁽²⁾|² (Homodyne)": "Homodyne",
+    "|χ⁽²⁾|²": "Chi2_abs2",
 }
 
 # display name -> to_dataframe() 95%-CI error column name
@@ -82,7 +82,7 @@ _PR_ERROR_COLUMN = {
     "Imaginary": "Imag_err",
     "Real": "Real_err",
     "Phase": "Phase_err",
-    "|χ⁽²⁾|² (Homodyne)": "Homodyne_err",
+    "|χ⁽²⁾|²": "Chi2_abs2_err",
 }
 
 # display name -> matplotlib mathtext y-axis label (plain Unicode
@@ -93,7 +93,7 @@ _PR_YLABEL = {
     "Imaginary": r"Im($\chi^{(2)}$) (a.u.)",
     "Real": r"Re($\chi^{(2)}$) (a.u.)",
     "Phase": "Phase (°)",
-    "|χ⁽²⁾|² (Homodyne)": r"$|\chi^{(2)}|^2$ (a.u.)",
+    "|χ⁽²⁾|²": r"$|\chi^{(2)}|^2$ (a.u.)",
 }
 
 # display name -> mathtext-safe legend label suffix (same reasoning as
@@ -103,7 +103,7 @@ _PR_LEGEND_LABEL = {
     "Imaginary": "Im($\\chi^{(2)}$)",
     "Real": "Re($\\chi^{(2)}$)",
     "Phase": "Phase",
-    "|χ⁽²⁾|² (Homodyne)": r"$|\chi^{(2)}|^2$",
+    "|χ⁽²⁾|²": r"$|\chi^{(2)}|^2$",
 }
 
 
@@ -114,7 +114,7 @@ _PR_LEGEND_LABEL = {
 _FIT_TO_PR_COMPONENT = {
     "Fit (real)": "Real",
     "Fit (imaginary)": "Imaginary",
-    "Fit (homodyne)": "|χ⁽²⁾|² (Homodyne)",
+    "Fit (|χ|²)": "|χ⁽²⁾|²",
 }
 
 
@@ -125,7 +125,7 @@ def _data_key(spec) -> tuple:
 
 def _fit_partner_key(spec) -> tuple | None:
     """The _data_key() of the data trace whose color a fit curve takes --
-    on a homodyne entry every fit curve (peaks included) shares the one
+    on a conventional entry every fit curve (peaks included) shares the one
     amplitude trace's color."""
     key = (_FIT_TO_PR_COMPONENT.get(spec.y_col)
            if spec.entry.kind == "phase_resolved" else AMPLITUDE_COMPONENT)
@@ -135,8 +135,8 @@ def _fit_partner_key(spec) -> tuple | None:
 def _fit_legend_partner_key(spec) -> tuple | None:
     """The _data_key() of the data trace a fit curve *models* -- stricter
     than _fit_partner_key(): only the curve directly comparable to the
-    data (PR real/imaginary/homodyne, homodyne "Fit (total)") pairs; peaks
-    and the homodyne entry's real/imaginary chi stay separate."""
+    data (PR real/imaginary/conventional, conventional "Fit (total)") pairs; peaks
+    and the conventional entry's real/imaginary chi stay separate."""
     if spec.entry.kind != "phase_resolved" and spec.y_col != "Fit (total)":
         return None
     return _fit_partner_key(spec)
@@ -144,10 +144,10 @@ def _fit_legend_partner_key(spec) -> tuple | None:
 
 class SpectrumEntry:
     """Lightweight container binding a ProcessedSpectrum to a display label."""
-    def __init__(self, spectrum: ProcessedSpectrum, label: str, kind: str = "homodyne"):
+    def __init__(self, spectrum: ProcessedSpectrum, label: str, kind: str = "conventional"):
         self.spectrum = spectrum
         self.label = label
-        self.kind = kind   # "homodyne" | "phase_resolved"
+        self.kind = kind   # "conventional" | "phase_resolved"
         self.styles: dict[str, TraceStyle] = {}
         # (column_name, display_label) pairs for a reloaded fit's derived
         # curves (fit total/real/imaginary, each peak) -- column_name
@@ -192,7 +192,7 @@ class PlotSpec:
     """One plotted line, flattened out of an entry.
 
     A phase-resolved entry yields one spec per checked PR component, a
-    homodyne entry one for its amplitude, and either kind adds one per
+    conventional entry one for its amplitude, and either kind adds one per
     fit-derived curve -- so colors and styling are resolved per line
     while the offset stays keyed to the owning entry.
     """
@@ -429,16 +429,16 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
             "Imaginary": self.ui.prCheckImaginary,
             "Real": self.ui.prCheckReal,
             "Phase": self.ui.prCheckPhase,
-            "|χ⁽²⁾|² (Homodyne)": self.ui.prCheckHomodyne,
+            "|χ⁽²⁾|²": self.ui.prCheckAbs2,
         }
         for cb in self._pr_checkboxes.values():
             cb.setToolTip(
                 "Plot this component for phase-resolved (PR-SFG) entries — "
-                "has no effect on homodyne entries. Check multiple to overlay them."
+                "has no effect on conventional entries. Check multiple to overlay them."
             )
         self.ui.prCheckShowError.setToolTip(
             "Shade the 95% CI error band around each phase-resolved (PR-SFG) "
-            "line — has no effect on homodyne entries."
+            "line — has no effect on conventional entries."
         )
 
         phase_row = QHBoxLayout()
@@ -510,7 +510,7 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
     def _fit_component_concept(self, column_name: str) -> str:
         """Maps a fit-derived column name to one of the four global
         panel keys above."""
-        if column_name in ("Fit (total)", "Fit (homodyne)"):
+        if column_name in ("Fit (total)", "Fit (|χ|²)"):
             return "Fit total"
         if column_name == "Fit (real)":
             return "Fit real"
@@ -571,9 +571,9 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         try:
             for filename, spectrum in results.items():
                 try:
-                    kind = "homodyne"
+                    kind = "conventional"
                     # convert PRSFGResult to ProcessedSpectrum for display, keeping
-                    # every component (Real/Imaginary/Phase/Homodyne + per-frame-avg
+                    # every component (Real/Imaginary/Phase/Conventional + per-frame-avg
                     # and error-bar variants) intact — no lossy column renaming
                     if isinstance(spectrum, PRSFGResult):
                         df = spectrum.to_dataframe()
@@ -714,7 +714,7 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
     def entries(self, kind: str | None = None) -> list[SpectrumEntry]:
         """Public accessor for other tabs (e.g. Fitting) to read the
         currently-held, already-processed spectra without reaching into
-        private state. `kind` filters to "homodyne"/"phase_resolved" if given."""
+        private state. `kind` filters to "conventional"/"phase_resolved" if given."""
         ordered = self._ordered_entries()
         if kind is None:
             return ordered
@@ -897,7 +897,7 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         """Grey out (not hide -- keeps the dock layout stable and the
         panel discoverable) the PR-SFG components / Fit components
         docks when nothing currently checked would respond to them --
-        their checkboxes are otherwise silently inert for a homodyne-
+        their checkboxes are otherwise silently inert for a conventional-
         only or fit-free selection. Called from _refresh_plot(), which
         already runs on every state change that can affect this (check/
         uncheck, Check All/None, add, remove, sort/reorder)."""
@@ -1030,7 +1030,7 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
                     ))
             else:
                 style = entry.style_for(AMPLITUDE_COMPONENT)
-                # No panel gates a homodyne entry's single line.
+                # No panel gates a conventional entry's single line.
                 reason = resolve_visibility(
                     style=style, component=AMPLITUDE_COMPONENT, is_fit=False,
                     hide_data=hide_data, component_checked=True,
@@ -1332,10 +1332,10 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         components.append(("Fit (imaginary)", "Fit (imaginary)"))
 
         if kind == "phase_resolved":
-            df["Fit (homodyne)"] = np.abs(chi) ** 2
-            components.append(("Fit (homodyne)", "Fit (homodyne)"))
+            df["Fit (|χ|²)"] = np.abs(chi) ** 2
+            components.append(("Fit (|χ|²)", "Fit (|χ|²)"))
         else:
-            df["Fit (total)"] = fitting_mod.evaluate_homodyne(omega, fit_spec)
+            df["Fit (total)"] = fitting_mod.evaluate_conventional(omega, fit_spec)
             components.append(("Fit (total)", "Fit (total)"))
 
         for i, peak in enumerate(fit_spec.peaks):
@@ -1406,8 +1406,8 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
                 if kind is None:
                     # no/old-style header — fall back to sniffing columns
                     kind = ("phase_resolved"
-                            if {"Real", "Imaginary", "Phase", "Homodyne"}.issubset(df.columns)
-                            else "homodyne")
+                            if {"Real", "Imaginary", "Phase", "Chi2_abs2"}.issubset(df.columns)
+                            else "conventional")
 
                 # a "Fit json:" header line (written by FittingTab's own
                 # export) reconstructs into extra derived columns (fit
@@ -1616,8 +1616,8 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         return provenance_mod.parse_markers(text)
 
     @staticmethod
-    def _format_homodyne_provenance(provenance: dict) -> list[str]:
-        return provenance_mod.format_homodyne_provenance(provenance)
+    def _format_conventional_provenance(provenance: dict) -> list[str]:
+        return provenance_mod.format_conventional_provenance(provenance)
 
     @staticmethod
     def _format_phase_resolved_provenance(provenance: dict) -> list[str]:
@@ -1702,7 +1702,7 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         """(style_key, display_name) rows to show in the trace properties
         dialog for this entry — all PR components for phase-resolved entries
         (not just the currently-checked ones), or a single amplitude row
-        for homodyne entries."""
+        for conventional entries."""
         if entry.kind == "phase_resolved":
             rows = [(component, component) for component in _PR_COMPONENT_COLUMN]
         else:

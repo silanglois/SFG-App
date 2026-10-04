@@ -1,6 +1,6 @@
 """Build a self-contained processing notebook for one matched set.
 
-Walks the homodyne or phase-resolved pipeline a stage at a time, with a
+Walks the conventional or phase-resolved pipeline a stage at a time, with a
 short note and an intermediate plot at each, mirroring the hand-written
 walkthroughs in tests/. The parameters are pre-filled with whatever the
 app was using, exposed as Colab form fields so they can be re-tuned.
@@ -84,7 +84,7 @@ def _roles_cell(payload: dict) -> str:
     return "\n".join(lines)
 
 
-def _homodyne_params(cfg: dict) -> str:
+def _conventional_params(cfg: dict) -> str:
     return f"""
 #@title Processing parameters {{ run: "auto" }}
 #@markdown Pre-filled with the values the app was using.
@@ -140,7 +140,7 @@ BG_SMOOTHING = {as_literal(cfg.get("bg_smoothing") or {"sample": {"method": "non
 """
 
 
-def _homodyne_cells(payload: dict) -> list[dict]:
+def _conventional_cells(payload: dict) -> list[dict]:
     return [
         markdown_cell("## 1. Load the matched set\n\n"
                       "Four raw files: the sample signal and its background, "
@@ -161,7 +161,7 @@ reference_bg = DataFile(os.path.join("data", RAW["reference_background"]))
 
 matched = MatchedSet(signal=signal, background=background,
                      reference=reference, reference_background=reference_bg,
-                     spectrum_type="homodyne")
+                     spectrum_type="conventional")
 print("complete set:", matched.is_complete(),
       "|", signal.n_frames, "frames")
 """.strip()),
@@ -334,7 +334,7 @@ config
 def _phase_resolved_cells(payload: dict) -> list[dict]:
     return [
         markdown_cell("## 1. Load the matched set\n\n"
-                      "The same four raw files as homodyne, processed very "
+                      "The same four raw files as conventional, processed very "
                       "differently: the signal interferes with a reference "
                       "field, so both the real and imaginary parts of "
                       "$\\chi^{(2)}$ — and therefore the phase — survive."),
@@ -545,10 +545,10 @@ ax.legend()
 plt.show()
 
 fig, ax = plt.subplots()
-ax.plot(wn, result.homodyne)
+ax.plot(wn, result.abs2)
 if show_err:
-    ax.fill_between(wn, result.homodyne - result.homodyne_err,
-                    result.homodyne + result.homodyne_err, alpha=0.25, linewidth=0)
+    ax.fill_between(wn, result.abs2 - result.abs2_err,
+                    result.abs2 + result.abs2_err, alpha=0.25, linewidth=0)
 ax.set_xlabel("Wavenumber (cm$^{-1}$)")
 ax.set_ylabel(r"$|\\chi^{(2)}|^2$ (a.u.)")
 plt.show()
@@ -587,7 +587,7 @@ print("wrote", out)
 def build(payload: dict) -> dict:
     """Assemble the notebook.
 
-    `payload` keys: kind ("homodyne"/"phase_resolved"), label, roles
+    `payload` keys: kind ("conventional"/"phase_resolved"), label, roles
     {role: filename}, raw_files {filename: csv text}, config (the
     pipeline parameters the app was using).
     """
@@ -599,7 +599,7 @@ def build(payload: dict) -> dict:
 
     cells = [
         markdown_cell(f"""
-# {label} — {'phase-resolved (PR-SFG)' if is_pr else 'homodyne'} processing
+# {label} — {'phase-resolved (PR-SFG)' if is_pr else 'conventional'} processing
 
 Exported from SFG-App {app_version()} on {_timestamp()}, from:
 
@@ -634,10 +634,10 @@ frames, the FFT window — matches what the app was using.
         code_cell(_UPLOAD_FALLBACK.strip()),
 
         code_cell(_phase_resolved_params(payload["config"]) if is_pr
-                  else _homodyne_params(payload["config"])),
+                  else _conventional_params(payload["config"])),
     ]
 
-    cells += _phase_resolved_cells(payload) if is_pr else _homodyne_cells(payload)
+    cells += _phase_resolved_cells(payload) if is_pr else _conventional_cells(payload)
 
     cells += [
         markdown_cell("## Export\n\nWrites a CSV the app can read back."),

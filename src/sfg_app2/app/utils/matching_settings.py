@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 CONFIG_DIR = Path(user_config_dir("SFG-App"))
 SETTINGS_FILE = CONFIG_DIR / "matching_settings.json"
 
-from sfg_app2.processing.kinds import HOMODYNE, PHASE_RESOLVED, normalize_kind
+from sfg_app2.processing.kinds import CONVENTIONAL, PHASE_RESOLVED, normalize_kind
 
 DEFAULT_REFERENCE_NAMES = ["Au", "gold", "quartz"]
 DEFAULT_BACKGROUND_REQUIRED_KEYS = ["polarization", "date"]
@@ -31,7 +31,7 @@ DEFAULT_BACKGROUND_ROLE_VALUES = sorted(DEFAULT_ROLE_SUFFIXES)
 DEFAULT_BACKGROUND_ROLE_FIELD = ""
 DEFAULT_BACKGROUND_ROLE_PRIORITY: dict[str, list[str]] = {}
 
-TYPE_RULE_TYPES = (PHASE_RESOLVED, HOMODYNE)
+TYPE_RULE_TYPES = (PHASE_RESOLVED, CONVENTIONAL)
 TYPE_RULE_SCOPES = ("signal", "background", "both")
 ROLE_MODES = ("suffix", "prefix", "field")
 
@@ -93,7 +93,7 @@ class MatchingSettings:
     or a metadata field), which metadata keys must (required), may
     (optional), or should be matched to the nearest value (closest) between
     a signal and its background/reference candidates, and rules forcing a
-    signal/background pair to homodyne or phase-resolved processing.
+    signal/background pair to conventional or phase-resolved processing.
 
     Persistence lives in `MatchingProfileManager` (multiple named profiles,
     organized in a tree) — this class just holds one profile's fields, with

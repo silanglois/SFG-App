@@ -13,9 +13,9 @@ from sfg_app2.app.tabs.load_match_undo import ReplaceMatchTableCommand
 logger = logging.getLogger(__name__)
 
 COLUMNS = ["Signal", "Sample BG", "Reference", "Ref BG", "Type"]
-from sfg_app2.processing.kinds import HOMODYNE, PHASE_RESOLVED, kind_label, normalize_kind
+from sfg_app2.processing.kinds import CONVENTIONAL, PHASE_RESOLVED, kind_label, normalize_kind
 
-SPECTRUM_TYPES = [kind_label(HOMODYNE), kind_label(PHASE_RESOLVED)]
+SPECTRUM_TYPES = [kind_label(CONVENTIONAL), kind_label(PHASE_RESOLVED)]
 MIME_FILE = "application/sfg-app-file"
 MIME_SOURCE = "application/sfg-app-source-cell"
 
@@ -151,7 +151,7 @@ class MatchTableModel(QAbstractTableModel):
         row = len(self._rows)
         self.beginInsertRows(QModelIndex(), row, row)
         self._rows.append([None, None, None, None])
-        self._types.append("Homodyne")
+        self._types.append("Conventional")
         self.endInsertRows()
         return row
 
@@ -214,7 +214,7 @@ class TypeColumnDelegate(QStyledItemDelegate):
         return combo
 
     def setEditorData(self, editor, index):
-        value = index.data(Qt.ItemDataRole.DisplayRole) or "Homodyne"
+        value = index.data(Qt.ItemDataRole.DisplayRole) or "Conventional"
         idx = SPECTRUM_TYPES.index(value) if value in SPECTRUM_TYPES else 0
         editor.setCurrentIndex(idx)
 

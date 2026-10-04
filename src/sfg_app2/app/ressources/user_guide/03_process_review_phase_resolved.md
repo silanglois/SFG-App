@@ -1,9 +1,9 @@
 # Process & Review — Phase-resolved (PR-SFG)
 
 Matched sets classified as **phase-resolved** use a different panel from
-homodyne data, laid out as a central plot surrounded by several
-dockable parameter panels. See **Process & Review — Homodyne** for
-the homodyne equivalent.
+conventional data, laid out as a central plot surrounded by several
+dockable parameter panels. See **Process & Review — Conventional** for
+the conventional equivalent.
 
 ## Step selector
 
@@ -12,11 +12,11 @@ Filter → iFFT → Normalization** to inspect the effect of each stage:
 
 ## Despike & frame exclusion
 
-Same idea as the homodyne panel: per-component despike window/
+Same idea as the conventional panel: per-component despike window/
 threshold, a **Show flagged spikes** checkbox to preview which points
 the current settings would flag, and per-component frame exclusion,
 each in their own dock. The starting values differ by channel for the
-same reason as in homodyne — Sample and Reference at window 50 /
+same reason as in the conventional panel — Sample and Reference at window 50 /
 threshold 20, their backgrounds at window 300 / threshold 10.
 
 ## Background subtraction + edge window
@@ -26,14 +26,14 @@ This dock combines three things:
 - **Edge low / Edge high (points)** — an edge-taper window applied to
   the background-subtracted delta before it goes into the FFT step.
 - **BG offset degree** and the same **click-to-place-marker** /
-  editable X/Y table mechanism as the homodyne panel's background
+  editable X/Y table mechanism as the conventional panel's background
   offset — click on the plot in "Signal + Background" view to add a
   marker, click an existing marker to remove it, or edit the table
   directly (the same interaction shown in **Process & Review —
-  Homodyne**'s background-offset section).
+  Conventional**'s background-offset section).
 - **Background smoothing** — a method and its parameters for the
   sample background and for the reference background, the same
-  choices as in the homodyne panel (Savitzky–Golay, moving average,
+  choices as in the conventional panel (Savitzky–Golay, moving average,
   Gaussian, median; windows in points of the interpolated wavenumber
   grid). The averaged backgrounds are smoothed before they're
   subtracted. The settings are recorded in the export header, and
@@ -93,7 +93,7 @@ at all).
 ## Committing the result
 
 **▶ Process** and **✓ Send to Spectra Library** work exactly as in the
-homodyne panel. Note that parameter edits trigger an automatic
+conventional panel. Note that parameter edits trigger an automatic
 reprocess after a brief pause (~400ms) — you generally don't need to
 click Process yourself after every small tweak. Purely visual toggles
 (checkboxes, the step selector) redraw almost immediately (~50ms)

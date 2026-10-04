@@ -189,9 +189,9 @@
               </widget>
              </item>
              <item row="1" column="1">
-              <widget class="QCheckBox" name="prCheckHomodyne">
+              <widget class="QCheckBox" name="prCheckAbs2">
                <property name="text">
-                <string>|χ⁽²⁾|² (Homodyne)</string>
+                <string>|χ⁽²⁾|²</string>
                </property>
               </widget>
              </item>

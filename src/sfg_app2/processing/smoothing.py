@@ -7,7 +7,7 @@ SmoothingSpec (method key + parameter values) is what gets stored in
 configs and provenance; ``smooth(y, spec)`` applies it.
 
 All windows and widths are in *points* of the array being smoothed (not
-nm or cm⁻¹): the homodyne background is on the camera's wavelength grid
+nm or cm⁻¹): the conventional background is on the camera's wavelength grid
 and the phase-resolved one on its uniform wavenumber grid, and a point count
 is the one unit that means the same thing on both.
 """

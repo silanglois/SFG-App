@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 from sfg_app2.processing.fitting import (
-    FitModelSpec, FitParam, PeakInstance, evaluate_homodyne,
+    FitModelSpec, FitParam, PeakInstance, evaluate_conventional,
     BatchDataset, fit_global_batch, fit_independent_batch, build_global_params,
 )
 
@@ -34,8 +34,8 @@ def datasets() -> list[BatchDataset]:
     parameter should be able to recover exactly (noiseless, so recovery
     should be tight)."""
     return [
-        BatchDataset(label=f"conc-{i}", kind="homodyne", omega=OMEGA,
-                     intensity=evaluate_homodyne(OMEGA, _true_spec(amp)))
+        BatchDataset(label=f"conc-{i}", kind="conventional", omega=OMEGA,
+                     intensity=evaluate_conventional(OMEGA, _true_spec(amp)))
         for i, amp in enumerate(TRUE_AMPLITUDES)
     ]
 
@@ -104,8 +104,8 @@ def test_global_fit_forcing_a_genuinely_different_parameter_shared_hurts_fit_qua
 
 def test_global_fit_per_dataset_error_fields_are_finite_and_nonnegative():
     datasets = [
-        BatchDataset(label=f"conc-{i}", kind="homodyne", omega=OMEGA,
-                     intensity=evaluate_homodyne(OMEGA, _true_spec(amp)))
+        BatchDataset(label=f"conc-{i}", kind="conventional", omega=OMEGA,
+                     intensity=evaluate_conventional(OMEGA, _true_spec(amp)))
         for i, amp in enumerate(TRUE_AMPLITUDES)
     ]
     result = fit_global_batch(datasets, _template(width_shared=True))
@@ -117,7 +117,7 @@ def test_global_fit_per_dataset_error_fields_are_finite_and_nonnegative():
 
 def test_build_global_params_shared_key_added_once_independent_keys_per_dataset():
     datasets = [
-        BatchDataset(label=f"d{i}", kind="homodyne", omega=OMEGA, intensity=np.zeros_like(OMEGA))
+        BatchDataset(label=f"d{i}", kind="conventional", omega=OMEGA, intensity=np.zeros_like(OMEGA))
         for i in range(3)
     ]
     params = build_global_params(datasets, _template(width_shared=True))
@@ -129,7 +129,7 @@ def test_build_global_params_shared_key_added_once_independent_keys_per_dataset(
         assert f"d{i}_nr_amplitude" in names
 
 
-def test_global_fit_rejects_mixed_homodyne_phase_resolved_kinds(datasets):
+def test_global_fit_rejects_mixed_conventional_phase_resolved_kinds(datasets):
     pr_ds = BatchDataset(label="pr", kind="phase_resolved", omega=OMEGA,
                            real=np.zeros_like(OMEGA), imag=np.zeros_like(OMEGA))
     with pytest.raises(ValueError):

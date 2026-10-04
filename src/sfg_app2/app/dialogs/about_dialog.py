@@ -17,7 +17,7 @@ _FALLBACK_VERSION = "1.5.0"
 _HOMEPAGE_URL = "https://github.com/silanglois/SFG-App"
 _DESCRIPTION = (
     "A desktop application for processing and analyzing Sum-Frequency "
-    "Generation (SFG) spectroscopy data — homodyne and phase-resolved — "
+    "Generation (SFG) spectroscopy data — conventional and phase-resolved — "
     "built with PySide6."
 )
 

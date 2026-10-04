@@ -1,7 +1,7 @@
 # Fitting
 
 The **Fitting** tab fits peaks/lineshapes to a single processed
-spectrum. Homodyne data is fit as
+spectrum. Conventional data is fit as
 $\lvert \chi_{\mathrm{NR}}\,e^{i\varphi} + \sum_j \chi_j(\omega)\rvert^2$
 against measured intensity; phase-resolved data is fit as simultaneous
 real/imaginary fits of the same complex χ⁽²⁾ against measured
@@ -53,9 +53,9 @@ These sum to one complex susceptibility:
 
 $$\chi_{\mathrm{eff}}(\omega) = \chi_{\mathrm{NR}} + \sum_j \chi_j(\omega)$$
 
-which is where **homodyne** and **phase-resolved** fitting diverge:
+which is where **conventional** and **phase-resolved** fitting diverge:
 
-- **Homodyne** only ever measures intensity, so it fits against
+- **Conventional SFG** only ever measures intensity, so it fits against
   $I(\omega) = \lvert\chi_{\mathrm{eff}}(\omega)\rvert^2$ — the model
   curve you see is this squared magnitude, and the fit itself works on
   the intensity residual.
@@ -68,7 +68,7 @@ Because the sum happens *before* squaring, cross-terms between peaks
 (and between peaks and the non-resonant background) matter —
 $\lvert\chi_a + \chi_b\rvert^2$ is not
 $\lvert\chi_a\rvert^2 + \lvert\chi_b\rvert^2$, which is why peaks can
-constructively or destructively interfere in a homodyne spectrum. It's
+constructively or destructively interfere in a conventional spectrum. It's
 also why the Display dock's per-peak "Individual features" curves (each
 peak's $\lvert\chi_j\rvert^2$ in isolation) are a visual aid for
 locating a peak, not a literal
@@ -134,7 +134,7 @@ default; see **Settings & Preferences**).
 ## 4. Display
 
 Controls which computed series — Data, Fit total/real/imaginary,
-Residual, and per-peak curves (the exact set differs for homodyne vs.
+Residual, and per-peak curves (the exact set differs for conventional vs.
 phase-resolved) — appear on Plot 1 vs. Plot 2, each with its own color
 and line style.
 
@@ -150,11 +150,11 @@ and line style.
   zoom level. A **Set range to current view** button next to the
   spinboxes copies the plot's current zoomed x-axis into the fit range
   in one click, if you'd rather not type the bounds by hand.
-- **Weighting** — for homodyne: None, Statistical (1/√intensity), or
+- **Weighting** — for conventional: None, Statistical (1/√intensity), or
   Measurement error (SEM). For phase-resolved: None or Measurement error
   (95% CI, per channel) — there's no statistical option here, since
   shot-noise weighting doesn't apply to signed real/imaginary values.
-  Despite the similar names, homodyne's "SEM" and phase-resolved's "95% CI"
+  Despite the similar names, the conventional "SEM" and the phase-resolved "95% CI"
   are computed differently (one's a plain standard error, the other's
   1.96× that) — see the error/uncertainty glossary in
   **Reference & Tips** if you want the exact formulas.
@@ -177,7 +177,7 @@ Fits every spectrum in a list **independently**, using whatever
 model/parameters are currently configured in the Model/Parameters/Fit
 docks (list order doesn't matter). Pull spectra in from the Spectra
 Library and/or load files directly; right-click a row to remove it. All
-spectra in a batch must be the same kind (homodyne or phase-resolved) —
+spectra in a batch must be the same kind (conventional or phase-resolved) —
 mixed kinds are rejected with a warning. Progress is shown in a
 cancelable dialog.
 
@@ -210,7 +210,7 @@ With **Seed amplitudes per spectrum** checked (the default), the joint
 fit doesn't start every spectrum from step 1's amplitudes. First, with
 the shared shapes held fixed, each spectrum's own amplitudes and
 non-resonant background are solved on their own. For phase-resolved data
-that is an exact linear solve that needs no starting guess. For homodyne
+that is an exact linear solve that needs no starting guess. For conventional
 data the app tries every combination of amplitude signs, which is where
 |χ|² fits usually go wrong. The joint fit then starts from those values.
 It also runs once from the plain template, and the better of the two
@@ -230,7 +230,7 @@ constraints...**: a grid of peaks × polarizations where each cell is +,
 − or free. A rule keeps that amplitude ≥ 0 or ≤ 0 whenever a spectrum
 with that polarization is fit, in Batch, Sequential and a plain **Run
 fit** alike. The rules are saved with the model, in fit templates and
-exported fits. For homodyne data, where only |χ|² is measured and the
+exported fits. For conventional data, where only |χ|² is measured and the
 whole model with every sign flipped fits equally well, a rule chooses
 which of those two mirror solutions you get. If a rule disagrees with
 the data, the amplitude ends up pinned at 0 and its value is

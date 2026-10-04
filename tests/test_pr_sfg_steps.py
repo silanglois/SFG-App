@@ -45,10 +45,10 @@ def test_step_normalize_single_frame_has_zero_error():
     np.testing.assert_array_equal(result.real_err, 0.0)
     np.testing.assert_array_equal(result.imag_err, 0.0)
     np.testing.assert_array_equal(result.phase_err, 0.0)
-    np.testing.assert_array_equal(result.homodyne_err, 0.0)
+    np.testing.assert_array_equal(result.abs2_err, 0.0)
     assert np.all(np.isfinite(result.complex_chi))
     assert np.all(np.isfinite(result.phase))
-    assert np.all(np.isfinite(result.homodyne))
+    assert np.all(np.isfinite(result.abs2))
 
 
 def test_step_normalize_matches_direct_per_frame_average():
@@ -75,15 +75,15 @@ def test_step_normalize_matches_direct_per_frame_average():
 
     np.testing.assert_allclose(result.complex_chi, expected_chi)
     np.testing.assert_allclose(result.phase, np.degrees(np.arctan2(expected_chi.imag, expected_chi.real)))
-    np.testing.assert_allclose(result.homodyne, expected_chi.real**2 + expected_chi.imag**2)
+    np.testing.assert_allclose(result.abs2, expected_chi.real**2 + expected_chi.imag**2)
 
 
-def test_step_normalize_homodyne_avoids_incoherent_averaging_bias():
-    """homodyne (|mean(chi)|^2) must be <= the naive per-frame-averaged
+def test_step_normalize_conventional_avoids_incoherent_averaging_bias():
+    """abs2 (|mean(chi)|^2) must be <= the naive per-frame-averaged
     |chi_i|^2 for noisy frames -- Jensen's inequality
     (E[|X|^2] >= |E[X]|^2), and strictly less on average whenever
     there's real frame-to-frame noise. This is exactly the systematic
-    upward bias the old (removed) homodyne_avg field used to have."""
+    upward bias the old (removed) conventional_avg field used to have."""
     rng = np.random.default_rng(0)
     n = 60
     wavenumber = np.linspace(2800, 3400, n)
@@ -104,13 +104,13 @@ def test_step_normalize_homodyne_avoids_incoherent_averaging_bias():
                        config.reference_exposure, config.phase_correction_deg)
         for f in frames
     ]
-    naive_homodyne_avg = np.mean([np.abs(c)**2 for c in per_frame_chi], axis=0)
+    naive_abs2_avg = np.mean([np.abs(c)**2 for c in per_frame_chi], axis=0)
 
-    assert np.all(result.homodyne <= naive_homodyne_avg + 1e-9)
-    assert np.mean(result.homodyne) < np.mean(naive_homodyne_avg)
+    assert np.all(result.abs2 <= naive_abs2_avg + 1e-9)
+    assert np.mean(result.abs2) < np.mean(naive_abs2_avg)
 
     assert result.n_frames == n_frames
     assert np.all(result.real_err >= 0) and np.all(np.isfinite(result.real_err))
     assert np.all(result.imag_err >= 0) and np.all(np.isfinite(result.imag_err))
     assert np.all(result.phase_err >= 0) and np.all(np.isfinite(result.phase_err))
-    assert np.all(result.homodyne_err >= 0) and np.all(np.isfinite(result.homodyne_err))
+    assert np.all(result.abs2_err >= 0) and np.all(np.isfinite(result.abs2_err))

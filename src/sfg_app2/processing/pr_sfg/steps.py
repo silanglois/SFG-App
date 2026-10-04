@@ -319,10 +319,10 @@ def step_normalize(
     subtraction, windowing, FFT/mask/iFFT, and normalization by the
     fixed reference) is linear, so those two are mathematically
     identical anyway (averaging commutes through every linear step).
-    Phase and homodyne intensity are NONLINEAR functions of chi, so
+    Phase and |χ⁽²⁾|² are NONLINEAR functions of chi, so
     they're always derived from that same single averaged chi -- never
     by averaging each frame's own phase/intensity, which would be a
-    systematically biased-high estimator for homodyne intensity
+    systematically biased-high estimator for |χ⁽²⁾|²
     (E[|X|^2] >= |E[X]|^2, Jensen's inequality) and wraparound-prone
     for phase. Only the *spread* across frames (the error bars) needs
     the per-frame decomposition.
@@ -344,28 +344,28 @@ def step_normalize(
     stack = np.array(per_frame)
     chi_avg = stack.mean(axis=0)
     phase = _phase_degrees(chi_avg)
-    homodyne = chi_avg.real**2 + chi_avg.imag**2
+    abs2 = chi_avg.real**2 + chi_avg.imag**2
 
     if n_frames > 1:
         factor    = 1.96 / np.sqrt(n_frames)
         real_err  = stack.real.std(axis=0) * factor
         imag_err  = stack.imag.std(axis=0) * factor
         phases    = np.array([_phase_degrees(f) for f in per_frame])
-        homodyne_per_frame = np.array([f.real**2 + f.imag**2 for f in per_frame])
+        abs2_per_frame = np.array([f.real**2 + f.imag**2 for f in per_frame])
         phase_err    = phases.std(axis=0) * factor
-        homodyne_err = homodyne_per_frame.std(axis=0) * factor
+        abs2_err = abs2_per_frame.std(axis=0) * factor
     else:
         zeros = np.zeros(len(fft_data.wavenumber))
-        real_err = imag_err = phase_err = homodyne_err = zeros
+        real_err = imag_err = phase_err = abs2_err = zeros
 
     return PRSFGResult(
         wavenumber   = fft_data.wavenumber,
         complex_chi  = chi_avg,
         phase        = phase,
-        homodyne     = homodyne,
+        abs2     = abs2,
         real_err     = real_err,
         imag_err     = imag_err,
         phase_err    = phase_err,
-        homodyne_err = homodyne_err,
+        abs2_err = abs2_err,
         n_frames     = n_frames,
     )

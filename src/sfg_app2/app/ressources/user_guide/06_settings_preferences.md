@@ -74,7 +74,7 @@ actually uses). Each profile configures:
 - How references are recognized.
 - Per-field matching rules: Ignore / Optional / Required / Closest /
   Highest.
-- Rules that force homodyne vs. phase-resolved classification based on
+- Rules that force conventional vs. phase-resolved classification based on
   filename or metadata.
 
 ## Filename color-coding

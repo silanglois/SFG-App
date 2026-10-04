@@ -19,9 +19,18 @@ def build_provenance_from_history(spectrum) -> dict:
     }
 
 
+# Data columns renamed since earlier versions wrote them: phase-resolved
+# exports called the |chi|^2 column "Homodyne". Renamed on read, so nothing
+# downstream ever sees the old name.
+LEGACY_COLUMNS = {"Homodyne": "Chi2_abs2", "Homodyne_err": "Chi2_abs2_err"}
+
+
 def load_csv_skip_comments(path: Path) -> pd.DataFrame:
     """Load CSV, skipping # comment lines in the header."""
-    return pd.read_csv(path, comment="#")
+    df = pd.read_csv(path, comment="#")
+    legacy = {old: new for old, new in LEGACY_COLUMNS.items()
+              if old in df.columns and new not in df.columns}
+    return df.rename(columns=legacy) if legacy else df
 
 
 def format_markers(markers) -> str:
@@ -84,7 +93,7 @@ def parse_bg_smoothing(raw: dict) -> dict:
     return {key: value or dict(none) for key, value in out.items()}
 
 
-def format_homodyne_provenance(provenance: dict) -> list[str]:
+def format_conventional_provenance(provenance: dict) -> list[str]:
     lines = []
 
     d = provenance.get("despike", {})
@@ -209,7 +218,7 @@ def format_fit_section(model_dict: dict, weighting: str, redchi: float,
     one compact JSON line (rather than a bespoke per-parameter line
     format) so it round-trips exactly via parse_fit_json() — colons
     inside the JSON are safe since header parsing only splits on the
-    *first* colon in a line. `kind` ("homodyne"/"phase_resolved") records
+    *first* colon in a line. `kind` ("conventional"/"phase_resolved") records
     which fit function produced this payload, since a restored
     FitModelSpec looks identical either way. `param_errors` (local
     param key -> stderr|None, e.g. from FitResult.param_results) is
@@ -258,8 +267,7 @@ def csv_with_provenance_text(spectrum, kind: str, label: str,
         build_provenance_from_history(spectrum)
 
     header_lines = ["# SFG-App export"]
-    if normalize_kind(kind) == PHASE_RESOLVED:
-        header_lines.append(f"# Type:        {header_token(kind)}")
+    header_lines.append(f"# Type:        {header_token(kind)}")
     header_lines += [
         f"# Label:       {label}",
         f"# Exported:    {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
@@ -277,7 +285,7 @@ def csv_with_provenance_text(spectrum, kind: str, label: str,
     if normalize_kind(kind) == PHASE_RESOLVED:
         header_lines += format_phase_resolved_provenance(provenance)
     else:
-        header_lines += format_homodyne_provenance(provenance)
+        header_lines += format_conventional_provenance(provenance)
 
     if spectrum.metadata:
         header_lines += ["#", "# --- Sample metadata ---"]
@@ -300,7 +308,7 @@ def csv_with_provenance_text(spectrum, kind: str, label: str,
 def write_csv_with_provenance(spectrum, kind: str, label: str, out_path: Path,
                                fit_section: list[str] | None = None):
     """Write a CSV with a commented provenance header, readable by pandas
-    via pd.read_csv(path, comment='#'). `kind` is "homodyne" or
+    via pd.read_csv(path, comment='#'). `kind` is "conventional" or
     "phase_resolved". `fit_section` (from format_fit_section()) is appended
     after sample metadata, if given.
     """

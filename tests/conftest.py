@@ -74,18 +74,18 @@ def _frame(**columns) -> pd.DataFrame:
 
 
 @pytest.fixture
-def make_homodyne_entry():
-    """Builds a checked homodyne SpectrumEntry (Frame/Wavenumber/Intensity).
+def make_conventional_entry():
+    """Builds a checked conventional SpectrumEntry (Frame/Wavenumber/Intensity).
 
-    The Frame column is required: _refresh_plot routes homodyne entries
+    The Frame column is required: _refresh_plot routes conventional entries
     through ProcessedSpectrum.frame(1).
     """
     from sfg_app2.app.tabs.processed_results import SpectrumEntry
 
-    def _make(label="homodyne-1", amplitude=1.0, metadata=None, checked=True):
+    def _make(label="conventional-1", amplitude=1.0, metadata=None, checked=True):
         df = _frame(Frame=1, Intensity=amplitude * np.sin(_WAVENUMBERS / 40.0))
         spectrum = ProcessedSpectrum(df=df, metadata=dict(metadata or {}), history=[])
-        entry = SpectrumEntry(spectrum, label, kind="homodyne")
+        entry = SpectrumEntry(spectrum, label, kind="conventional")
         entry.checked = checked
         return entry
 
@@ -104,11 +104,11 @@ def make_phase_resolved_entry():
         df = _frame(
             Real=real, Imaginary=imag,
             Phase=np.degrees(np.arctan2(imag, real)),
-            Homodyne=real**2 + imag**2,
+            Chi2_abs2=real**2 + imag**2,
             Real_err=np.full_like(real, 0.05),
             Imag_err=np.full_like(imag, 0.05),
             Phase_err=np.full_like(real, 1.0),
-            Homodyne_err=np.full_like(real, 0.05),
+            Chi2_abs2_err=np.full_like(real, 0.05),
         )
         spectrum = ProcessedSpectrum(df=df, metadata=dict(metadata or {}), history=[])
         entry = SpectrumEntry(spectrum, label, kind="phase_resolved")
@@ -119,11 +119,11 @@ def make_phase_resolved_entry():
 
 
 @pytest.fixture
-def make_fitted_entry(make_homodyne_entry):
-    """A homodyne entry carrying a reloaded fit's derived curves, as
+def make_fitted_entry(make_conventional_entry):
+    """A conventional entry carrying a reloaded fit's derived curves, as
     _add_fit_component_columns would have produced them."""
     def _make(label="fitted-1", components=("Fit (total)",), checked=True):
-        entry = make_homodyne_entry(label=label, checked=checked)
+        entry = make_conventional_entry(label=label, checked=checked)
         df = entry.spectrum.data
         for column in components:
             df[column] = np.cos(_WAVENUMBERS / 40.0)
@@ -205,7 +205,7 @@ def process_tab(qtbot, raw_matched_files):
     from sfg_app2.processing.data_file import DataFile
     from sfg_app2.processing.matcher import MatchedSet
 
-    def _make(kind="homodyne"):
+    def _make(kind="conventional"):
         folder, roles = raw_matched_files(fringes=(kind == "phase_resolved"))
         matched = MatchedSet(
             signal=DataFile(folder / roles["signal"]),

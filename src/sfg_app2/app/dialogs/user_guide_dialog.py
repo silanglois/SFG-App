@@ -93,7 +93,7 @@ def open_user_guide_site(index: Path) -> bool:
 _SECTIONS = [
     ("00_overview.md", "Getting Started"),
     ("01_load_match.md", "Load & Match"),
-    ("02_process_review_homodyne.md", "Process & Review — Homodyne"),
+    ("02_process_review_conventional.md", "Process & Review — Conventional"),
     ("03_process_review_phase_resolved.md", "Process & Review — Phase-resolved"),
     ("04_results.md", "Spectra Library"),
     ("05_fitting.md", "Fitting"),

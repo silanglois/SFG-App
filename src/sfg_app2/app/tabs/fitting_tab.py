@@ -28,8 +28,8 @@ from sfg_app2.processing import provenance
 from sfg_app2.processing.processed_spectrum import ProcessedSpectrum
 from sfg_app2.processing.fitting import (
     FitParam, PeakInstance, FitModelSpec, default_peak, estimate_peak_seed,
-    evaluate_homodyne, evaluate_chi, evaluate_peak_component,
-    fit_homodyne, fit_phase_resolved, compute_weights, compute_phase_resolved_weights,
+    evaluate_conventional, evaluate_chi, evaluate_peak_component,
+    fit_conventional, fit_phase_resolved, compute_weights, compute_phase_resolved_weights,
     available_lineshapes, get_lineshape, fit_model_spec_from_provenance_payload,
     BatchDataset, fit_sequential_batch, fit_independent_batch, fit_one_dataset, advance_seed,
     fit_global_batch, fit_polarization_set, apply_sign_constraints, restore_amplitude_bounds,
@@ -49,14 +49,14 @@ _PEAK_COL_INDEX, _PEAK_COL_LINESHAPE, _PEAK_COL_REMOVE = range(3)
 
 # Fixed series always available for plotting, in display order; peak_{i}
 # series are appended dynamically, one per current peak. The set differs
-# by mode (homodyne fits a single intensity channel; phase-resolved fits
+# by mode (conventional fits a single intensity channel; phase-resolved fits
 # Real/Imaginary simultaneously, so there's no single "total"/"residual"
 # curve) -- _series_order()/_sync_series_assignment() pick the right one
 # based on self._data.kind. "fit_real"/"fit_imag" keys (and their labels)
-# are shared verbatim across both modes: in homodyne mode they're a
+# are shared verbatim across both modes: in conventional mode they're a
 # diagnostic overlay of the model's complex chi_eff; in phase-resolved mode
 # they're the actual fitted curves against data_real/data_imag.
-_FIXED_SERIES_HOMODYNE = [
+_FIXED_SERIES_CONVENTIONAL = [
     ("data", "Data"),
     ("fit_total", "Fit (total)"),
     ("fit_real", "Fit (real)"),
@@ -71,8 +71,8 @@ _FIXED_SERIES_PHASE_RESOLVED = [
     ("residual_real", "Residual (real)"),
     ("residual_imag", "Residual (imaginary)"),
 ]
-_DEFAULT_PLOT1_SERIES_HOMODYNE = {"data", "fit_total"}
-_DEFAULT_PLOT2_SERIES_HOMODYNE = {"fit_real", "fit_imag"}
+_DEFAULT_PLOT1_SERIES_CONVENTIONAL = {"data", "fit_total"}
+_DEFAULT_PLOT2_SERIES_CONVENTIONAL = {"fit_real", "fit_imag"}
 _DEFAULT_PLOT1_SERIES_PHASE_RESOLVED = {"data_real", "data_imag"}
 _DEFAULT_PLOT2_SERIES_PHASE_RESOLVED = {"fit_real", "fit_imag"}
 # residual(s) and every peak_i default to hidden on both plots -- opt in
@@ -144,7 +144,7 @@ def _lmfit_key(key: tuple) -> str:
     return f"p{i}_{name}"
 
 
-def _extract_homodyne_channels(df) -> dict | None:
+def _extract_conventional_channels(df) -> dict | None:
     if "Wavenumber" not in df.columns or "Intensity" not in df.columns:
         return None
     omega = df["Wavenumber"].to_numpy(dtype=float)
@@ -153,7 +153,7 @@ def _extract_homodyne_channels(df) -> dict | None:
     count = df["count"].to_numpy(dtype=float) if "count" in df.columns else None
     order = np.argsort(omega)
     return dict(
-        kind="homodyne", omega=omega[order], intensity=intensity[order],
+        kind="conventional", omega=omega[order], intensity=intensity[order],
         intensity_std=intensity_std[order] if intensity_std is not None else None,
         count=count[order] if count is not None else None,
     )
@@ -180,7 +180,7 @@ def _extract_channels(df, preferred_kind: str | None = None) -> dict | None:
     or a loaded file's provenance Type: header), then fall back to
     whichever column set actually matches -- mirrors
     processed_results.py's own kind-detection fallback chain."""
-    extractors = {"homodyne": _extract_homodyne_channels, "phase_resolved": _extract_phase_resolved_channels}
+    extractors = {"conventional": _extract_conventional_channels, "phase_resolved": _extract_phase_resolved_channels}
     order = [preferred_kind] if preferred_kind in extractors else []
     order += [k for k in extractors if k != preferred_kind]
     for k in order:
@@ -233,8 +233,8 @@ def _all_entries_in_order(list_widget: QListWidget) -> list:
 class _FittableSpectrum:
     label: str
     omega: np.ndarray
-    kind: str                            # "homodyne" | "phase_resolved"
-    # homodyne channel:
+    kind: str                            # "conventional" | "phase_resolved"
+    # conventional channel:
     intensity: np.ndarray | None = None
     intensity_std: np.ndarray | None = None
     count: np.ndarray | None = None
@@ -260,7 +260,7 @@ def _user_metadata(meta: dict) -> dict:
 class FittingTab(QWidget, DockablePlotPanel):
     """Single-spectrum peak fitting via processing.fitting (lmfit-based,
     Qt-free), in two modes auto-selected by the loaded spectrum's kind:
-    homodyne (|chi_NR*e^{i.phi} + sum_j resonance_j(omega)|^2 fit against
+    conventional (|chi_NR*e^{i.phi} + sum_j resonance_j(omega)|^2 fit against
     measured intensity) and phase-resolved (Re/Im of the same complex
     chi_eff fit simultaneously against measured Real/Imaginary data).
     """
@@ -559,7 +559,7 @@ class FittingTab(QWidget, DockablePlotPanel):
             self._sequential_run = None
         return True
 
-    def _load_from_processed_spectrum(self, spectrum, label: str, kind: str = "homodyne",
+    def _load_from_processed_spectrum(self, spectrum, label: str, kind: str = "conventional",
                                        preset: dict | None = None):
         if preset is None and not self._confirm_abandon_paused_sequential_run():
             return
@@ -627,7 +627,7 @@ class FittingTab(QWidget, DockablePlotPanel):
                 self._model_spec = FitModelSpec.empty()
                 if self._data.kind == "phase_resolved":
                     # phase is degenerate with the peaks' own phase/amplitude
-                    # in homodyne mode (only |chi|^2 is measured), so it's
+                    # in conventional mode (only |chi|^2 is measured), so it's
                     # fixed there by default -- but fitting Re/Im directly
                     # constrains it well, so let it vary here.
                     self._model_spec.nonresonant["phase"].vary = True
@@ -756,7 +756,7 @@ class FittingTab(QWidget, DockablePlotPanel):
                                  self._data.imag - chi_existing.imag)
             amplitude, width = estimate_peak_seed(omega, residual, idx, squared=False)
         else:
-            model_existing = evaluate_homodyne(omega, self._model_spec)
+            model_existing = evaluate_conventional(omega, self._model_spec)
             residual = self._data.intensity - model_existing
             amplitude, width = estimate_peak_seed(omega, residual, idx, squared=True)
 
@@ -1060,17 +1060,17 @@ class FittingTab(QWidget, DockablePlotPanel):
     def _fixed_series(self) -> list[tuple[str, str]]:
         if self._data is not None and self._data.kind == "phase_resolved":
             return _FIXED_SERIES_PHASE_RESOLVED
-        return _FIXED_SERIES_HOMODYNE
+        return _FIXED_SERIES_CONVENTIONAL
 
     def _default_plot1_series(self) -> set[str]:
         if self._data is not None and self._data.kind == "phase_resolved":
             return _DEFAULT_PLOT1_SERIES_PHASE_RESOLVED
-        return _DEFAULT_PLOT1_SERIES_HOMODYNE
+        return _DEFAULT_PLOT1_SERIES_CONVENTIONAL
 
     def _default_plot2_series(self) -> set[str]:
         if self._data is not None and self._data.kind == "phase_resolved":
             return _DEFAULT_PLOT2_SERIES_PHASE_RESOLVED
-        return _DEFAULT_PLOT2_SERIES_HOMODYNE
+        return _DEFAULT_PLOT2_SERIES_CONVENTIONAL
 
     def _series_order(self) -> list[str]:
         order = [key for key, _ in self._fixed_series()]
@@ -1078,7 +1078,7 @@ class FittingTab(QWidget, DockablePlotPanel):
         return order
 
     def _series_label(self, key: str) -> str:
-        fixed = dict(_FIXED_SERIES_HOMODYNE + _FIXED_SERIES_PHASE_RESOLVED)
+        fixed = dict(_FIXED_SERIES_CONVENTIONAL + _FIXED_SERIES_PHASE_RESOLVED)
         if key in fixed:
             return fixed[key]
         if key.startswith("peak_"):
@@ -1291,7 +1291,7 @@ class FittingTab(QWidget, DockablePlotPanel):
         return widget
 
     def _rebuild_weighting_combo(self):
-        """Phase-resolved mode has no "statistical" option -- homodyne's
+        """Phase-resolved mode has no "statistical" option -- conventional fitting's
         1/sqrt(intensity) shot-noise justification doesn't apply to
         signed Real/Imaginary values, so only "None" and the per-channel
         measurement-error mode are offered there."""
@@ -1342,7 +1342,7 @@ class FittingTab(QWidget, DockablePlotPanel):
         old_spec = self._model_spec
         old_result = self._last_result
         constrained = apply_sign_constraints(self._model_spec, self._data_polarization(),
-                                             mirror_ok=self._data.kind == "homodyne")
+                                             mirror_ok=self._data.kind == "conventional")
 
         loading = show_loading(self, "Fitting...")
         try:
@@ -1361,7 +1361,7 @@ class FittingTab(QWidget, DockablePlotPanel):
                 intensity_std = self._data.intensity_std[mask] if self._data.intensity_std is not None else None
                 count = self._data.count[mask] if self._data.count is not None else None
                 weights = compute_weights(weighting, intensity, intensity_std, count)
-                result = fit_homodyne(omega, intensity, constrained, weights=weights)
+                result = fit_conventional(omega, intensity, constrained, weights=weights)
         except Exception as e:
             logger.warning("Fit failed: %s", e)
             QMessageBox.warning(self, "Fit failed", str(e))
@@ -1482,14 +1482,14 @@ class FittingTab(QWidget, DockablePlotPanel):
                 real, imag = self._data.real, self._data.imag
                 data = {
                     "Wavenumber": self._data.omega, "Real": real, "Imaginary": imag,
-                    # Phase/Homodyne aren't tracked separately on _FittableSpectrum
+                    # Phase/Conventional aren't tracked separately on _FittableSpectrum
                     # (only Real/Imaginary are), but reconstructing them here
                     # matches PRSFGResult.to_dataframe()'s schema, so a
                     # bare-file-loaded fit's export is just as plottable via
-                    # the Results tab's Phase/Homodyne checkboxes as one
+                    # the Results tab's Phase/Conventional checkboxes as one
                     # sourced from the Results tab (which already has them).
                     "Phase": np.degrees(np.arctan2(imag, real)),
-                    "Homodyne": real ** 2 + imag ** 2,
+                    "Chi2_abs2": real ** 2 + imag ** 2,
                 }
                 if self._data.real_err is not None:
                     data["Real_err"] = self._data.real_err
@@ -1755,7 +1755,7 @@ class FittingTab(QWidget, DockablePlotPanel):
             QMessageBox.warning(
                 self, "Mixed spectrum kinds",
                 "Batch fitting requires every spectrum in the list to be "
-                f"the same kind (homodyne or phase-resolved) -- got: {sorted(kinds)}.",
+                f"the same kind (conventional or phase-resolved) -- got: {sorted(kinds)}.",
             )
             return
         datasets = self._build_batch_datasets(entries)
@@ -1933,7 +1933,7 @@ class FittingTab(QWidget, DockablePlotPanel):
             QMessageBox.warning(
                 self, "Mixed spectrum kinds",
                 "Sequential fitting requires every spectrum in the list to "
-                f"be the same kind (homodyne or phase-resolved) -- got: {sorted(kinds)}.",
+                f"be the same kind (conventional or phase-resolved) -- got: {sorted(kinds)}.",
             )
             return
         datasets = self._build_batch_datasets(entries)
@@ -2266,7 +2266,7 @@ class FittingTab(QWidget, DockablePlotPanel):
 
     def _draw_multifit_overlay(self, ax):
         # Phase-resolved rows show the |chi_eff|^2-derived intensity, same
-        # quantity homodyne rows fit directly against -- one consistent
+        # quantity conventional rows fit directly against -- one consistent
         # "Total" view across a mixed-kind batch.
         max_legend = 8
         for i, (entry, dataset, result) in enumerate(self._batch_rows):
@@ -2278,7 +2278,7 @@ class FittingTab(QWidget, DockablePlotPanel):
                 data_y = dataset.real ** 2 + dataset.imag ** 2
             else:
                 data_y = dataset.intensity
-            fit_y = evaluate_homodyne(omega, result.spec)
+            fit_y = evaluate_conventional(omega, result.spec)
             data_line, = ax.plot(omega, data_y, marker=".", markersize=2, linestyle="none", alpha=0.5)
             fit_line, = ax.plot(omega, fit_y, label=label)
             data_line.set_color(fit_line.get_color())
@@ -2436,7 +2436,7 @@ class FittingTab(QWidget, DockablePlotPanel):
                 "residual_imag": self._data.imag - chi.imag,
             }
         else:
-            total = evaluate_homodyne(omega, self._model_spec)
+            total = evaluate_conventional(omega, self._model_spec)
             values = {
                 "data": self._data.intensity,
                 "fit_total": total,
@@ -2465,7 +2465,7 @@ class FittingTab(QWidget, DockablePlotPanel):
             return "Residual (a.u.)"
         if keys and keys <= {"fit_real", "fit_imag", "data_real", "data_imag"}:
             return "χ_eff (a.u.)"
-        # Homodyne data reaching the Fitting tab has already been through
+        # Conventional data reaching the Fitting tab has already been through
         # the full pipeline (despike -> background subtract -> normalize ->
         # upconvert) -- it's reference-normalized, not raw camera counts.
         return "Intensity (a.u.)"

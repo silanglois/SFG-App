@@ -320,7 +320,7 @@ def apply_sign_constraints(spec: FitModelSpec, polarization: str | None,
     value that contradicts the rule flipped to the allowed side. Returns
     `spec` itself when nothing applies.
 
-    `mirror_ok` is for homodyne data, where the whole model negated fits
+    `mirror_ok` is for conventional data, where the whole model negated fits
     exactly as well: when that mirror image breaks fewer rules, start
     from it, rather than flipping single amplitudes into a start whose
     relative signs no longer match the data (a reliable way to end in a
@@ -416,7 +416,7 @@ def estimate_peak_seed(omega: np.ndarray, response: np.ndarray, idx: int,
     belonged to the new one (the coherent sum means |sum|^2 != sum(|.|^2),
     so this matters whenever other peaks/background are present).
 
-    squared=True: response is |chi|^2 (homodyne intensity) -- amplitude
+    squared=True: response is |chi|^2 (conventional intensity) -- amplitude
       relates to height via height = (amplitude / (width/2))^2.
     squared=False: response is |chi| (phase-resolved magnitude) -- linear:
       height = amplitude / (width/2).
@@ -457,7 +457,7 @@ def default_peak(lineshape_key: str, center: float,
 
 
 # ── Building the composite model ────────────────────────────────────────────
-# The coherent sum must happen *before* squaring for homodyne (|sum|^2 is
+# The coherent sum must happen *before* squaring for conventional (|sum|^2 is
 # not sum(|.|^2) -- cross terms). lmfit.Model composition (`Model + Model`)
 # sums *outputs*, which would lose that interference, so it isn't used here.
 # lmfit.Model also validates declared parameter names against the wrapped
@@ -469,7 +469,7 @@ def default_peak(lineshape_key: str, center: float,
 # dynamic/variable-arity model (also how lmfit's own global-fitting cookbook
 # examples are built).
 
-def build_homodyne_params(spec: FitModelSpec) -> lmfit.Parameters:
+def build_conventional_params(spec: FitModelSpec) -> lmfit.Parameters:
     params = lmfit.Parameters()
     for name, fp in spec.nonresonant.items():
         params.add(f"nr_{name}", value=fp.value, vary=fp.vary, min=fp.min, max=fp.max, expr=fp.expr)
@@ -484,7 +484,7 @@ def _chi_eff(omega: np.ndarray, params: lmfit.Parameters, spec: FitModelSpec,
     """`key_fn` maps a *local* parameter key ("nr_amplitude", "p0_center",
     ...) to the actual name to look up in `params` -- defaults to the
     identity, i.e. `params` uses the local keys directly, exactly as
-    build_homodyne_params() produces them. fit_global_batch() is the one
+    build_conventional_params() produces them. fit_global_batch() is the one
     caller that passes something else: there, `params` is one shared
     lmfit.Parameters covering every dataset in a batch, so each dataset's
     local keys are looked up under a per-dataset-prefixed (or, for a
@@ -505,18 +505,18 @@ def _chi_eff(omega: np.ndarray, params: lmfit.Parameters, spec: FitModelSpec,
     return chi
 
 
-def evaluate_homodyne(omega: np.ndarray, spec: FitModelSpec) -> np.ndarray:
+def evaluate_conventional(omega: np.ndarray, spec: FitModelSpec) -> np.ndarray:
     """Evaluate the model curve at the spec's current values, with no
     fitting — used for the live parameter-table preview."""
-    params = build_homodyne_params(spec)
+    params = build_conventional_params(spec)
     return np.abs(_chi_eff(omega, params, spec)) ** 2
 
 
 def evaluate_chi(omega: np.ndarray, spec: FitModelSpec) -> np.ndarray:
     """The complex chi_eff itself (before squaring) -- lets the UI show
-    Re(chi)/Im(chi) as a fit-quality diagnostic even in homodyne mode,
+    Re(chi)/Im(chi) as a fit-quality diagnostic even in conventional mode,
     where only |chi|^2 is actually measured/fit against."""
-    params = build_homodyne_params(spec)
+    params = build_conventional_params(spec)
     return _chi_eff(omega, params, spec)
 
 
@@ -677,9 +677,9 @@ def _spec_from_param_results(orig_spec: FitModelSpec, results: dict[str, ParamRe
     return FitModelSpec(nonresonant=nonresonant, peaks=peaks)
 
 
-def fit_homodyne(omega: np.ndarray, intensity: np.ndarray, spec: FitModelSpec,
+def fit_conventional(omega: np.ndarray, intensity: np.ndarray, spec: FitModelSpec,
                   weights: np.ndarray | None = None, method: str = "leastsq") -> FitResult:
-    params = build_homodyne_params(spec)
+    params = build_conventional_params(spec)
 
     def _residual(p, omega, data, weights):
         model = np.abs(_chi_eff(omega, p, spec)) ** 2
@@ -702,13 +702,13 @@ def fit_phase_resolved(omega: np.ndarray, real: np.ndarray, imag: np.ndarray, sp
                     method: str = "leastsq") -> FitResult:
     """Fit the Real and Imaginary parts of chi_eff simultaneously (one
     joint least-squares problem) against measured phase-resolved data,
-    reusing the same complex model (_chi_eff) that homodyne mode only
+    reusing the same complex model (_chi_eff) that conventional mode only
     ever squares. The residual is the concatenation of the (optionally
     weighted) real and imaginary residuals -- lmfit.Minimizer only cares
     about the sum of squares, so concatenation vs. interleaving makes no
     difference to the fit, and concatenation keeps resid[:n]/resid[n:]
     easy to separate when debugging."""
-    params = build_homodyne_params(spec)
+    params = build_conventional_params(spec)
 
     def _residual(p, omega, real, imag, weights_real, weights_imag):
         chi = _chi_eff(omega, p, spec)
@@ -751,7 +751,7 @@ def fit_model_spec_from_provenance_payload(payload: dict | None) -> FitModelSpec
 
 
 def fit_kind_from_provenance_payload(payload: dict | None) -> str | None:
-    """"homodyne" | "phase_resolved" | None, from the same payload dict --
+    """"conventional" | "phase_resolved" | None, from the same payload dict --
     see fit_model_spec_from_provenance_payload()."""
     if not payload or not payload.get("kind"):
         return None
@@ -788,7 +788,7 @@ def describe_local_params(spec: FitModelSpec) -> list[tuple[str, str]]:
 @dataclass
 class BatchDataset:
     label: str
-    kind: str                      # "homodyne" | "phase_resolved"
+    kind: str                      # "conventional" | "phase_resolved"
     omega: np.ndarray
     intensity: np.ndarray | None = None
     intensity_std: np.ndarray | None = None
@@ -821,7 +821,7 @@ def fit_one_dataset(dataset: BatchDataset, spec: FitModelSpec,
         lo, hi = fit_range
         mask = (dataset.omega >= lo) & (dataset.omega <= hi)
     omega = dataset.omega[mask]
-    constrained = apply_sign_constraints(spec, dataset.polarization, mirror_ok=dataset.kind == "homodyne")
+    constrained = apply_sign_constraints(spec, dataset.polarization, mirror_ok=dataset.kind == "conventional")
 
     try:
         if dataset.kind == "phase_resolved":
@@ -835,7 +835,7 @@ def fit_one_dataset(dataset: BatchDataset, spec: FitModelSpec,
             intensity_std = dataset.intensity_std[mask] if dataset.intensity_std is not None else None
             count = dataset.count[mask] if dataset.count is not None else None
             weights = compute_weights(weighting, intensity, intensity_std, count)
-            result = fit_homodyne(omega, intensity, constrained, weights=weights)
+            result = fit_conventional(omega, intensity, constrained, weights=weights)
     except Exception:
         return None
     restore_amplitude_bounds(result.spec, spec)
@@ -914,7 +914,7 @@ def fit_independent_batch(datasets: list[BatchDataset], template: FitModelSpec,
 
 def _local_params(template: FitModelSpec) -> list[tuple[str, FitParam]]:
     """(local_key, FitParam) pairs in the same key convention
-    build_homodyne_params()/_chi_eff() use ("nr_amplitude", "p0_center",
+    build_conventional_params()/_chi_eff() use ("nr_amplitude", "p0_center",
     ...) -- the vocabulary every dataset's parameters are named from,
     before per-dataset prefixing."""
     items = [(f"nr_{name}", fp) for name, fp in template.nonresonant.items()]
@@ -948,7 +948,7 @@ def build_global_params(datasets: list[BatchDataset], template: FitModelSpec,
         if fp.shared:
             params.add(local_key, value=fp.value, vary=fp.vary, min=fp.min, max=fp.max, expr=fp.expr)
     for i, ds in enumerate(datasets):
-        constrained = apply_sign_constraints(template, ds.polarization, mirror_ok=ds.kind == "homodyne")
+        constrained = apply_sign_constraints(template, ds.polarization, mirror_ok=ds.kind == "conventional")
         seed_values = dict(_local_params(seeds[i])) if seeds is not None else {}
         for local_key, fp in _local_params(constrained):
             if fp.shared:
@@ -1010,7 +1010,7 @@ def _unpack_global_result(lmfit_result, template: FitModelSpec, datasets: list[B
             data = np.concatenate([real, imag])
         else:
             omega, intensity, _weights = prepared[i]
-            best_fit = evaluate_homodyne(omega, best_spec)
+            best_fit = evaluate_conventional(omega, best_spec)
             raw_residual = intensity - best_fit
             data = intensity
 
@@ -1128,7 +1128,7 @@ def fit_global_batch(datasets: list[BatchDataset], template: FitModelSpec,
 # With centers/widths fixed, chi is linear in the amplitudes (see the
 # LineshapeSpec contract). Phase-resolved data constrains chi itself, so the
 # amplitudes are one bounded linear least-squares solve -- no starting
-# guess, no local minima. Homodyne data only constrains |chi|^2, which is
+# guess, no local minima. Conventional data only constrains |chi|^2, which is
 # quadratic in them; the local minima there are essentially the choice of
 # each amplitude's sign, so those are enumerated explicitly.
 
@@ -1232,7 +1232,7 @@ def _seed_phase_resolved(dataset: BatchDataset, spec: FitModelSpec, weighting: s
     return out
 
 
-def _seed_homodyne(dataset: BatchDataset, spec: FitModelSpec, weighting: str,
+def _seed_conventional(dataset: BatchDataset, spec: FitModelSpec, weighting: str,
                     fit_range: tuple[float, float] | None, max_starts: int) -> FitModelSpec:
     import itertools
 
@@ -1327,7 +1327,7 @@ def seed_amplitudes(dataset: BatchDataset, template: FitModelSpec, weighting: st
     if dataset.kind == "phase_resolved":
         solved = _seed_phase_resolved(dataset, constrained, weighting, fit_range)
     else:
-        solved = _seed_homodyne(dataset, constrained, weighting, fit_range, max_starts)
+        solved = _seed_conventional(dataset, constrained, weighting, fit_range, max_starts)
     return _copy_amplitude_values(deepcopy(template), solved)
 
 

@@ -36,7 +36,7 @@ def _entry(pol, amps, extra_metadata=None):
     df = pd.DataFrame({"Wavenumber": _OMEGA, "Intensity": intensity})
     metadata = {"polarization": pol, "sample": "A", **(extra_metadata or {})}
     spectrum = ProcessedSpectrum(df, metadata=metadata, history=[], provenance={})
-    return _FileLoadedEntry(label=f"A_{pol}", spectrum=spectrum, kind="homodyne")
+    return _FileLoadedEntry(label=f"A_{pol}", spectrum=spectrum, kind="conventional")
 
 
 def _load_polarization_set(tab):
@@ -46,7 +46,7 @@ def _load_polarization_set(tab):
         tab._batch_list.addItem(_make_list_item(entry, checkable=False))
     tab._refresh_batch_controls()
     # The reference spectrum (ssp) in the single-spectrum workspace.
-    tab._load_from_processed_spectrum(entries[0].spectrum, entries[0].label, kind="homodyne")
+    tab._load_from_processed_spectrum(entries[0].spectrum, entries[0].label, kind="conventional")
     for center in _CENTERS:
         tab._add_peak_at(center)
     return entries
@@ -139,7 +139,7 @@ def test_apply_sign_rules_is_undoable_and_shown_in_parameter_table(fitting_tab):
 
 
 def test_run_fit_respects_the_loaded_spectrums_rule(fitting_tab):
-    """ssp truth is (+3, +5). Homodyne only sees |chi|^2, so a "-" rule on
+    """ssp truth is (+3, +5). Conventional only sees |chi|^2, so a "-" rule on
     peak 1 picks the mirror solution (-3, -5, flipped background) rather
     than fighting the data: the rule holds and the relative sign survives."""
     _load_polarization_set(fitting_tab)

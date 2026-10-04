@@ -8,9 +8,9 @@ import numpy as np
 import pytest
 
 from sfg_app2.processing.fitting import (
-    FitModelSpec, FitParam, PeakInstance, evaluate_homodyne,
+    FitModelSpec, FitParam, PeakInstance, evaluate_conventional,
     BatchDataset, fit_sequential_batch, fit_independent_batch,
-    fit_one_dataset, fit_homodyne, advance_seed,
+    fit_one_dataset, fit_conventional, advance_seed,
 )
 
 OMEGA = np.linspace(3200, 3400, 200)
@@ -29,8 +29,8 @@ def _make_spec(amplitude: float) -> FitModelSpec:
 @pytest.fixture
 def datasets() -> list[BatchDataset]:
     return [
-        BatchDataset(label=f"conc-{i}", kind="homodyne", omega=OMEGA,
-                     intensity=evaluate_homodyne(OMEGA, _make_spec(amp)))
+        BatchDataset(label=f"conc-{i}", kind="conventional", omega=OMEGA,
+                     intensity=evaluate_conventional(OMEGA, _make_spec(amp)))
         for i, amp in enumerate(TRUE_AMPLITUDES)
     ]
 
@@ -60,12 +60,12 @@ def test_sequential_batch_seeds_from_previous_result_not_the_template(datasets, 
     should need no more lmfit evaluations than a cold fit from the same
     far-off template -- directly evidencing that seeding is happening."""
     results = fit_sequential_batch(datasets, far_template)
-    cold = fit_homodyne(OMEGA, datasets[2].intensity, far_template)
+    cold = fit_conventional(OMEGA, datasets[2].intensity, far_template)
     warm = results[2]
     assert warm.lmfit_result.nfev <= cold.lmfit_result.nfev
 
 
-def test_sequential_batch_rejects_mixed_homodyne_phase_resolved_kinds(datasets, far_template):
+def test_sequential_batch_rejects_mixed_conventional_phase_resolved_kinds(datasets, far_template):
     pr_ds = BatchDataset(label="pr", kind="phase_resolved", omega=OMEGA,
                            real=np.zeros_like(OMEGA), imag=np.zeros_like(OMEGA))
     with pytest.raises(ValueError):
@@ -87,12 +87,12 @@ def test_sequential_batch_unfittable_template_fills_every_slot_with_none(dataset
 def test_sequential_batch_one_failure_does_not_corrupt_the_seed(far_template):
     """A dataset that raises during fitting (shape mismatch) gets a None
     slot, but the NEXT dataset still seeds from the last GOOD result."""
-    mismatched = BatchDataset(label="bad-shape", kind="homodyne",
+    mismatched = BatchDataset(label="bad-shape", kind="conventional",
                                omega=OMEGA, intensity=np.zeros(5))   # shape mismatch -> raises
     datasets_with_failure = [
-        BatchDataset(label="a", kind="homodyne", omega=OMEGA, intensity=evaluate_homodyne(OMEGA, _make_spec(5.0))),
+        BatchDataset(label="a", kind="conventional", omega=OMEGA, intensity=evaluate_conventional(OMEGA, _make_spec(5.0))),
         mismatched,
-        BatchDataset(label="c", kind="homodyne", omega=OMEGA, intensity=evaluate_homodyne(OMEGA, _make_spec(9.0))),
+        BatchDataset(label="c", kind="conventional", omega=OMEGA, intensity=evaluate_conventional(OMEGA, _make_spec(9.0))),
     ]
     results = fit_sequential_batch(datasets_with_failure, far_template)
     assert len(results) == 3

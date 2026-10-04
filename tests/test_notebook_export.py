@@ -136,7 +136,7 @@ def test_processing_export_handler_writes_a_notebook(qtbot, raw_matched_files,
         background=DataFile(folder / roles["background"]),
         reference=DataFile(folder / roles["reference"]),
         reference_background=DataFile(folder / roles["reference_background"]),
-        spectrum_type="homodyne",
+        spectrum_type="conventional",
     )
     tab = ProcessReviewTab()
     qtbot.addWidget(tab)
@@ -177,7 +177,7 @@ def test_plain_code_cell_is_not_hidden():
 def test_processing_setup_splits_into_three_hideable_cells(process_tab):
     """The package blob gets its own cell so it collapses independently
     of the data and the setup logic."""
-    tab, matched = process_tab("homodyne")
+    tab, matched = process_tab("conventional")
     from sfg_app2.app.utils import notebook_processing
     cells = notebook_processing.build(tab._notebook_payload(matched, 0))["cells"]
 
@@ -194,7 +194,7 @@ def test_processing_setup_splits_into_three_hideable_cells(process_tab):
 
 
 def test_processing_stage_cells_stay_visible(process_tab):
-    tab, matched = process_tab("homodyne")
+    tab, matched = process_tab("conventional")
     from sfg_app2.app.utils import notebook_processing
     cells = notebook_processing.build(tab._notebook_payload(matched, 0))["cells"]
 
@@ -251,9 +251,9 @@ def test_phase_resolved_excluded_frames_reach_the_notebook(process_tab):
     assert "'reference_background': [1]" in source
 
 
-def test_homodyne_excluded_frames_reach_the_notebook(process_tab):
-    tab, matched = process_tab("homodyne")
-    tab._homodyne_panel._set_exclude_frames(0, "signal", {2})
+def test_conventional_excluded_frames_reach_the_notebook(process_tab):
+    tab, matched = process_tab("conventional")
+    tab._conventional_panel._set_exclude_frames(0, "signal", {2})
 
     payload = tab._notebook_payload(matched, 0)
     assert payload["config"]["exclude_frames"] == {"signal": [2]}
@@ -277,12 +277,12 @@ def test_phase_resolved_notebook_plots_amplitude_and_error_bands(process_tab):
     notebook should not quietly drop them."""
     tab, matched = process_tab("phase_resolved")
     source = _processing_source(tab, matched)
-    assert "result.homodyne" in source
+    assert "result.abs2" in source
     assert "result.imag_err" in source and "result.real_err" in source
 
 
 def test_notebook_records_where_it_came_from(process_tab):
-    tab, matched = process_tab("homodyne")
+    tab, matched = process_tab("conventional")
     source = _processing_source(tab, matched)
     assert f"SFG-App {notebook_export.app_version()}" in source
     assert "sample_ssp_sfg.csv" in source
@@ -353,8 +353,8 @@ def _processing_payload(kind, folder, roles, **config):
 
 
 @pytest.mark.slow
-def test_homodyne_processing_notebook_runs_end_to_end(raw_matched_files, tmp_path):
-    """Generate a homodyne processing notebook and execute it.
+def test_conventional_processing_notebook_runs_end_to_end(raw_matched_files, tmp_path):
+    """Generate a conventional processing notebook and execute it.
 
     This is what proves the embedded package actually imports and the
     pipeline calls are spelled correctly -- a generated notebook that
@@ -364,9 +364,9 @@ def test_homodyne_processing_notebook_runs_end_to_end(raw_matched_files, tmp_pat
 
     folder, roles = raw_matched_files(fringes=False)
     payload = _processing_payload(
-        "homodyne", folder, roles, despike_window=5, despike_threshold=3.0, bg_offset=None,
+        "conventional", folder, roles, despike_window=5, despike_threshold=3.0, bg_offset=None,
     )
-    path = tmp_path / "homodyne.ipynb"
+    path = tmp_path / "conventional.ipynb"
     notebook_export.write_notebook(notebook_processing.build(payload), path)
 
     nb = _run_notebook(path, tmp_path)
@@ -420,7 +420,7 @@ def test_processing_notebook_needs_no_network_or_install(raw_matched_files, tmp_
     from sfg_app2.app.utils import notebook_processing
 
     folder, roles = raw_matched_files()
-    payload = _processing_payload("homodyne", folder, roles,
+    payload = _processing_payload("conventional", folder, roles,
                                   despike_window=5, despike_threshold=3.0)
     nb = notebook_processing.build(payload)
     # Code only -- the prose says "no pip install", which would match.
@@ -432,12 +432,12 @@ def test_processing_notebook_needs_no_network_or_install(raw_matched_files, tmp_
 
 # ── Background smoothing: panel → result, provenance and notebook ─────────
 
-def test_homodyne_bg_smoothing_changes_result_and_is_recorded(process_tab):
+def test_conventional_bg_smoothing_changes_result_and_is_recorded(process_tab):
     import numpy as np
     from sfg_app2.processing.smoothing import SmoothingSpec
 
-    tab, matched = process_tab("homodyne")
-    panel = tab._homodyne_panel
+    tab, matched = process_tab("conventional")
+    panel = tab._conventional_panel
     before = panel._get_step(0, "normalized").data["Intensity"].to_numpy().copy()
 
     row = panel._bg_smoothing_editor.rows["sample"]

@@ -61,7 +61,7 @@ def build_payload(ax, ax2=None, *, output_name: str = "figure",
     Only real `Line2D` data survives -- fill_between error bands and
     errorbar caps aren't Line2D children and are silently omitted, and
     axhline/axvline placeholders are excluded via is_overlay_line(). A
-    proxy legend handle (e.g. homodyne_panel's "minimized legend" mode,
+    proxy legend handle (e.g. conventional_panel's "minimized legend" mode,
     built as an mlines.Line2D never added to the axes) is likewise
     invisible here since it's never in ax.get_lines() -- the real data
     line it stands in for is plotted separately and is picked up as

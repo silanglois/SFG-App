@@ -408,9 +408,9 @@ class PRSFGPanel(QWidget, DockablePlotPanel):
         subtraction. Fit (least-squares, degree set by style) through
         markers placed by clicking the plot in the "Signal + Background"
         view, or editing the table — same marker-driven approach as
-        HomodynePanel's background correction (see its
+        ConventionalPanel's background correction (see its
         _build_bg_offset_section() docstring for the "markers are global
-        values" reasoning, which applies here too). Unlike Homodyne's
+        values" reasoning, which applies here too). Unlike the conventional panel's
         background correction, this one has no separate "apply" toggle —
         confirmed nothing reads a checked-state for this section, it was
         purely the old groupbox's collapse/expand cosmetic.
@@ -606,13 +606,13 @@ class PRSFGPanel(QWidget, DockablePlotPanel):
         row2.addWidget(QLabel("Plot:"))
         self._cb_imag     = QCheckBox("Im(χ⁽²⁾)")
         self._cb_real     = QCheckBox("Re(χ⁽²⁾)")
-        self._cb_homodyne = QCheckBox("|χ⁽²⁾|²")
+        self._cb_abs2 = QCheckBox("|χ⁽²⁾|²")
         self._cb_phase    = QCheckBox("Phase")
         self._cb_errors   = QCheckBox("Show errors")
         self._cb_imag.setChecked(True)
         self._cb_real.setChecked(True)
         for cb in [self._cb_imag, self._cb_real,
-                   self._cb_homodyne, self._cb_phase, self._cb_errors]:
+                   self._cb_abs2, self._cb_phase, self._cb_errors]:
             row2.addWidget(cb)
 
         row2.addWidget(QLabel("Phase range:"))
@@ -641,7 +641,7 @@ class PRSFGPanel(QWidget, DockablePlotPanel):
 
         # normalization checkboxes — just replot
         for cb in [self._cb_imag, self._cb_real,
-                self._cb_homodyne, self._cb_phase, self._cb_errors]:
+                self._cb_abs2, self._cb_phase, self._cb_errors]:
             cb.stateChanged.connect(self._redraw_timer.start)
         self._phase_range_combo.currentIndexChanged.connect(self._redraw_timer.start)
 
@@ -1144,7 +1144,7 @@ class PRSFGPanel(QWidget, DockablePlotPanel):
                 wn, np.zeros_like(wn), label=r"Im($\chi^{(2)}$)")[0]
             self._norm_lines["real"] = ax.plot(
                 wn, np.zeros_like(wn), linestyle="--", label=r"Re($\chi^{(2)}$)")[0]
-            self._norm_lines["homo"] = ax.plot(
+            self._norm_lines["abs2"] = ax.plot(
                 wn, np.zeros_like(wn), linestyle="-.", label="")[0]
             ax.axhline(0, color="gray", linewidth=0.5, linestyle="--")
 
@@ -1181,17 +1181,17 @@ class PRSFGPanel(QWidget, DockablePlotPanel):
         self._norm_lines["real"].set_ydata(y_real)
         self._norm_lines["real"].set_visible(self._cb_real.isChecked())
 
-        # homodyne — scaled to Im/Re amplitude
-        y_homo = data.homodyne
+        # conventional — scaled to Im/Re amplitude
+        y_abs2 = data.abs2
         ref_amp = max(
             np.abs(y_imag).max() if self._cb_imag.isChecked() else 0.0,
             np.abs(y_real).max() if self._cb_real.isChecked() else 0.0,
         )
-        homo_max = np.abs(y_homo).max()
+        homo_max = np.abs(y_abs2).max()
         scale = (ref_amp / homo_max) if ref_amp > 0 and homo_max > 0 else 1.0
-        self._norm_lines["homo"].set_ydata(y_homo * scale)
-        self._norm_lines["homo"].set_label(rf"$|\chi^{{(2)}}|^2$ (×{scale:.2e})")
-        self._norm_lines["homo"].set_visible(self._cb_homodyne.isChecked())
+        self._norm_lines["abs2"].set_ydata(y_abs2 * scale)
+        self._norm_lines["abs2"].set_label(rf"$|\chi^{{(2)}}|^2$ (×{scale:.2e})")
+        self._norm_lines["abs2"].set_visible(self._cb_abs2.isChecked())
 
         # phase
         y_phase = data.phase
@@ -1218,12 +1218,12 @@ class PRSFGPanel(QWidget, DockablePlotPanel):
                 ax.fill_between(wn, y_real - data.real_err,
                                 y_real + data.real_err, alpha=0.3,
                                 color=self._norm_lines["real"].get_color())
-            if self._cb_homodyne.isChecked():
+            if self._cb_abs2.isChecked():
                 ax.fill_between(wn,
-                                (y_homo - data.homodyne_err) * scale,
-                                (y_homo + data.homodyne_err) * scale,
+                                (y_abs2 - data.abs2_err) * scale,
+                                (y_abs2 + data.abs2_err) * scale,
                                 alpha=0.3,
-                                color=self._norm_lines["homo"].get_color())
+                                color=self._norm_lines["abs2"].get_color())
             if self._cb_phase.isChecked():
                 self._norm_ax2.fill_between(
                     wn, y_phase - data.phase_err,

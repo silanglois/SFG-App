@@ -142,10 +142,10 @@ class Ui_Form(object):
 
         self.prComponentGridLayout.addWidget(self.prCheckReal, 0, 1, 1, 1)
 
-        self.prCheckHomodyne = QCheckBox(self.prComponentsTab)
-        self.prCheckHomodyne.setObjectName(u"prCheckHomodyne")
+        self.prCheckAbs2 = QCheckBox(self.prComponentsTab)
+        self.prCheckAbs2.setObjectName(u"prCheckAbs2")
 
-        self.prComponentGridLayout.addWidget(self.prCheckHomodyne, 1, 1, 1, 1)
+        self.prComponentGridLayout.addWidget(self.prCheckAbs2, 1, 1, 1, 1)
 
         self.prCheckPhase = QCheckBox(self.prComponentsTab)
         self.prCheckPhase.setObjectName(u"prCheckPhase")
@@ -348,7 +348,7 @@ class Ui_Form(object):
         self.label.setText(QCoreApplication.translate("Form", u"Offset:", None))
         self.visualizationParamsTabWidget.setTabText(self.visualizationParamsTabWidget.indexOf(self.dataDisplayTab), QCoreApplication.translate("Form", u"Data display", None))
         self.prCheckReal.setText(QCoreApplication.translate("Form", u"Real", None))
-        self.prCheckHomodyne.setText(QCoreApplication.translate("Form", u"|\u03c7\u207d\u00b2\u207e|\u00b2 (Homodyne)", None))
+        self.prCheckAbs2.setText(QCoreApplication.translate("Form", u"|\u03c7\u207d\u00b2\u207e|\u00b2", None))
         self.prCheckPhase.setText(QCoreApplication.translate("Form", u"Phase", None))
         self.prCheckImaginary.setText(QCoreApplication.translate("Form", u"Imaginary", None))
         self.prCheckShowError.setText(QCoreApplication.translate("Form", u"Show error", None))

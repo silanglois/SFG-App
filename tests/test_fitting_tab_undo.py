@@ -17,13 +17,13 @@ def fitting_tab(qtbot):
     return tab
 
 
-def _load_homodyne_data(tab, amplitude=1.0):
+def _load_conventional_data(tab, amplitude=1.0):
     df = pd.DataFrame({
         "Wavenumber": _OMEGA,
         "Intensity": amplitude * np.exp(-0.5 * ((_OMEGA - 3300.0) / 15.0) ** 2) + 0.05,
     })
     spectrum = ProcessedSpectrum(df, metadata={}, history=[], provenance={})
-    tab._load_from_processed_spectrum(spectrum, "test-spectrum", kind="homodyne")
+    tab._load_from_processed_spectrum(spectrum, "test-spectrum", kind="conventional")
 
 
 def _load_batch_entries(tab, count=2):
@@ -33,7 +33,7 @@ def _load_batch_entries(tab, count=2):
             "Intensity": np.exp(-0.5 * ((_OMEGA - 3300.0) / 15.0) ** 2) + 0.05 + 0.01 * i,
         })
         spectrum = ProcessedSpectrum(df, metadata={}, history=[], provenance={})
-        entry = _FileLoadedEntry(label=f"batch-{i}", spectrum=spectrum, kind="homodyne")
+        entry = _FileLoadedEntry(label=f"batch-{i}", spectrum=spectrum, kind="conventional")
         tab._batch_file_entries.append(entry)
         tab._batch_list.addItem(_make_list_item(entry, checkable=False))
 
@@ -41,7 +41,7 @@ def _load_batch_entries(tab, count=2):
 # ── Peaks ─────────────────────────────────────────────────────────────────
 
 def test_add_peak_then_undo(fitting_tab):
-    _load_homodyne_data(fitting_tab)
+    _load_conventional_data(fitting_tab)
     assert fitting_tab._model_spec.peaks == []
 
     fitting_tab._add_peak_at(3300.0)
@@ -55,7 +55,7 @@ def test_add_peak_then_undo(fitting_tab):
 
 
 def test_remove_peak_then_undo_restores_peak_and_its_tuned_params(fitting_tab):
-    _load_homodyne_data(fitting_tab)
+    _load_conventional_data(fitting_tab)
     fitting_tab._add_peak_at(3280.0)
     fitting_tab._add_peak_at(3320.0)
     assert len(fitting_tab._model_spec.peaks) == 2
@@ -75,7 +75,7 @@ def test_remove_peak_then_undo_restores_peak_and_its_tuned_params(fitting_tab):
 # ── Apply template ────────────────────────────────────────────────────────
 
 def test_apply_template_then_undo(fitting_tab):
-    _load_homodyne_data(fitting_tab)
+    _load_conventional_data(fitting_tab)
     fitting_tab._add_peak_at(3300.0)
     fit_range = (fitting_tab._fit_min_spin.value(), fitting_tab._fit_max_spin.value())
     weighting = fitting_tab._weighting_combo.currentData()
@@ -101,7 +101,7 @@ def test_apply_template_then_undo(fitting_tab):
 # ── Run fit ───────────────────────────────────────────────────────────────
 
 def test_run_fit_then_undo_reverts_table_and_result(fitting_tab):
-    _load_homodyne_data(fitting_tab)
+    _load_conventional_data(fitting_tab)
     fitting_tab._add_peak_at(3300.0)
     assert fitting_tab._last_result is None
 
@@ -121,7 +121,7 @@ def test_run_fit_then_undo_reverts_table_and_result(fitting_tab):
 # ── Batch fit ─────────────────────────────────────────────────────────────
 
 def test_batch_fit_run_collapses_to_one_undo_step(fitting_tab):
-    _load_homodyne_data(fitting_tab)
+    _load_conventional_data(fitting_tab)
     fitting_tab._add_peak_at(3300.0)
     _load_batch_entries(fitting_tab, count=2)
 

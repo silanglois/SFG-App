@@ -274,7 +274,7 @@ class MainWindow(QMainWindow):
         """Lists every dock's own toggleViewAction() (the standard Qt
         idiom — each QDockWidget already knows how to show/hide/check
         itself) across both Process/Review panels and the Results tab.
-        Both HomodynePanel and PRSFGPanel exist for the app's lifetime
+        Both ConventionalPanel and PRSFGPanel exist for the app's lifetime
         (just hidden inside a QStackedWidget), so their actions work
         regardless of which one is currently active.
 

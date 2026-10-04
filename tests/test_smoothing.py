@@ -1,4 +1,4 @@
-"""Background smoothing: the method registry, the homodyne/phase-resolved
+"""Background smoothing: the method registry, the conventional/phase-resolved
 pipeline hooks, and the provenance round trip."""
 import json
 
@@ -63,7 +63,7 @@ def _spectrum(intensity):
     return ProcessedSpectrum(df, metadata={}, history=[], provenance={})
 
 
-def test_homodyne_background_is_smoothed_before_offset():
+def test_conventional_background_is_smoothed_before_offset():
     bg = _spectrum(_noisy() + 10)
     plain = apply_offset(bg, 1.0).data["Intensity"].to_numpy()
     smoothed = apply_offset(bg, 1.0, SmoothingSpec("savgol", {"window": 31, "order": 2}))
@@ -104,12 +104,12 @@ def test_phase_resolved_legacy_savgol_fields_still_apply():
                                                       {"method": "savgol", "window": 11, "order": 3}))
 
 
-@pytest.mark.parametrize("formatter", [provenance.format_homodyne_provenance,
+@pytest.mark.parametrize("formatter", [provenance.format_conventional_provenance,
                                        provenance.format_phase_resolved_provenance])
 def test_smoothing_round_trips_through_the_header(formatter, tmp_path):
     smoothing = {"sample": SmoothingSpec("savgol", {"window": 15, "order": 2}).to_dict(),
                  "reference": SmoothingSpec("gaussian", {"sigma": 1.5}).to_dict()}
-    kind = "phase_resolved" if "phase_resolved" in formatter.__name__ else "homodyne"
+    kind = "phase_resolved" if "phase_resolved" in formatter.__name__ else "conventional"
     lines = ([f"# Type: {kind}"] + formatter({"bg_smoothing": smoothing}))
     path = tmp_path / "x.csv"
     path.write_text("\n".join(lines) + "\nWavenumber,Intensity\n1,2\n", encoding="utf-8")
@@ -129,7 +129,7 @@ def test_old_phase_resolved_header_reads_as_savgol(tmp_path):
 
 def test_header_without_smoothing_reads_as_none(tmp_path):
     path = tmp_path / "plain.csv"
-    path.write_text("# Type: homodyne\nWavenumber,Intensity\n1,2\n", encoding="utf-8")
+    path.write_text("# Type: conventional\nWavenumber,Intensity\n1,2\n", encoding="utf-8")
     _, prov, _ = provenance.parse_export_header(path)
     assert prov["bg_smoothing"] == {"sample": {"method": "none"}, "reference": {"method": "none"}}
     json.dumps(prov["bg_smoothing"])

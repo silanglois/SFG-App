@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
 
 from sfg_app2.app.ui.ui_process_review_tab import Ui_Form
 from sfg_app2.app.widgets.pr_sfg_panel import PRSFGPanel
-from sfg_app2.app.widgets.homodyne_panel import HomodynePanel
+from sfg_app2.app.widgets.conventional_panel import ConventionalPanel
 
 logger = logging.getLogger(__name__)
 
@@ -49,15 +49,15 @@ class ProcessReviewTab(QWidget):
             return
 
         # rightPanelWidget is now just an empty placeholder (its contents
-        # moved into HomodynePanel) — detach it before inserting the stack
+        # moved into ConventionalPanel) — detach it before inserting the stack
         # in its place, so it doesn't linger as an extra empty splitter pane.
         self.ui.rightPanelWidget.setParent(None)
 
         self._right_stack = QStackedWidget()
 
-        self._homodyne_panel = HomodynePanel()
-        self._homodyne_panel.processing_complete.connect(self.processing_complete)
-        self._right_stack.addWidget(self._homodyne_panel)   # page 0: homodyne
+        self._conventional_panel = ConventionalPanel()
+        self._conventional_panel.processing_complete.connect(self.processing_complete)
+        self._right_stack.addWidget(self._conventional_panel)   # page 0: conventional
 
         self._pr_sfg_panel = PRSFGPanel()
         self._pr_sfg_panel.processing_complete.connect(self.processing_complete)
@@ -83,7 +83,7 @@ class ProcessReviewTab(QWidget):
 
     def set_matched_sets(self, matched_sets: list):
         self._matched_sets = matched_sets
-        self._homodyne_panel.set_matched_sets(matched_sets)
+        self._conventional_panel.set_matched_sets(matched_sets)
         self._pr_sfg_panel.reset()
         self._populate_list()
 
@@ -134,7 +134,7 @@ class ProcessReviewTab(QWidget):
         the same bytes the app did -- including whichever of the two CSV
         layouts the instrument wrote.
         """
-        kind = "phase_resolved" if matched.spectrum_type == "phase_resolved" else "homodyne"
+        kind = "phase_resolved" if matched.spectrum_type == "phase_resolved" else "conventional"
         roles, raw_files = {}, {}
         for role in ("signal", "background", "reference", "reference_background"):
             data_file = getattr(matched, role, None)
@@ -148,7 +148,7 @@ class ProcessReviewTab(QWidget):
         if kind == "phase_resolved":
             config = self._pr_sfg_panel.notebook_config(self.get_upconversion_wavelength())
         else:
-            config = self._homodyne_panel.notebook_config(
+            config = self._conventional_panel.notebook_config(
                 self.get_upconversion_wavelength(), idx=idx,
             )
 
@@ -236,12 +236,12 @@ class ProcessReviewTab(QWidget):
             else:
                 self._right_stack.setCurrentIndex(0)
 
-        homodyne_indices = [
+        conventional_indices = [
             i for i in all_selected
             if 0 <= i < len(self._matched_sets)
             and self._matched_sets[i].spectrum_type != "phase_resolved"
         ]
-        self._homodyne_panel.set_selection(homodyne_indices)
+        self._conventional_panel.set_selection(conventional_indices)
 
     def _on_view_changed(self, single: bool):
         self.ui.matchedSetsListWidget.setSelectionMode(
@@ -253,29 +253,31 @@ class ProcessReviewTab(QWidget):
 
     def redraw_for_style_change(self):
         self._pr_sfg_panel.redraw_for_style_change()
-        self._homodyne_panel.redraw_for_style_change()
+        self._conventional_panel.redraw_for_style_change()
 
     # ── Dock layout persistence ──────────────────────────────────────────────
 
     def save_dock_layouts(self, settings):
-        settings.set("homodyne", self._homodyne_panel.save_dock_state())
+        settings.set("conventional", self._conventional_panel.save_dock_state())
         settings.set("pr_sfg", self._pr_sfg_panel.save_dock_state())
 
     def restore_dock_layouts(self, settings):
-        self._homodyne_panel.restore_dock_state(settings.get("homodyne"))
+        # "homodyne": the key layouts were saved under before the rename
+        self._conventional_panel.restore_dock_state(
+            settings.get("conventional") or settings.get("homodyne"))
         # "hd_sfg": the key layouts were saved under before the rename
         self._pr_sfg_panel.restore_dock_state(settings.get("pr_sfg") or settings.get("hd_sfg"))
 
     def view_menu_actions(self) -> dict[str, list]:
         return {
-            "Homodyne panels": self._homodyne_panel.view_menu_actions(),
+            "Conventional panels": self._conventional_panel.view_menu_actions(),
             "PR-SFG panels": self._pr_sfg_panel.view_menu_actions(),
         }
 
     # ── Upconversion ──────────────────────────────────────────────────────────
 
     def _on_upconversion_changed(self):
-        self._homodyne_panel.on_upconversion_changed()
+        self._conventional_panel.on_upconversion_changed()
         stale = self._pr_sfg_panel.on_upconversion_changed()
         wl = self.ui.upconversionSpinBox.value()
         msg = f"Upconversion wavelength set to {wl:.1f} nm."

@@ -72,8 +72,8 @@ def _colors(n: int) -> list:
     return [colors[i % len(colors)] for i in range(max(n, 1))]
 
 
-class HomodynePanel(QWidget, DockablePlotPanel):
-    """Right panel for homodyne sets in the Process/Review tab.
+class ConventionalPanel(QWidget, DockablePlotPanel):
+    """Right panel for conventional sets in the Process/Review tab.
 
     Mirrors PRSFGPanel's UX (live per-component despike grid, sample/
     reference x signal/background plot selectors, a step selector, and a

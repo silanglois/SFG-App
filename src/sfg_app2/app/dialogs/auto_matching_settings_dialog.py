@@ -50,7 +50,7 @@ class AutoMatchingSettingsDialog(QDialog):
     (organized in a tree, so they can be grouped into folders), each
     configuring how "Auto-match Files" identifies references, detects
     background files, matches backgrounds/references to signals, and
-    forces homodyne vs. phase-resolved processing. Exactly one profile is
+    forces conventional vs. phase-resolved processing. Exactly one profile is
     active at a time — that's the one LoadMatchTab's "Auto-match Files"
     button actually uses.
     """
@@ -191,7 +191,7 @@ class AutoMatchingSettingsDialog(QDialog):
             "matches the same signal (first = highest priority, "
             "comma-separated; blank = no preference). The spectrum type is "
             "guessed from the signal alone (via the rules in \"Force "
-            "homodyne / phase-resolved processing\") before a background is "
+            "conventional / phase-resolved processing\") before a background is "
             "picked:"
         )
         priority_label.setWordWrap(True)
@@ -215,14 +215,14 @@ class AutoMatchingSettingsDialog(QDialog):
         return self._role_box
 
     def _build_type_rules_box(self) -> QGroupBox:
-        self._rules_box = QGroupBox("Force homodyne / phase-resolved processing")
+        self._rules_box = QGroupBox("Force conventional / phase-resolved processing")
         box_layout = QVBoxLayout(self._rules_box)
         rules_label = QLabel(
             "Force a spectrum type when a chosen filename-parsed field matches "
             "a value, or when a substring appears anywhere in the filename "
             "(choose \"Filename\" as the field) — checked against the signal's "
             "and/or background's field/filename (case-insensitively). First "
-            "matching rule wins; sets matching no rule default to homodyne:"
+            "matching rule wins; sets matching no rule default to conventional:"
         )
         rules_label.setWordWrap(True)
         box_layout.addWidget(rules_label)

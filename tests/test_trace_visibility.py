@@ -57,7 +57,7 @@ def test_panel_reason_wins_over_trace_override():
     assert reason is HiddenReason.HIDE_DATA
 
 
-def test_homodyne_amplitude_is_never_gated_by_a_component_panel():
+def test_conventional_amplitude_is_never_gated_by_a_component_panel():
     assert _resolve(component=AMPLITUDE_COMPONENT, component_checked=True) is None
 
 

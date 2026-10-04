@@ -1,8 +1,8 @@
-# Process & Review — Homodyne
+# Process & Review — Conventional
 
 Once matched sets are ready, **Process / Review** lets you configure
 and preview the processing pipeline before committing a result to
-the **Spectra Library**. This page covers the **homodyne** panel; phase-resolved
+the **Spectra Library**. This page covers the **conventional** panel; phase-resolved
 (PR-SFG) data uses a different panel — see **Process & Review —
 Phase-resolved**.
 
@@ -12,7 +12,7 @@ The list on the left shows every matched set (✓ = complete, ✗ =
 incomplete). Choose **Single** or **Compare** view above the list:
 
 - **Single** — work on one set at a time.
-- **Compare** — select multiple homodyne sets to preview their
+- **Compare** — select multiple conventional sets to preview their
   processing overlaid on the same plot, useful for checking
   consistency across a series before committing.
 

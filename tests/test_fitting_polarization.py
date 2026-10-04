@@ -82,9 +82,9 @@ def test_seed_changes_values_only():
         assert s_peak.params["center"].value == t_peak.params["center"].value
 
 
-def test_homodyne_seed_recovers_amplitudes_up_to_global_sign():
+def test_conventional_seed_recovers_amplitudes_up_to_global_sign():
     template = _shared_shapes(_spec([1.0, 1.0, 1.0], 0.3))
-    for ds in _datasets("homodyne"):
+    for ds in _datasets("conventional"):
         seeded = seed_amplitudes(ds, template)
         amps, nr = _TRUE[ds.label]
         sign = np.sign(seeded.nonresonant["amplitude"].value)
@@ -94,7 +94,7 @@ def test_homodyne_seed_recovers_amplitudes_up_to_global_sign():
 
 # ── fit_polarization_set ──────────────────────────────────────────────────
 
-@pytest.mark.parametrize("kind", ["homodyne", "phase_resolved"])
+@pytest.mark.parametrize("kind", ["conventional", "phase_resolved"])
 def test_polarization_set_recovers_shared_shapes_and_per_spectrum_amplitudes(kind):
     centers = [c + 3 for c in _CENTERS]
     widths = [w * 1.3 for w in _WIDTHS]
@@ -105,7 +105,7 @@ def test_polarization_set_recovers_shared_shapes_and_per_spectrum_amplitudes(kin
     np.testing.assert_allclose([p.params["center"].value for p in shared.peaks], _CENTERS, atol=0.5)
     np.testing.assert_allclose([p.params["width"].value for p in shared.peaks], _WIDTHS, rtol=0.05)
     for ds, fitted in zip(_datasets(kind), result.per_dataset):
-        sign = np.sign(fitted.spec.nonresonant["amplitude"].value) if kind == "homodyne" else 1.0
+        sign = np.sign(fitted.spec.nonresonant["amplitude"].value) if kind == "conventional" else 1.0
         np.testing.assert_allclose(sign * _amplitudes(fitted.spec), _TRUE[ds.label][0], atol=0.1)
 
 
@@ -117,7 +117,7 @@ def test_polarization_set_rescues_a_joint_fit_that_fails_from_the_template():
     truth = {"ssp": ([4.0, 6.0, 2.0, 1.0], 0.6), "ppp": ([-3.0, 1.0, -6.0, 3.0], 3.0),
              "sps": ([0.5, -1.5, 0.1, -0.8], 0.15)}
     rng = np.random.default_rng(6)
-    datasets = _datasets("homodyne", truth, centers, widths, noise=0.06, rng=rng)
+    datasets = _datasets("conventional", truth, centers, widths, noise=0.06, rng=rng)
     template = _shared_shapes(_spec(
         truth["ssp"][0], truth["ssp"][1],
         [c + rng.normal(0, 5) for c in centers], [w * rng.uniform(0.6, 1.6) for w in widths],
@@ -135,18 +135,18 @@ def test_polarization_set_rescues_a_joint_fit_that_fails_from_the_template():
 
 def test_polarization_set_never_worse_than_plain_joint_fit():
     template = _shared_shapes(_spec([1.0, 1.0, 1.0], 0.3, [c + 3 for c in _CENTERS]))
-    datasets = _datasets("homodyne", noise=0.02)
+    datasets = _datasets("conventional", noise=0.02)
     assert fit_polarization_set(datasets, template).redchi <= fit_global_batch(datasets, template).redchi + 1e-12
 
 
 def test_polarization_set_cancel_while_seeding_returns_none():
     template = _shared_shapes(_spec([1.0, 1.0, 1.0], 0.3))
-    assert fit_polarization_set(_datasets("homodyne"), template, progress_cb=lambda *_: False) is None
+    assert fit_polarization_set(_datasets("conventional"), template, progress_cb=lambda *_: False) is None
 
 
 def test_global_fit_without_seeds_unchanged():
     template = _shared_shapes(_spec([1.0, 1.0, 1.0], 0.3))
-    datasets = _datasets("homodyne")
+    datasets = _datasets("conventional")
     a = fit_global_batch(datasets, template)
     b = fit_global_batch(datasets, template, seeds=None)
     assert a.redchi == b.redchi
@@ -183,8 +183,8 @@ def test_apply_sign_constraints_narrows_bounds_and_flips_contradicting_start():
     assert apply_sign_constraints(spec, None) is spec
 
 
-def test_homodyne_start_mirrors_instead_of_flipping_one_amplitude():
-    """Negating the whole homodyne model fits equally well, so a start
+def test_conventional_start_mirrors_instead_of_flipping_one_amplitude():
+    """Negating the whole conventional model fits equally well, so a start
     that breaks a rule is mirrored as a whole, keeping relative signs."""
     spec = _ruled(_spec([3.0, 5.0, 2.0], 0.5), [{"ssp": "-"}, {}, {}])
     mirrored = apply_sign_constraints(spec, "ssp", mirror_ok=True)
@@ -198,12 +198,12 @@ def test_homodyne_start_mirrors_instead_of_flipping_one_amplitude():
     np.testing.assert_allclose(_amplitudes(apply_sign_constraints(spec, "ssp", mirror_ok=True)), [-3.0, 5.0, 2.0])
 
 
-def test_sign_rules_fix_homodyne_signs_outright():
-    """With the true signs given as rules, homodyne seeding has no global
+def test_sign_rules_fix_conventional_signs_outright():
+    """With the true signs given as rules, conventional seeding has no global
     sign ambiguity left."""
     rules = [{pol: ("+" if amps[i] > 0 else "-") for pol, (amps, _nr) in _TRUE.items()} for i in range(3)]
     template = _ruled(_shared_shapes(_spec([1.0, 1.0, 1.0], 0.3)), rules)
-    for ds in _datasets("homodyne"):
+    for ds in _datasets("conventional"):
         np.testing.assert_allclose(_amplitudes(seed_amplitudes(ds, template)), _TRUE[ds.label][0], atol=1e-3)
 
 

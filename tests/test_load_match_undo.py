@@ -88,7 +88,7 @@ def test_auto_match_rebuild_then_undo_restores_hand_built_table(load_match_tab):
     matched = [types.SimpleNamespace(
         signal=types.SimpleNamespace(path=Path("C:/auto.csv")),
         background=None, reference=None, reference_background=None,
-        spectrum_type="homodyne",
+        spectrum_type="conventional",
     )]
     load_match_tab._populate_table_from_matched(matched)
 
