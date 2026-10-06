@@ -119,7 +119,7 @@ styles).
   and peak tables is tinted with that peak's color, making it easier
   to tell at a glance which rows belong together once a model has
   several peaks. The color matches whatever you've explicitly picked
-  for that peak in the Display dock, if anything; otherwise it falls
+  for that peak under **Curves…** above the plot, if anything; otherwise it falls
   back to a stable, automatically-assigned color.
 
 ## Export / Import settings

@@ -1,10 +1,10 @@
-"""Undo/redo for FittingTab: peaks, template apply, single fit, batch/
-sequential fit runs."""
+"""Undo/redo for FittingTab: peaks, parameter edits, template apply,
+single fit, multi-spectrum runs."""
 import numpy as np
 import pandas as pd
 import pytest
 
-from sfg_app2.app.tabs.fitting_tab import FittingTab, _FileLoadedEntry, _make_list_item
+from sfg_app2.app.tabs.fitting_tab import FittingTab, _FileLoadedEntry, _COL_VALUE
 from sfg_app2.processing.processed_spectrum import ProcessedSpectrum
 
 _OMEGA = np.linspace(3200.0, 3400.0, 64)
@@ -27,15 +27,15 @@ def _load_conventional_data(tab, amplitude=1.0):
 
 
 def _load_batch_entries(tab, count=2):
+    entries = []
     for i in range(count):
         df = pd.DataFrame({
             "Wavenumber": _OMEGA,
             "Intensity": np.exp(-0.5 * ((_OMEGA - 3300.0) / 15.0) ** 2) + 0.05 + 0.01 * i,
         })
         spectrum = ProcessedSpectrum(df, metadata={}, history=[], provenance={})
-        entry = _FileLoadedEntry(label=f"batch-{i}", spectrum=spectrum, kind="conventional")
-        tab._batch_file_entries.append(entry)
-        tab._batch_list.addItem(_make_list_item(entry, checkable=False))
+        entries.append(_FileLoadedEntry(label=f"batch-{i}", spectrum=spectrum, kind="conventional"))
+    tab.add_entries_to_job(entries)
 
 
 # ── Peaks ─────────────────────────────────────────────────────────────────
@@ -118,21 +118,44 @@ def test_run_fit_then_undo_reverts_table_and_result(fitting_tab):
     assert fitting_tab._last_result is not None
 
 
-# ── Batch fit ─────────────────────────────────────────────────────────────
+# ── Parameter edits ───────────────────────────────────────────────────────
 
-def test_batch_fit_run_collapses_to_one_undo_step(fitting_tab):
+def test_parameter_edits_are_undoable_and_merge_per_cell(fitting_tab):
+    _load_conventional_data(fitting_tab)
+    fitting_tab._add_peak_at(3300.0)
+    key = ("peak", 0, "center")
+    original = fitting_tab._param_at(key).value
+    count = fitting_tab.undo_stack.count()
+
+    for v in (3301.0, 3302.0, 3303.0):   # e.g. spinning the value
+        fitting_tab._on_param_edit(key, "value", v)
+    assert fitting_tab.undo_stack.count() == count + 1
+    fitting_tab._on_param_edit(key, "vary", False)   # a different field: its own step
+    assert fitting_tab.undo_stack.count() == count + 2
+
+    fitting_tab.undo_stack.undo()
+    assert fitting_tab._param_at(key).vary is True
+    fitting_tab.undo_stack.undo()
+    assert fitting_tab._param_at(key).value == original
+    row = fitting_tab._param_row_keys.index(key)
+    assert fitting_tab._param_table.cellWidget(row, _COL_VALUE).value() == original
+
+
+# ── Multi-spectrum fit ────────────────────────────────────────────────────
+
+def test_multi_spectrum_run_collapses_to_one_undo_step(fitting_tab):
     _load_conventional_data(fitting_tab)
     fitting_tab._add_peak_at(3300.0)
     _load_batch_entries(fitting_tab, count=2)
 
     count_before = fitting_tab.undo_stack.count()
-    fitting_tab._on_run_batch_fit()
+    fitting_tab._on_fit_clicked()   # 3 spectra, Independent by default
 
-    assert len(fitting_tab._batch_rows) == 2
+    assert len(fitting_tab._batch_rows) == 3
     assert fitting_tab.undo_stack.count() == count_before + 1
 
     fitting_tab.undo_stack.undo()
     assert fitting_tab._batch_rows == []
 
     fitting_tab.undo_stack.redo()
-    assert len(fitting_tab._batch_rows) == 2
+    assert len(fitting_tab._batch_rows) == 3

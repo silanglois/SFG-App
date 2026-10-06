@@ -33,17 +33,28 @@ import Qt.
 - Rapid-input coalescing pattern: a single-shot `QTimer` per panel that
   needs to debounce (spinbox edits, view changes) into one recompute,
   rather than reacting to every signal immediately.
-- Fitting (`processing/fitting.py`): marking any `FitParam.shared = True`
-  (the Parameters table's "Shared" checkbox) is the *only* thing that
-  routes a batch run through `fit_global_batch` (one jointly-optimized
-  `lmfit.Parameters` shared across every dataset) instead of independent
-  per-dataset fits. Sequential (seeded-chain) fitting is a wholly
-  separate mode that ignores the Shared flag entirely.
-- A fit's results only reach the Spectra Library by export-to-CSV and
-  reload — there is no in-memory link from `FittingTab` back to a
-  `SpectrumEntry`. The `# Fit json: {...}` comment header
-  (`processing/provenance.py`'s `format_fit_section`/`parse_fit_json`)
-  is the sole channel; anything that re-exports a Library entry must
+- Fitting tab: the multi-spectrum mode is explicit -- `FitJob.mode`
+  (`app/tabs/fitting/job.py`, Qt-free; chosen in the ③ Strategy chip)
+  dispatches to `fit_independent_batch` / `fit_sequential_batch` /
+  `fit_global_batch` (or `fit_polarization_set` when seeding). The
+  `FitParam.shared` flags only matter in Global mode; Independent and
+  Sequential runs clear them on their template copy. Never route on
+  "any parameter is Shared" again -- that hidden switch is what the
+  job-bar redesign removed.
+- Fitting tab "view" state: selecting a result row swaps the workspace
+  to that row's spectrum and a *copy* of its fitted spec, with the
+  starting state saved in `FittingTab._view["saved"]`. Every undo
+  command that touches the starting model calls `tab._leave_view()`
+  first, and a paused sequential run seeds from its last *row*, never
+  from the workspace -- keep both, or viewing a row corrupts the model
+  or the seed chain.
+- A fit reaches the Spectra Library either by export-to-CSV and
+  reload, or by the Fitting tab's "Send to Spectra Library"
+  (`ProcessedResultsTab.add_fitted_spectrum`, which stores the same
+  payload in `provenance["fit_json"]`). Either way the
+  `# Fit json: {...}` payload (`processing/provenance.py`'s
+  `format_fit_section`/`parse_fit_json`) is the sole carrier of the
+  fit; anything that re-exports a Library entry must
   re-embed that section itself or the fit data silently disappears
   (this bit `ProcessedResultsTab._write_csv_with_provenance`, which for
   a while dropped it on every re-export).

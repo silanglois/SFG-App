@@ -711,6 +711,33 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
                 result.append(self._entries[idx])
         return result
 
+    def add_fitted_spectrum(self, spectrum, label: str, kind: str, fit_json: str) -> str:
+        """Add a copy of `spectrum` carrying a fit (the Fitting tab's "Send
+        to Spectra Library"), exactly as if its fit export had been
+        loaded: the fit lives in provenance["fit_json"], and its curves
+        become plottable fit components. Undoable. Returns the entry's
+        label, made unique with a " (fit)" suffix when needed."""
+        df = spectrum.data.copy()
+        if "Frame" not in df.columns:
+            df.insert(0, "Frame", 1)
+        prov = dict(getattr(spectrum, "provenance", None) or {})
+        prov["fit_json"] = fit_json
+        prov["kind"] = kind
+        fit_components = self._add_fit_component_columns(df, prov, kind)
+        new = ProcessedSpectrum(df, metadata=dict(spectrum.metadata or {}),
+                                history=list(spectrum.history) + ["fit"])
+        new.provenance = prov
+        existing = {e.label for e in self._entries}
+        name = label if label not in existing else f"{label} (fit)"
+        n = 2
+        while name in existing:
+            name = f"{label} (fit {n})"
+            n += 1
+        entry = SpectrumEntry(new, name, kind=kind)
+        entry.fit_components = fit_components
+        self._undo_stack.push(AddEntryCommand(self, entry, description="Add fitted spectrum"))
+        return name
+
     def entries(self, kind: str | None = None) -> list[SpectrumEntry]:
         """Public accessor for other tabs (e.g. Fitting) to read the
         currently-held, already-processed spectra without reaching into

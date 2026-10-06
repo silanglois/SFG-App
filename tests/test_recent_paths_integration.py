@@ -72,7 +72,7 @@ def test_save_plot_reads_and_remembers_figures_dir(qtbot, tmp_path, monkeypatch)
 
 # ── Fitting tab ("fitting") ─────────────────────────────────────────────────
 
-def test_load_files_into_reads_and_remembers_fitting_dir(qtbot, tmp_path, monkeypatch):
+def test_add_files_reads_and_remembers_fitting_dir(qtbot, tmp_path, monkeypatch):
     from sfg_app2.app.tabs.fitting_tab import FittingTab
 
     tab = FittingTab()
@@ -87,8 +87,9 @@ def test_load_files_into_reads_and_remembers_fitting_dir(qtbot, tmp_path, monkey
     csv_path.write_text("Wavenumber,Intensity\n2800.0,1.0\n2850.0,1.1\n")
     captured = _stub_dialog(monkeypatch, "getOpenFileNames", ([str(csv_path)], ""))
 
-    tab._load_files_into(tab._batch_list, tab._batch_file_entries, checkable=False)
+    tab._on_add_files()
 
+    assert [s.label for s in tab._job.spectra] == ["spectrum"]
     assert captured["args"][2] == str(remembered)
     assert rps.get_last_dir("fitting") == str(csv_path.parent)
 

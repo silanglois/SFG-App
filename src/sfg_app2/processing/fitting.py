@@ -678,7 +678,11 @@ def _spec_from_param_results(orig_spec: FitModelSpec, results: dict[str, ParamRe
 
 
 def fit_conventional(omega: np.ndarray, intensity: np.ndarray, spec: FitModelSpec,
-                  weights: np.ndarray | None = None, method: str = "leastsq") -> FitResult:
+                  weights: np.ndarray | None = None, method: str = "leastsq",
+                  iter_cb=None) -> FitResult:
+    """`iter_cb(params, iteration, resid)` is lmfit's per-iteration hook;
+    returning True aborts the fit (the result then has
+    `lmfit_result.aborted` set) -- how the GUI's Cancel works."""
     params = build_conventional_params(spec)
 
     def _residual(p, omega, data, weights):
@@ -691,7 +695,7 @@ def fit_conventional(omega: np.ndarray, intensity: np.ndarray, spec: FitModelSpe
     # kept as an explicit Minimizer (not the lmfit.minimize() convenience
     # function) so the FitResult can retain it -- lmfit.conf_interval()
     # needs the Minimizer instance, not just its result.
-    minimizer = lmfit.Minimizer(_residual, params, fcn_args=(omega, intensity, weights))
+    minimizer = lmfit.Minimizer(_residual, params, fcn_args=(omega, intensity, weights), iter_cb=iter_cb)
     result = minimizer.minimize(method=method)
     best_fit = np.abs(_chi_eff(omega, result.params, spec)) ** 2
     return FitResult.from_lmfit(result, spec, data=intensity, best_fit=best_fit, minimizer=minimizer)
@@ -699,7 +703,7 @@ def fit_conventional(omega: np.ndarray, intensity: np.ndarray, spec: FitModelSpe
 
 def fit_phase_resolved(omega: np.ndarray, real: np.ndarray, imag: np.ndarray, spec: FitModelSpec,
                     weights_real: np.ndarray | None = None, weights_imag: np.ndarray | None = None,
-                    method: str = "leastsq") -> FitResult:
+                    method: str = "leastsq", iter_cb=None) -> FitResult:
     """Fit the Real and Imaginary parts of chi_eff simultaneously (one
     joint least-squares problem) against measured phase-resolved data,
     reusing the same complex model (_chi_eff) that conventional mode only
@@ -720,7 +724,8 @@ def fit_phase_resolved(omega: np.ndarray, real: np.ndarray, imag: np.ndarray, sp
             resid_imag = resid_imag * weights_imag
         return np.concatenate([resid_real, resid_imag])
 
-    minimizer = lmfit.Minimizer(_residual, params, fcn_args=(omega, real, imag, weights_real, weights_imag))
+    minimizer = lmfit.Minimizer(_residual, params, fcn_args=(omega, real, imag, weights_real, weights_imag),
+                                iter_cb=iter_cb)
     result = minimizer.minimize(method=method)
     best_chi = _chi_eff(omega, result.params, spec)
     data = np.concatenate([real, imag])

@@ -108,7 +108,7 @@ different things in different corners of this app:
 | Phase-resolved "Show errors" (this section) | Empirical 95% CI from per-frame spread, pre-fit — describes measurement reproducibility. |
 | Conventional fits' "Measurement error (SEM)" weighting | A plain standard error of the mean ($\operatorname{std}/\sqrt{n}$, **no** 1.96 factor, despite the similar name) from `average_spectrum()`'s per-wavelength frame statistics — and that std uses the *opposite* convention (`ddof=1`) from the phase-resolved CI above. |
 | Fitting tab's parameter-table "Value ± stderr" | Always shown after **Run fit** — `lmfit`'s asymptotic covariance-matrix estimate. Post-fit: describes how uncertain a *fitted parameter* is, unrelated to either measurement-spread quantity above. This is the only per-parameter uncertainty this app computes -- there is no separate profile-likelihood/confidence-interval step. |
-| Multi-fit results' trend-plot error bars | The same parameter `stderr` as above, just plotted across a batch of independent fits. |
+| Results' trend-plot error bars | The same parameter `stderr` as above, just plotted across the spectra of a multi-spectrum fit. |
 
 ## Dockable panels & the View menu
 

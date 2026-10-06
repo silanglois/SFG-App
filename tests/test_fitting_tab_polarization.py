@@ -1,13 +1,11 @@
-"""FittingTab's polarization-set controls: Share peak shapes, Polarization
-from, sign constraints, and the seeded batch run."""
+"""FittingTab's polarization-set controls: Share peak shapes, the
+polarization field, sign rules, and the seeded global run."""
 import numpy as np
 import pandas as pd
 import pytest
 
 from sfg_app2.app.dialogs.sign_constraints_dialog import SignConstraintsDialog
-from sfg_app2.app.tabs.fitting_tab import (
-    FittingTab, _COL_PARAM, _FileLoadedEntry, _make_list_item,
-)
+from sfg_app2.app.tabs.fitting_tab import FittingTab, _COL_PARAM, _FileLoadedEntry
 from sfg_app2.processing.fitting import FitModelSpec, default_peak, evaluate_chi
 from sfg_app2.processing.processed_spectrum import ProcessedSpectrum
 
@@ -41,12 +39,7 @@ def _entry(pol, amps, extra_metadata=None):
 
 def _load_polarization_set(tab):
     entries = [_entry(pol, amps) for pol, amps in _TRUE.items()]
-    for entry in entries:
-        tab._batch_file_entries.append(entry)
-        tab._batch_list.addItem(_make_list_item(entry, checkable=False))
-    tab._refresh_batch_controls()
-    # The reference spectrum (ssp) in the single-spectrum workspace.
-    tab._load_from_processed_spectrum(entries[0].spectrum, entries[0].label, kind="conventional")
+    tab.add_entries_to_job(entries)   # the first (ssp) becomes the reference
     for center in _CENTERS:
         tab._add_peak_at(center)
     return entries
@@ -83,7 +76,7 @@ def test_share_peak_shapes_twice_pushes_nothing_the_second_time(fitting_tab):
     assert fitting_tab.undo_stack.count() == count
 
 
-# ── Polarization from ─────────────────────────────────────────────────────
+# ── Polarization field ────────────────────────────────────────────────────
 
 def test_polarization_field_is_offered_and_preselected(fitting_tab):
     _load_polarization_set(fitting_tab)
@@ -99,7 +92,7 @@ def test_user_choice_of_none_survives_a_refresh(fitting_tab):
     _load_polarization_set(fitting_tab)
     combo = fitting_tab._polarization_combo
     combo.setCurrentIndex(combo.findData(None))
-    fitting_tab._refresh_batch_controls()
+    fitting_tab._refresh_polarization_combo()
     assert combo.currentData() is None
     assert not fitting_tab._sign_rules_btn.isEnabled()
 
@@ -157,15 +150,24 @@ def test_run_fit_respects_the_loaded_spectrums_rule(fitting_tab):
     assert fitting_tab._last_result.param_results["p0_amplitude"].max == 0.0
 
 
-# ── Seeded batch run ──────────────────────────────────────────────────────
+# ── Seeded global run ─────────────────────────────────────────────────────
 
-def test_seeded_batch_run_fits_every_polarization_and_is_one_undo_step(fitting_tab):
+def test_choosing_global_shares_peak_shapes_by_default(fitting_tab):
     _load_polarization_set(fitting_tab)
-    fitting_tab._on_share_peak_shapes()
+    assert not fitting_tab._shared_param_keys(fitting_tab._model_spec)
+    fitting_tab._mode_radios["global"].setChecked(True)
+    assert sorted(fitting_tab._shared_param_keys(fitting_tab._model_spec)) == [
+        "p0_center", "p0_width", "p1_center", "p1_width"]
+    assert "centers, widths shared" in fitting_tab._job_bar.chip(2).text()
+
+
+def test_seeded_global_run_fits_every_polarization_and_is_one_undo_step(fitting_tab):
+    _load_polarization_set(fitting_tab)
+    fitting_tab._mode_radios["global"].setChecked(True)
     assert fitting_tab._seed_amplitudes_check.isChecked()
     count_before = fitting_tab.undo_stack.count()
 
-    fitting_tab._on_run_batch_fit()
+    fitting_tab._on_fit_clicked()
 
     assert len(fitting_tab._batch_rows) == 3
     assert fitting_tab._batch_global_result is not None

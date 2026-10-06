@@ -59,7 +59,7 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         self.process_review_tab.save_dock_layouts(self.dock_layout_settings)
         self.dock_layout_settings.set("results", self.processed_results_tab.save_dock_state())
-        self.dock_layout_settings.set("fitting", self.fitting_tab.save_dock_state())
+        self.dock_layout_settings.set("fitting_v2", self.fitting_tab.save_dock_state())
         self.dock_layout_settings.save()
         self.load_match_tab.close_plot_windows()
         self.close_image_windows()
@@ -87,7 +87,9 @@ class MainWindow(QMainWindow):
 
         from sfg_app2.app.tabs.fitting_tab import FittingTab
         self.fitting_tab = FittingTab()
-        self.fitting_tab.restore_dock_state(self.dock_layout_settings.get("fitting"))
+        # "fitting_v2": the job-bar layout has different docks than the
+        # original "fitting" one, which is deliberately not restored.
+        self.fitting_tab.restore_dock_state(self.dock_layout_settings.get("fitting_v2"))
         self.fitting_tab.set_results_provider(self.processed_results_tab)
         self.fitting_tab.set_display_settings(self.fitting_display_settings)
         self._replace_tab(3, self.fitting_tab, "Fitting")
