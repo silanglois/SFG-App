@@ -259,3 +259,32 @@ def test_send_to_library_adds_entries_carrying_the_fit(fitting_tab, results_tab)
 
     fitting_tab._send_rows_to_library([0])   # same label again: kept apart
     assert results_tab._entries[-1].label == "T0 (fit)"
+
+
+# ── plots and theme ───────────────────────────────────────────────────────
+
+def test_overlay_keeps_a_user_set_x_range_across_redraws(fitting_tab):
+    _series(fitting_tab)
+    fitting_tab._on_fit_clicked()
+    plot = fitting_tab.results_view.overlay_plot
+    # what a user edit of the x min/max spinboxes does
+    plot._x_min_spin.setValue(2860.0)
+    plot._x_max_spin.setValue(2900.0)
+    assert plot.ax.get_xlim() == pytest.approx((2860.0, 2900.0))
+
+    fitting_tab._refit_rows([0])   # redraws the overlay from scratch
+    assert plot.ax.get_xlim() == pytest.approx((2860.0, 2900.0))
+    # and y follows the visible window, not the full spectrum
+    lo, hi = plot.ax.get_ylim()
+    assert hi < 30.0
+
+
+def test_hint_text_and_view_pill_follow_the_theme(fitting_tab):
+    from PySide6.QtGui import QPalette
+    from sfg_app2.app.tabs.fitting_tab import _note
+    assert _note("x").foregroundRole() == QPalette.ColorRole.PlaceholderText
+    _series(fitting_tab)
+    fitting_tab._on_fit_clicked()
+    fitting_tab.results_view.select_row(0)
+    style = fitting_tab._pill.styleSheet()
+    assert "palette(" in style and "#e8f0fe" not in style

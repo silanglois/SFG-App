@@ -127,9 +127,14 @@ def _center_widget(widget: QWidget) -> QWidget:
 
 
 def _note(text: str) -> QLabel:
+    """Secondary hint text. Uses the theme's own placeholder-text color
+    (not a fixed or "mid" color), so it stays readable in dark mode."""
     label = QLabel(text)
     label.setWordWrap(True)
-    label.setStyleSheet("color: palette(mid);")
+    label.setForegroundRole(QPalette.ColorRole.PlaceholderText)
+    font = label.font()
+    font.setPointSizeF(font.pointSizeF() * 0.92)
+    label.setFont(font)
     return label
 
 
@@ -1373,7 +1378,7 @@ class FittingTab(QWidget, DockablePlotPanel):
         layout.setContentsMargins(0, 0, 0, 0)
         bar = QHBoxLayout()
         self._placement_banner = QLabel("")
-        self._placement_banner.setStyleSheet("color: palette(highlight); font-weight: bold;")
+        self._placement_banner.setStyleSheet("color: #d9822b; font-weight: bold;")
         bar.addWidget(self._placement_banner)
         bar.addStretch()
         self._plot2_check = QCheckBox("Show Plot 2")
@@ -1677,7 +1682,10 @@ class FittingTab(QWidget, DockablePlotPanel):
             value_widget.setValue(self._param_at(key).value)
             value_widget.blockSignals(False)
             pr = None if self._last_result is None else self._last_result.param_results.get(_lmfit_key(key))
-            value_widget.setStyleSheet("background-color: #fff3cd;" if (pr is not None and pr.at_bound) else "")
+            # a fixed light background needs a fixed dark text color too,
+            # or dark mode's white text vanishes on it
+            value_widget.setStyleSheet("background-color: #fff3cd; color: #664d03;"
+                                       if (pr is not None and pr.at_bound) else "")
             value_widget.setToolTip("At a bound after the fit" if (pr is not None and pr.at_bound) else "")
             if err_item is not None:
                 err_item.setText("" if pr is None or pr.stderr is None else f"{pr.stderr:.3g}")
@@ -2295,6 +2303,9 @@ class FittingTab(QWidget, DockablePlotPanel):
         ax.set_ylabel("Intensity (a.u.)")
         if ax.get_legend_handles_labels()[0]:
             ax.legend(fontsize=7)
+        # Re-apply the user's x min/max (or fit the full range when none
+        # is set) and autoscale y to it -- full_clear() alone drops both.
+        plot.sync_x_range()
         plot.canvas.draw_idle()
 
     def _row_settings(self, row: int) -> tuple[tuple[float, float], str]:
@@ -2385,7 +2396,8 @@ class FittingTab(QWidget, DockablePlotPanel):
             status = "fit failed" if result is None else "fit result"
             edited = " — edited, not refit yet" if self._view.get("dirty") else ""
             self._pill_label.setText(f"<b>Viewing:</b> {entry.label} ({status}){edited}")
-            self._pill.setStyleSheet("QFrame { background: #e8f0fe; }")
+            self._pill.setStyleSheet("QFrame { background: palette(alternate-base); "
+                                     "border: 1px solid palette(highlight); border-radius: 4px; }")
         else:
             label = self._data.label if self._data is not None else "no spectrum yet"
             self._pill_label.setText(f"<b>Editing the starting model</b> — on {label}")

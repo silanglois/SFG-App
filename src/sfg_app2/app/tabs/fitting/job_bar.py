@@ -11,7 +11,7 @@ short coach-mark tour walks the chips once (and on demand via "?").
 from __future__ import annotations
 
 from PySide6.QtCore import QEvent, QPoint, Qt, Signal
-from PySide6.QtGui import QGuiApplication
+from PySide6.QtGui import QGuiApplication, QPalette
 from PySide6.QtWidgets import (
     QFrame, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QToolButton, QVBoxLayout,
     QWidget,
@@ -105,7 +105,7 @@ class TourBubble(QFrame):
         self.setStyleSheet("TourBubble { background: palette(base); border: 2px solid palette(highlight); }")
         layout = QVBoxLayout(self)
         self._counter = QLabel()
-        self._counter.setStyleSheet("color: palette(mid);")
+        self._counter.setForegroundRole(QPalette.ColorRole.PlaceholderText)
         self._text = QLabel()
         self._text.setWordWrap(True)
         self._text.setMinimumWidth(280)

@@ -19,7 +19,8 @@ from sfg_app2.app.widgets.spectrum_plot_widget import SpectrumPlotWidget
 
 OK, WARN, FAIL = "ok", "warn", "fail"
 _STATUS_TEXT = {OK: "✓", WARN: "⚠", FAIL: "✗"}
-_STATUS_COLOR = {OK: "#2e7d32", WARN: "#d9822b", FAIL: "#c62828"}
+# mid tones: readable on both light and dark table backgrounds
+_STATUS_COLOR = {OK: "#43a047", WARN: "#f57c00", FAIL: "#e53935"}
 _ORIGIN_ROLE = Qt.ItemDataRole.UserRole + 1
 _SORT_ROLE = Qt.ItemDataRole.UserRole + 2
 _FIXED_COLUMNS = ["", "Spectrum", "χ²ᵣ", "R²"]
@@ -359,6 +360,7 @@ class ResultsView(QWidget):
             ax.set_xticklabels(tick_labels, rotation=45, ha="right")
             ax.set_xlabel("Spectrum" if x_key is None else x_key)
         ax.set_ylabel(self.trend_param_combo.currentText())
+        plot.sync_x_range()   # keep a user-set x range across redraws
         plot.canvas.draw_idle()
 
     def _on_tab_changed(self, index: int):
