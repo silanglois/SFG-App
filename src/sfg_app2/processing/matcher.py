@@ -82,7 +82,7 @@ class MatchedSet:
     background:           Optional[object] = None
     reference:            Optional[object] = None
     reference_background: Optional[object] = None
-    spectrum_type:        str = "homodyne"   # "homodyne" | "heterodyne"
+    spectrum_type:        str = "conventional"   # "conventional" | "phase_resolved"
 
     def with_background(self, bg) -> "MatchedSet":
         from dataclasses import replace
@@ -140,9 +140,9 @@ class MatchingConfig:
                     (e.g. prefer the highest-power reference). Applied
                     after closest_keys. A key with no comparable value on
                     any candidate is skipped.
-    role_priority : maps a spectrum_type ("homodyne"/"heterodyne") to an
+    role_priority : maps a spectrum_type ("conventional"/"phase_resolved") to an
                     ordered list of preferred `role_token` metadata values
-                    (e.g. {"heterodyne": ["irbg", "bg"]}) — lets multiple
+                    (e.g. {"phase_resolved": ["irbg", "bg"]}) — lets multiple
                     background-naming variants (bg vs. irbg, etc.) be
                     disambiguated by preference instead of only by
                     closest_keys. Applied before closest_keys so it takes
@@ -175,16 +175,16 @@ class DataFileMatcher:
     type_rules : list[dict], optional
         Rules forcing spectrum_type based on a metadata value or a filename
         substring, e.g.
-        {"mode": "field", "field": "sample", "key": "PS-hetero", "type": "heterodyne", "scope": "signal"}
+        {"mode": "field", "field": "sample", "key": "PS-hetero", "type": "phase_resolved", "scope": "signal"}
         or
-        {"mode": "filename", "key": "hetero", "type": "heterodyne", "scope": "signal"}.
+        {"mode": "filename", "key": "hetero", "type": "phase_resolved", "scope": "signal"}.
         `mode` defaults to "field" if omitted (backward compatible with
         older saved rules). For "field" mode, `field` defaults to
         `sample_key` if omitted, and `key` must equal the field's value. For
         "filename" mode, `key` is matched as a substring anywhere in the
         file's name. scope is one of "signal", "background", "both" — which
         file is checked. The first matching rule (in list order) wins; sets
-        matching no rule default to "homodyne".
+        matching no rule default to "conventional".
     sample_key : str
         Metadata key holding the sample name, used for reference identification
         and as the default field for type_rules matching.
@@ -376,7 +376,7 @@ class DataFileMatcher:
             if matching:
                 eligible = matching
 
-        # role-token preference (e.g. prefer "irbg" over "bg" for heterodyne
+        # role-token preference (e.g. prefer "irbg" over "bg" for phase-resolved
         # sets) — applied before closest_keys so a deliberate preference
         # wins over incidental timestamp closeness
         if target_type and config.role_priority.get(target_type):
@@ -464,8 +464,8 @@ class DataFileMatcher:
         for signal in signals:
             # best-effort guess at spectrum_type from the signal alone (before
             # a background is chosen), so background selection can honor a
-            # per-type role preference (e.g. prefer "irbg" for heterodyne)
-            tentative_type = self._forced_type(signal, None) or "homodyne"
+            # per-type role preference (e.g. prefer "irbg" for phase-resolved)
+            tentative_type = self._forced_type(signal, None) or "conventional"
 
             bg = self._find_closest(signal, backgrounds, self.background_config,
                                      target_type=tentative_type, role_label="background")
@@ -499,7 +499,7 @@ class DataFileMatcher:
                 logger.warning(message)
                 self._diagnostics.append({"type": "missing", "role": "reference background", "signal": signal.path.name, "message": message})
 
-            spectrum_type = self._forced_type(signal, bg) or "homodyne"
+            spectrum_type = self._forced_type(signal, bg) or "conventional"
 
             results.append(MatchedSet(
                 signal=signal,

@@ -12,12 +12,12 @@ from sfg_app2.app.utils.icon_rendering import render_svg_pixmap
 
 _ICON_PATH = Path(__file__).parents[1] / "ressources" / "icon.svg"
 _ICON_DISPLAY_SIZE = 96
-_FALLBACK_VERSION = "1.5.0"
+_FALLBACK_VERSION = "1.6.0"
 
 _HOMEPAGE_URL = "https://github.com/silanglois/SFG-App"
 _DESCRIPTION = (
     "A desktop application for processing and analyzing Sum-Frequency "
-    "Generation (SFG) spectroscopy data — homodyne and heterodyne — "
+    "Generation (SFG) spectroscopy data — conventional and phase-resolved — "
     "built with PySide6."
 )
 

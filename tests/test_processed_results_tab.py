@@ -35,8 +35,8 @@ def test_tab_constructs_with_empty_plot(results_tab):
     assert _lines(results_tab) == []
 
 
-def test_checked_entry_is_plotted_unchecked_is_not(load_entries, make_homodyne_entry):
-    tab = load_entries(make_homodyne_entry(checked=True))
+def test_checked_entry_is_plotted_unchecked_is_not(load_entries, make_conventional_entry):
+    tab = load_entries(make_conventional_entry(checked=True))
     assert len(_lines(tab)) == 1
 
     tab._entries[0].checked = False
@@ -45,18 +45,18 @@ def test_checked_entry_is_plotted_unchecked_is_not(load_entries, make_homodyne_e
     assert _lines(tab) == []
 
 
-def test_heterodyne_components_are_opt_in(load_entries, make_heterodyne_entry):
-    """A heterodyne entry plots one line per *checked* HD component.
+def test_phase_resolved_components_are_opt_in(load_entries, make_phase_resolved_entry):
+    """A phase-resolved entry plots one line per *checked* PR component.
 
     Phase lands on the secondary axis, so this counts both axes.
     """
-    tab = load_entries(make_heterodyne_entry())
+    tab = load_entries(make_phase_resolved_entry())
     baseline = len(_all_lines(tab))
 
-    tab._hd_checkboxes["Phase"].setChecked(True)
+    tab._pr_checkboxes["Phase"].setChecked(True)
     assert len(_all_lines(tab)) == baseline + 1
 
-    tab._hd_checkboxes["Phase"].setChecked(False)
+    tab._pr_checkboxes["Phase"].setChecked(False)
     assert len(_all_lines(tab)) == baseline
 
 
@@ -77,8 +77,8 @@ def test_hide_data_suppresses_only_measured_series(load_entries, make_fitted_ent
     assert len(_lines(tab)) == 1          # fit curve survives
 
 
-def test_per_trace_visible_override_hides_one_line(load_entries, make_homodyne_entry):
-    entry = make_homodyne_entry()
+def test_per_trace_visible_override_hides_one_line(load_entries, make_conventional_entry):
+    entry = make_conventional_entry()
     tab = load_entries(entry)
     assert len(_lines(tab)) == 1
 
@@ -97,10 +97,10 @@ def test_fit_curve_inherits_its_own_entry_data_colour(load_entries, make_fitted_
     assert data_line.get_color() == fit_line.get_color()
 
 
-def test_two_entries_get_distinct_colours(load_entries, make_homodyne_entry):
+def test_two_entries_get_distinct_colours(load_entries, make_conventional_entry):
     tab = load_entries(
-        make_homodyne_entry(label="a"),
-        make_homodyne_entry(label="b"),
+        make_conventional_entry(label="a"),
+        make_conventional_entry(label="b"),
     )
     first, second = _lines(tab)
     assert first.get_color() != second.get_color()
@@ -113,10 +113,10 @@ def _baseline_of(line):
     return float(np.mean(line.get_ydata()))
 
 
-def test_offset_separates_two_spectra(load_entries, make_homodyne_entry):
+def test_offset_separates_two_spectra(load_entries, make_conventional_entry):
     tab = load_entries(
-        make_homodyne_entry(label="a"),
-        make_homodyne_entry(label="b"),
+        make_conventional_entry(label="a"),
+        make_conventional_entry(label="b"),
     )
     tab.ui.offsetSpectraSpinner.setValue(0.0)
     flat = [_baseline_of(line) for line in _lines(tab)]
@@ -127,8 +127,8 @@ def test_offset_separates_two_spectra(load_entries, make_homodyne_entry):
     assert offset[1] - offset[0] == pytest.approx(10.0)
 
 
-def test_offset_is_per_spectrum_not_per_line(load_entries, make_heterodyne_entry):
-    """Two HD components of the SAME spectrum share one offset slot.
+def test_offset_is_per_spectrum_not_per_line(load_entries, make_phase_resolved_entry):
+    """Two PR components of the SAME spectrum share one offset slot.
 
     Measured as the shift each trace gains when the offset is switched
     on, which isolates the offset from the components' own differing
@@ -138,11 +138,11 @@ def test_offset_is_per_spectrum_not_per_line(load_entries, make_heterodyne_entry
     components enabled.
     """
     tab = load_entries(
-        make_heterodyne_entry(label="a"),
-        make_heterodyne_entry(label="b"),
+        make_phase_resolved_entry(label="a"),
+        make_phase_resolved_entry(label="b"),
     )
-    tab._hd_checkboxes["Real"].setChecked(True)
-    tab._hd_checkboxes["Imaginary"].setChecked(True)
+    tab._pr_checkboxes["Real"].setChecked(True)
+    tab._pr_checkboxes["Imaginary"].setChecked(True)
 
     tab.ui.offsetSpectraSpinner.setValue(0.0)
     flat = [_baseline_of(line) for line in _lines(tab)]
@@ -158,46 +158,47 @@ def test_offset_is_per_spectrum_not_per_line(load_entries, make_heterodyne_entry
 
 # ── Characterization: y-axis label ────────────────────────────────────────
 
-def test_homodyne_ylabel_is_arbitrary_units(load_entries, make_homodyne_entry):
-    tab = load_entries(make_homodyne_entry())
+def test_conventional_ylabel_is_arbitrary_units(load_entries, make_conventional_entry):
+    tab = load_entries(make_conventional_entry())
     assert tab.plot_widget.ax.get_ylabel() == "Intensity (a.u.)"
 
 
-# ── Hide fit traces from legend ─────────────────────────────────────────────
+# ── Combine fit and data in legend ──────────────────────────────────────────
 
-def test_hide_fit_legend_checkbox_drops_fit_traces_only(load_entries, make_fitted_entry):
-    # Two entries, so filtering out the (single) fit trace still leaves
-    # more than one line -- with just one entry, the remaining lone data
-    # trace wouldn't get a legend at all (same "no legend for a single
-    # line" rule that already applies without this toggle).
+def test_combine_fit_legend_merges_each_fit_into_its_data_entry(load_entries, make_fitted_entry):
     tab = load_entries(
-        make_fitted_entry(label="a"),
+        make_fitted_entry(label="a", components=("Fit (total)", "Peak 1")),
         make_fitted_entry(label="b", components=()),
     )
     tab._fit_checkboxes["Fit total"].setChecked(True)
+    tab._fit_checkboxes["Individual features"].setChecked(True)
 
     specs = tab._build_plot_specs(tab._checked_entries())
-    fit_label = next(s.label for s in specs if s.is_fit)
     data_labels = [s.label for s in specs if not s.is_fit]
-    assert len(data_labels) == 2
+    total_label = next(s.label for s in specs if s.y_col == "Fit (total)")
+    peak_label = next(s.label for s in specs if s.y_col == "Peak 1")
 
+    labels = [t.get_text() for t in tab.plot_widget.ax.get_legend().get_texts()]
+    assert total_label in labels and peak_label in labels
+
+    tab._combine_fit_legend_checkbox.setChecked(True)
     legend = tab.plot_widget.ax.get_legend()
     labels = [t.get_text() for t in legend.get_texts()]
-    assert fit_label in labels
-    assert all(l in labels for l in data_labels)
+    # The total fit folds into entry a's data row; the peak has no single
+    # data partner, so it stays its own entry.
+    assert sorted(labels) == sorted(data_labels + [peak_label])
+    assert total_label not in labels
+    handles = legend._sfg_source[0]
+    combined = [h for h in handles if isinstance(h, tuple)]
+    assert len(combined) == 1
+    fit_line, data_line = combined[0]
+    assert data_line.get_label() == data_labels[0]
+    assert fit_line.get_label() == total_label
 
-    tab._hide_fit_legend_checkbox.setChecked(True)
-
-    legend = tab.plot_widget.ax.get_legend()
-    labels = [t.get_text() for t in legend.get_texts()] if legend is not None else []
-    assert fit_label not in labels
-    assert all(l in labels for l in data_labels)
-
-    # Unchecking restores it -- this is a live, non-persisted toggle.
-    tab._hide_fit_legend_checkbox.setChecked(False)
-    legend = tab.plot_widget.ax.get_legend()
-    labels = [t.get_text() for t in legend.get_texts()]
-    assert fit_label in labels
+    # Live, non-persisted toggle.
+    tab._combine_fit_legend_checkbox.setChecked(False)
+    labels = [t.get_text() for t in tab.plot_widget.ax.get_legend().get_texts()]
+    assert total_label in labels
 
 
 # ── Empty-plot explanation ────────────────────────────────────────────────
@@ -207,8 +208,8 @@ def _explanation(tab):
     return texts[0] if texts else None
 
 
-def test_empty_plot_names_hide_data_as_the_cause(load_entries, make_homodyne_entry):
-    tab = load_entries(make_homodyne_entry())
+def test_empty_plot_names_hide_data_as_the_cause(load_entries, make_conventional_entry):
+    tab = load_entries(make_conventional_entry())
     tab._hide_data_checkbox.setChecked(True)
 
     assert _lines(tab) == []
@@ -216,8 +217,8 @@ def test_empty_plot_names_hide_data_as_the_cause(load_entries, make_homodyne_ent
     assert "Data display" in _explanation(tab)
 
 
-def test_empty_plot_names_trace_overrides_as_the_cause(load_entries, make_homodyne_entry):
-    entry = make_homodyne_entry()
+def test_empty_plot_names_trace_overrides_as_the_cause(load_entries, make_conventional_entry):
+    entry = make_conventional_entry()
     tab = load_entries(entry)
     entry.style_for(AMPLITUDE_COMPONENT).visible = False
     tab._refresh_plot()
@@ -226,27 +227,27 @@ def test_empty_plot_names_trace_overrides_as_the_cause(load_entries, make_homody
     assert "per-trace" in _explanation(tab)
 
 
-def test_empty_plot_message_is_pluralized(load_entries, make_homodyne_entry):
+def test_empty_plot_message_is_pluralized(load_entries, make_conventional_entry):
     """"1 trace(s)" reads as placeholder text in a message whose whole
     purpose is to be plain."""
-    tab = load_entries(make_homodyne_entry())
+    tab = load_entries(make_conventional_entry())
     tab._hide_data_checkbox.setChecked(True)
     assert "1 trace hidden" in _explanation(tab)
 
-    tab._entries.append(make_homodyne_entry(label="second"))
+    tab._entries.append(make_conventional_entry(label="second"))
     tab._rebuild_list()
     tab._refresh_plot()
     assert "2 traces hidden" in _explanation(tab)
 
 
-def test_explanation_does_not_accumulate_across_redraws(load_entries, make_homodyne_entry):
+def test_explanation_does_not_accumulate_across_redraws(load_entries, make_conventional_entry):
     """soft_clear() must drop text artists.
 
     It removed lines, collections and the legend but not texts, so every
     redraw stacked another copy of the explanation -- and, since
     _draw_annotations re-adds them too, of every text annotation.
     """
-    tab = load_entries(make_homodyne_entry())
+    tab = load_entries(make_conventional_entry())
     tab._hide_data_checkbox.setChecked(True)
     assert len(tab.plot_widget.ax.texts) == 1
 
@@ -255,8 +256,8 @@ def test_explanation_does_not_accumulate_across_redraws(load_entries, make_homod
     assert len(tab.plot_widget.ax.texts) == 1
 
 
-def test_no_explanation_while_something_is_plotted(load_entries, make_homodyne_entry):
-    tab = load_entries(make_homodyne_entry())
+def test_no_explanation_while_something_is_plotted(load_entries, make_conventional_entry):
+    tab = load_entries(make_conventional_entry())
     assert len(_lines(tab)) == 1
     assert _explanation(tab) is None
 
@@ -267,14 +268,14 @@ def _row_text(tab, row=0):
     return tab.ui.spectraList.item(row).text()
 
 
-def test_untouched_entry_carries_no_override_badge(load_entries, make_heterodyne_entry):
+def test_untouched_entry_carries_no_override_badge(load_entries, make_phase_resolved_entry):
     """Reading a style must not look like customizing it.
 
     style_for() materializes a TraceStyle on first read, and Phase's
     automatic default differs from the bare dataclass default -- both
     would fool a naive "has overrides" check.
     """
-    tab = load_entries(make_heterodyne_entry(label="het"))
+    tab = load_entries(make_phase_resolved_entry(label="pr"))
     for component in ("Real", "Imaginary", "Phase"):
         tab._entries[0].style_for(component)
     tab._rebuild_list()
@@ -282,8 +283,8 @@ def test_untouched_entry_carries_no_override_badge(load_entries, make_heterodyne
     assert "◆" not in _row_text(tab)
 
 
-def test_override_badge_appears_and_resets(load_entries, make_homodyne_entry):
-    entry = make_homodyne_entry(label="sample")
+def test_override_badge_appears_and_resets(load_entries, make_conventional_entry):
+    entry = make_conventional_entry(label="sample")
     tab = load_entries(entry)
     assert "◆" not in _row_text(tab)
 
@@ -315,30 +316,30 @@ def _fake_menu(label_sink):
     return _Menu
 
 
-def test_export_button_counts_plotted_spectra(load_entries, make_homodyne_entry):
+def test_export_button_counts_plotted_spectra(load_entries, make_conventional_entry):
     """The button must name the checked set, not the selected one -- they
     are different states on the same row."""
     tab = load_entries(
-        make_homodyne_entry(label="a", checked=True),
-        make_homodyne_entry(label="b", checked=True),
-        make_homodyne_entry(label="c", checked=False),
+        make_conventional_entry(label="a", checked=True),
+        make_conventional_entry(label="b", checked=True),
+        make_conventional_entry(label="c", checked=False),
     )
     assert tab.ui.exportSelectedButton.text() == "Export plotted (2)"
     assert tab.ui.exportSelectedButton.isEnabled()
 
 
-def test_export_button_disabled_when_nothing_is_plotted(load_entries, make_homodyne_entry):
-    tab = load_entries(make_homodyne_entry(checked=False))
+def test_export_button_disabled_when_nothing_is_plotted(load_entries, make_conventional_entry):
+    tab = load_entries(make_conventional_entry(checked=False))
     assert tab.ui.exportSelectedButton.text() == "Export plotted (0)"
     assert not tab.ui.exportSelectedButton.isEnabled()
 
 
-def test_right_click_targets_the_clicked_row(load_entries, make_homodyne_entry, monkeypatch):
+def test_right_click_targets_the_clicked_row(load_entries, make_conventional_entry, monkeypatch):
     """Right-clicking an unselected spectrum must act on that spectrum,
     not on whichever rows happen to be highlighted."""
     tab = load_entries(
-        make_homodyne_entry(label="a"),
-        make_homodyne_entry(label="b"),
+        make_conventional_entry(label="a"),
+        make_conventional_entry(label="b"),
     )
     lw = tab.ui.spectraList
     lw.item(0).setSelected(True)
@@ -353,12 +354,12 @@ def test_right_click_targets_the_clicked_row(load_entries, make_homodyne_entry, 
     assert any('"b"' in text for text in captured)
 
 
-def test_right_click_inside_a_multi_selection_keeps_it(load_entries, make_homodyne_entry, monkeypatch):
+def test_right_click_inside_a_multi_selection_keeps_it(load_entries, make_conventional_entry, monkeypatch):
     """...but right-clicking a row that IS selected must not collapse an
     intentional multi-selection down to one."""
     tab = load_entries(
-        make_homodyne_entry(label="a"),
-        make_homodyne_entry(label="b"),
+        make_conventional_entry(label="a"),
+        make_conventional_entry(label="b"),
     )
     lw = tab.ui.spectraList
     lw.item(0).setSelected(True)
@@ -372,8 +373,8 @@ def test_right_click_inside_a_multi_selection_keeps_it(load_entries, make_homody
     assert {e.label for e in tab._selected_entries()} == {"a", "b"}
 
 
-def test_reset_restores_a_trace_hidden_by_an_override(load_entries, make_homodyne_entry):
-    entry = make_homodyne_entry()
+def test_reset_restores_a_trace_hidden_by_an_override(load_entries, make_conventional_entry):
+    entry = make_conventional_entry()
     tab = load_entries(entry)
     entry.style_for(AMPLITUDE_COMPONENT).visible = False
     tab._refresh_plot()

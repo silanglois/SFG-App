@@ -9,6 +9,11 @@ mutated in place elsewhere (param-field edits, add/remove peak) and a
 live reference would go stale across undo/redo; FitResult objects are
 kept as plain references since nothing mutates them after a fit
 completes.
+
+Every command that touches the starting model first returns the
+workspace from a viewed result row to the starting model
+(tab._leave_view()), so an undo can never land on a result's working
+copy instead.
 """
 from __future__ import annotations
 from copy import deepcopy
@@ -35,10 +40,12 @@ class AddPeakCommand(QUndoCommand):
         self._tab._schedule_preview()
 
     def redo(self):
+        self._tab._leave_view()
         self._tab._model_spec.peaks.append(self._peak)
         self._refresh()
 
     def undo(self):
+        self._tab._leave_view()
         self._tab._model_spec.peaks.remove(self._peak)
         self._refresh()
 
@@ -58,10 +65,12 @@ class RemovePeakCommand(QUndoCommand):
         self._tab._schedule_preview()
 
     def redo(self):
+        self._tab._leave_view()
         del self._tab._model_spec.peaks[self._index]
         self._refresh()
 
     def undo(self):
+        self._tab._leave_view()
         self._tab._model_spec.peaks.insert(self._index, self._peak)
         self._refresh()
 
@@ -82,6 +91,7 @@ class ApplyTemplateCommand(QUndoCommand):
 
     def _apply(self, state: dict):
         tab = self._tab
+        tab._leave_view()
         tab._model_spec = deepcopy(state["spec"])
         tab._last_result = state["result"]
         tab._rebuild_peak_table()
@@ -89,9 +99,7 @@ class ApplyTemplateCommand(QUndoCommand):
         tab._rebuild_display_table()
         tab._update_quality_readout()
         if state["fit_range"] is not None:
-            lo, hi = state["fit_range"]
-            tab._fit_min_spin.setValue(lo)
-            tab._fit_max_spin.setValue(hi)
+            tab._set_fit_range(*state["fit_range"])
         if state["weighting"] is not None:
             idx = tab._weighting_combo.findData(state["weighting"])
             if idx >= 0:
@@ -103,6 +111,35 @@ class ApplyTemplateCommand(QUndoCommand):
 
     def undo(self):
         self._apply(self._before)
+
+
+class ReplaceModelSpecCommand(QUndoCommand):
+    """A one-shot rewrite of the model's settings that leaves the last fit
+    result alone -- "Share peak shapes", per-polarization sign rules.
+    Both specs are deepcopied for the same reason as ApplyTemplateCommand."""
+
+    def __init__(self, tab: "FittingTab", old_spec: "FitModelSpec", new_spec: "FitModelSpec",
+                 description: str):
+        super().__init__(description)
+        self._tab = tab
+        self._old_spec = deepcopy(old_spec)
+        self._new_spec = deepcopy(new_spec)
+
+    def _apply(self, spec: "FitModelSpec"):
+        tab = self._tab
+        tab._leave_view()
+        tab._model_spec = deepcopy(spec)
+        tab._rebuild_peak_table()
+        tab._rebuild_parameter_table()
+        tab._rebuild_display_table()
+        tab._apply_fit_result_to_table()
+        tab._schedule_preview()
+
+    def redo(self):
+        self._apply(self._new_spec)
+
+    def undo(self):
+        self._apply(self._old_spec)
 
 
 class RunFitCommand(QUndoCommand):
@@ -121,6 +158,7 @@ class RunFitCommand(QUndoCommand):
 
     def _apply(self, spec: "FitModelSpec", result):
         tab = self._tab
+        tab._leave_view()
         tab._model_spec = deepcopy(spec)
         tab._last_result = result
         tab._apply_fit_result_to_table()
@@ -134,18 +172,63 @@ class RunFitCommand(QUndoCommand):
         self._apply(self._old_spec, self._old_result)
 
 
+class EditParamCommand(QUndoCommand):
+    """One field of one starting-model parameter (value, vary, shared,
+    min, max, expr). Consecutive edits of the same field merge into one
+    step, so typing a number or spinning a value is a single undo."""
+
+    _ID = 4711
+
+    def __init__(self, tab: "FittingTab", key: tuple, field: str, old, new, label: str):
+        super().__init__(f"Edit {label} {field}")
+        self._tab = tab
+        self._key = key
+        self._field = field
+        self._old = old
+        self._new = new
+        self._first = True
+
+    def id(self) -> int:
+        return self._ID
+
+    def mergeWith(self, other) -> bool:
+        if not isinstance(other, EditParamCommand) or (other._key, other._field) != (self._key, self._field):
+            return False
+        self._new = other._new
+        return True
+
+    def _apply(self, value, refresh_widget: bool):
+        tab = self._tab
+        tab._leave_view()
+        setattr(tab._param_at(self._key), self._field, value)
+        if refresh_widget:
+            tab._set_param_widget(self._key, self._field, value)
+        tab._schedule_preview()
+        if self._field == "shared":
+            tab._refresh_job_bar()
+
+    def redo(self):
+        # the first redo is the push itself: the widget already shows it
+        self._apply(self._new, refresh_widget=not self._first)
+        self._first = False
+
+    def undo(self):
+        self._apply(self._old, refresh_widget=True)
+
+
+_RUN_NAMES = {"independent": "Independent fit", "sequential": "Sequential fit", "global": "Global fit"}
+
+
 class RunBatchFitCommand(QUndoCommand):
-    """Covers an entire batch/global or sequential run (however many
-    checkpoints/pauses it took) as one atomic undo step -- only pushed
-    once the run actually finishes (see FittingTab._maybe_push_batch_undo,
-    called from _finish_multifit_run()'s 3 call sites), so a paused
-    run never has a half-finished state pushed."""
+    """Covers an entire multi-spectrum run (however many review pauses it
+    took), or a refit of some of its rows, as one atomic undo step --
+    only pushed once the run finishes (FittingTab._maybe_push_batch_undo),
+    so a paused run never has a half-finished state pushed."""
 
     def __init__(self, tab: "FittingTab", old_state: tuple, new_state: tuple,
                  description: str | None = None):
         mode = new_state[5]
-        label = "Batch fit" if mode == "batch" else "Sequential fit"
-        super().__init__(description or f"Run {label}")
+        super().__init__(description or _RUN_NAMES.get(mode, "Fit"))
         self._tab = tab
         self._old_state = old_state
         self._new_state = new_state

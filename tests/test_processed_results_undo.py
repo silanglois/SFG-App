@@ -12,8 +12,8 @@ from sfg_app2.app.tabs.trace_style import TraceStyle
 
 # ── Remove / add ─────────────────────────────────────────────────────────
 
-def test_remove_then_undo_restores_exact_index(load_entries, make_homodyne_entry):
-    e0, e1, e2 = (make_homodyne_entry(f"e{i}") for i in range(3))
+def test_remove_then_undo_restores_exact_index(load_entries, make_conventional_entry):
+    e0, e1, e2 = (make_conventional_entry(f"e{i}") for i in range(3))
     tab = load_entries(e0, e1, e2)
 
     tab.undo_stack.push(RemoveEntriesCommand(tab, [e1]))
@@ -26,8 +26,8 @@ def test_remove_then_undo_restores_exact_index(load_entries, make_homodyne_entry
     assert tab._entries == [e0, e2]
 
 
-def test_remove_multiple_then_undo_restores_original_order(load_entries, make_homodyne_entry):
-    entries = [make_homodyne_entry(f"e{i}") for i in range(5)]
+def test_remove_multiple_then_undo_restores_original_order(load_entries, make_conventional_entry):
+    entries = [make_conventional_entry(f"e{i}") for i in range(5)]
     tab = load_entries(*entries)
 
     tab.undo_stack.push(RemoveEntriesCommand(tab, [entries[1], entries[3]]))
@@ -37,10 +37,10 @@ def test_remove_multiple_then_undo_restores_original_order(load_entries, make_ho
     assert tab._entries == entries
 
 
-def test_add_entry_then_undo(load_entries, make_homodyne_entry):
-    e0 = make_homodyne_entry("e0")
+def test_add_entry_then_undo(load_entries, make_conventional_entry):
+    e0 = make_conventional_entry("e0")
     tab = load_entries(e0)
-    new_entry = make_homodyne_entry("new")
+    new_entry = make_conventional_entry("new")
 
     tab.undo_stack.push(AddEntryCommand(tab, new_entry))
     assert tab._entries == [e0, new_entry]
@@ -49,10 +49,10 @@ def test_add_entry_then_undo(load_entries, make_homodyne_entry):
     assert tab._entries == [e0]
 
 
-def test_overwrite_entry_then_undo(load_entries, make_homodyne_entry):
-    e0 = make_homodyne_entry("e0")
+def test_overwrite_entry_then_undo(load_entries, make_conventional_entry):
+    e0 = make_conventional_entry("e0")
     tab = load_entries(e0)
-    replacement = make_homodyne_entry("e0", amplitude=2.0)
+    replacement = make_conventional_entry("e0", amplitude=2.0)
 
     tab.undo_stack.push(OverwriteEntryCommand(tab, 0, e0, replacement))
     assert tab._entries == [replacement]
@@ -107,12 +107,12 @@ def test_add_from_file_all_skipped_leaves_no_dead_undo_step(results_tab, tmp_pat
 
 # ── Trace style ──────────────────────────────────────────────────────────
 
-def test_set_trace_styles_then_undo_restores_sparse_absence(load_entries, make_homodyne_entry):
+def test_set_trace_styles_then_undo_restores_sparse_absence(load_entries, make_conventional_entry):
     # Unchecked -- _refresh_plot() never calls style_for() on it, so
     # (unlike a checked/plotted entry) its styles dict starts genuinely
     # empty, the same as an entry a user opens Trace Properties on
     # without ever having checked it.
-    entry = make_homodyne_entry("e0", checked=False)
+    entry = make_conventional_entry("e0", checked=False)
     tab = load_entries(entry)
     assert "__amplitude__" not in entry.styles
 
@@ -124,8 +124,8 @@ def test_set_trace_styles_then_undo_restores_sparse_absence(load_entries, make_h
     assert "__amplitude__" not in entry.styles
 
 
-def test_set_trace_styles_then_undo_restores_prior_value(load_entries, make_homodyne_entry):
-    entry = make_homodyne_entry("e0")
+def test_set_trace_styles_then_undo_restores_prior_value(load_entries, make_conventional_entry):
+    entry = make_conventional_entry("e0")
     tab = load_entries(entry)
     original = TraceStyle(color="blue")
     entry.styles["__amplitude__"] = original
@@ -138,12 +138,12 @@ def test_set_trace_styles_then_undo_restores_prior_value(load_entries, make_homo
     assert entry.styles["__amplitude__"] is original
 
 
-def test_reset_trace_styles_then_undo(load_entries, make_homodyne_entry):
+def test_reset_trace_styles_then_undo(load_entries, make_conventional_entry):
     # Unchecked, so _refresh_plot() (called by both load_entries() and
     # the command itself) never re-populates a default style behind our
     # back via style_for()'s setdefault -- isolates the command's own
     # clear/restore logic from that unrelated auto-populate side effect.
-    entry = make_homodyne_entry("e0", checked=False)
+    entry = make_conventional_entry("e0", checked=False)
     entry.styles["__amplitude__"] = TraceStyle(color="red")
     tab = load_entries(entry)
 
@@ -156,10 +156,10 @@ def test_reset_trace_styles_then_undo(load_entries, make_homodyne_entry):
 
 # ── Sort / annotations / metadata ────────────────────────────────────────
 
-def test_sort_by_metadata_then_undo(load_entries, make_homodyne_entry):
-    e0 = make_homodyne_entry("e0", metadata={"conc": "3"})
-    e1 = make_homodyne_entry("e1", metadata={"conc": "1"})
-    e2 = make_homodyne_entry("e2", metadata={"conc": "2"})
+def test_sort_by_metadata_then_undo(load_entries, make_conventional_entry):
+    e0 = make_conventional_entry("e0", metadata={"conc": "3"})
+    e1 = make_conventional_entry("e1", metadata={"conc": "1"})
+    e2 = make_conventional_entry("e2", metadata={"conc": "2"})
     tab = load_entries(e0, e1, e2)
 
     tab.undo_stack.push(SortEntriesCommand(tab, "conc"))
@@ -169,9 +169,9 @@ def test_sort_by_metadata_then_undo(load_entries, make_homodyne_entry):
     assert tab._entries == [e0, e1, e2]
 
 
-def test_sort_by_metadata_via_handler(load_entries, make_homodyne_entry, monkeypatch):
-    e0 = make_homodyne_entry("e0", metadata={"conc": "3"})
-    e1 = make_homodyne_entry("e1", metadata={"conc": "1"})
+def test_sort_by_metadata_via_handler(load_entries, make_conventional_entry, monkeypatch):
+    e0 = make_conventional_entry("e0", metadata={"conc": "3"})
+    e1 = make_conventional_entry("e1", metadata={"conc": "1"})
     tab = load_entries(e0, e1)
 
     monkeypatch.setattr(QInputDialog, "getItem", staticmethod(lambda *a, **k: ("conc", True)))
@@ -182,8 +182,8 @@ def test_sort_by_metadata_via_handler(load_entries, make_homodyne_entry, monkeyp
     assert [e.label for e in tab._entries] == ["e0", "e1"]
 
 
-def test_replace_annotations_then_undo(load_entries, make_homodyne_entry):
-    tab = load_entries(make_homodyne_entry("e0"))
+def test_replace_annotations_then_undo(load_entries, make_conventional_entry):
+    tab = load_entries(make_conventional_entry("e0"))
     old = list(tab._annotations)
 
     tab.undo_stack.push(ReplaceAnnotationsCommand(tab, old, ["new-annotation"]))
@@ -193,8 +193,8 @@ def test_replace_annotations_then_undo(load_entries, make_homodyne_entry):
     assert tab._annotations == old
 
 
-def test_update_metadata_then_undo(load_entries, make_homodyne_entry):
-    entry = make_homodyne_entry("e0", metadata={"sample": "A"})
+def test_update_metadata_then_undo(load_entries, make_conventional_entry):
+    entry = make_conventional_entry("e0", metadata={"sample": "A"})
     tab = load_entries(entry)
     old_metadata = [dict(entry.spectrum.metadata)]
 
@@ -209,9 +209,9 @@ def test_update_metadata_then_undo(load_entries, make_homodyne_entry):
     assert entry.spectrum.metadata["sample"] == "B"
 
 
-def test_on_remove_handler_pushes_undo(load_entries, make_homodyne_entry, monkeypatch):
-    e0 = make_homodyne_entry("e0")
-    e1 = make_homodyne_entry("e1")
+def test_on_remove_handler_pushes_undo(load_entries, make_conventional_entry, monkeypatch):
+    e0 = make_conventional_entry("e0")
+    e1 = make_conventional_entry("e1")
     tab = load_entries(e0, e1)
 
     monkeypatch.setattr(QMessageBox, "question",

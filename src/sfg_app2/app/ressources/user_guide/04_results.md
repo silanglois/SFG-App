@@ -22,8 +22,8 @@ restyle, annotate, and export.
   drives automatic per-curve coloring.
 - A **normalization** dropdown lets you rescale displayed curves for
   easier comparison.
-- For heterodyne entries, the same component checkboxes as the
-  processing panel — **Real, |χ⁽²⁾|² (Homodyne), Phase, Imaginary,
+- For phase-resolved entries, the same component checkboxes as the
+  processing panel — **Real, |χ⁽²⁾|², Phase, Imaginary,
   Show error** — control which parts of each entry are plotted.
 - **X axis label / Y axis label / Legend** fields customize plot
   labeling directly.
@@ -78,15 +78,20 @@ regions of interest in a figure.
   installs nothing and runs as-is on
   [Google Colab](https://colab.research.google.com).
 
-In the Fit components panel, **Hide fit traces from legend** keeps
-fit-derived curves on screen but drops them from the legend — handy
-once a fit's curves start crowding out the data traces. It's
-session-only and resets on restart.
+In the Fit components panel, **Combine fit and data in legend** folds
+each fit curve into the legend entry of the data it was fit to: one
+row, labelled with the data's name, showing the data's marker drawn
+over the fit's line (pair it with **Show data as markers**). Fit total,
+real and imaginary curves pair with their data; individual peaks keep
+their own rows. It's session-only and resets on restart.
+
+When saving a plot, unticking a legend entry in the save dialog removes
+that row entirely: the remaining entries close up, with no gap.
 
 !!! tip "Processing notebooks"
     The Process / Review tab has a matching export: right-click a
     matched set and choose **Export processing notebook…** to get a
-    step-by-step walkthrough of that set's homodyne or heterodyne
+    step-by-step walkthrough of that set's conventional or phase-resolved
     pipeline, with your current parameters pre-filled. It embeds the
     four raw files *and* the processing code, and its final cell writes
     a CSV you can load straight back into this tab.

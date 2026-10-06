@@ -20,7 +20,9 @@ from sfg_app2.app.dialogs.metadata_patterns_dialog import KNOWN_FIELDS
 logger = logging.getLogger(__name__)
 
 STATE_OPTIONS = ["Ignore", "Optional", "Required", "Closest", "Highest"]
-TYPE_OPTIONS = ["Heterodyne", "Homodyne"]
+from sfg_app2.processing.kinds import PHASE_RESOLVED, kind_label, normalize_kind
+
+TYPE_OPTIONS = [kind_label(k) for k in TYPE_RULE_TYPES]
 SCOPE_OPTIONS = ["Signal", "Background", "Both"]
 DEFAULT_RULE_FIELD = "sample"
 FILENAME_SENTINEL = "Filename"
@@ -48,7 +50,7 @@ class AutoMatchingSettingsDialog(QDialog):
     (organized in a tree, so they can be grouped into folders), each
     configuring how "Auto-match Files" identifies references, detects
     background files, matches backgrounds/references to signals, and
-    forces homodyne vs. heterodyne processing. Exactly one profile is
+    forces conventional vs. phase-resolved processing. Exactly one profile is
     active at a time — that's the one LoadMatchTab's "Auto-match Files"
     button actually uses.
     """
@@ -189,7 +191,7 @@ class AutoMatchingSettingsDialog(QDialog):
             "matches the same signal (first = highest priority, "
             "comma-separated; blank = no preference). The spectrum type is "
             "guessed from the signal alone (via the rules in \"Force "
-            "homodyne / heterodyne processing\") before a background is "
+            "conventional / phase-resolved processing\") before a background is "
             "picked:"
         )
         priority_label.setWordWrap(True)
@@ -204,7 +206,7 @@ class AutoMatchingSettingsDialog(QDialog):
         )
         self._role_priority_table.verticalHeader().setVisible(False)
         for row, spectrum_type in enumerate(TYPE_RULE_TYPES):
-            type_item = QTableWidgetItem(spectrum_type.capitalize())
+            type_item = QTableWidgetItem(kind_label(spectrum_type))
             type_item.setFlags(type_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self._role_priority_table.setItem(row, 0, type_item)
             self._role_priority_table.setItem(row, 1, QTableWidgetItem(""))
@@ -213,14 +215,14 @@ class AutoMatchingSettingsDialog(QDialog):
         return self._role_box
 
     def _build_type_rules_box(self) -> QGroupBox:
-        self._rules_box = QGroupBox("Force homodyne / heterodyne processing")
+        self._rules_box = QGroupBox("Force conventional / phase-resolved processing")
         box_layout = QVBoxLayout(self._rules_box)
         rules_label = QLabel(
             "Force a spectrum type when a chosen filename-parsed field matches "
             "a value, or when a substring appears anywhere in the filename "
             "(choose \"Filename\" as the field) — checked against the signal's "
             "and/or background's field/filename (case-insensitively). First "
-            "matching rule wins; sets matching no rule default to homodyne:"
+            "matching rule wins; sets matching no rule default to conventional:"
         )
         rules_label.setWordWrap(True)
         box_layout.addWidget(rules_label)
@@ -477,7 +479,7 @@ class AutoMatchingSettingsDialog(QDialog):
             self._add_type_rule_row(
                 field_text,
                 rule.get("key", ""),
-                rule.get("type", "heterodyne").capitalize(),
+                kind_label(rule.get("type", PHASE_RESOLVED)),
                 rule.get("scope", "both").capitalize(),
             )
 
@@ -510,7 +512,7 @@ class AutoMatchingSettingsDialog(QDialog):
         self._rules_table.setCellWidget(row, 3, scope_combo)
 
     def _on_add_type_rule(self):
-        self._add_type_rule_row(DEFAULT_RULE_FIELD, "new_value", "Heterodyne", "Signal")
+        self._add_type_rule_row(DEFAULT_RULE_FIELD, "new_value", "Phase-resolved", "Signal")
 
     def _on_remove_type_rule(self):
         row = self._rules_table.currentRow()
@@ -560,7 +562,7 @@ class AutoMatchingSettingsDialog(QDialog):
                 rules.append({
                     "mode": "filename",
                     "key": key,
-                    "type": type_text.lower(),
+                    "type": normalize_kind(type_text),
                     "scope": scope_text.lower(),
                 })
             else:
@@ -568,7 +570,7 @@ class AutoMatchingSettingsDialog(QDialog):
                     "mode": "field",
                     "field": field,
                     "key": key,
-                    "type": type_text.lower(),
+                    "type": normalize_kind(type_text),
                     "scope": scope_text.lower(),
                 })
         return rules

@@ -6,9 +6,10 @@ import numpy as np
 from scipy.interpolate import CubicSpline
 from scipy.signal import savgol_filter
 
-from .config import HDSFGConfig
+from .config import PRSFGConfig
 from .windows import edge_window, fft_mask_window
 from sfg_app2.processing.baseline import _resolve_offset
+from sfg_app2.processing.smoothing import smooth
 
 logger = logging.getLogger(__name__)
 
@@ -176,7 +177,7 @@ def step_despike(
 
 def step_average(
     despiked: DespikedData,
-    config: HDSFGConfig,
+    config: PRSFGConfig,
 ) -> AveragedData:
     """Step 2 — average frames and interpolate to uniform wavenumber grid.
     Signal keeps per-frame arrays for downstream error statistics.
@@ -225,16 +226,18 @@ def step_average(
 
 def step_bg_smooth(
     averaged: AveragedData,
-    config: HDSFGConfig,
+    config: PRSFGConfig,
 ) -> BGSubtractedData:
-    """Step 3 — smooth all components (Savitzky-Golay), subtract backgrounds,
-    apply edge window to deltas.
+    """Step 3 — smooth the backgrounds (config.bg_smoothing /
+    ref_bg_smoothing) and, optionally, signal/reference (Savitzky-Golay),
+    subtract backgrounds, apply edge window to deltas.
     """
     n = len(averaged.wavenumber)
     e_win = edge_window(n, config.edge_left, config.edge_right)
 
-    bg_sm     = _smooth(averaged.bg_avg,     config.bg_smoothing_window,  config.bg_smoothing_order)
-    ref_bg_sm = _smooth(averaged.ref_bg_avg, config.bg_smoothing_window,  config.bg_smoothing_order)
+    bg_spec, ref_bg_spec = config.effective_bg_smoothing()
+    bg_sm     = smooth(averaged.bg_avg,     bg_spec)
+    ref_bg_sm = smooth(averaged.ref_bg_avg, ref_bg_spec)
     sig_sm    = _smooth(averaged.sig_avg,    config.sig_smoothing_window, config.sig_smoothing_order)
     ref_sm    = _smooth(averaged.ref_avg,    config.sig_smoothing_window, config.sig_smoothing_order)
 
@@ -267,7 +270,7 @@ def step_bg_smooth(
 
 def step_fft_filter(
     bg_sub: BGSubtractedData,
-    config: HDSFGConfig,
+    config: PRSFGConfig,
 ) -> FFTFilterData:
     """Step 4 — FFT each delta, apply frequency-domain mask, iFFT.
     Both the time-domain view (step 5) and wavenumber view (step 6)
@@ -306,8 +309,8 @@ def step_fft_filter(
 
 def step_normalize(
     fft_data: FFTFilterData,
-    config: HDSFGConfig,
-) -> "HDSFGResult":
+    config: PRSFGConfig,
+) -> "PRSFGResult":
     """Step 5 — normalize sample by reference, compute per-frame statistics.
 
     complex_chi is computed from the per-frame mean rather than also
@@ -316,15 +319,15 @@ def step_normalize(
     subtraction, windowing, FFT/mask/iFFT, and normalization by the
     fixed reference) is linear, so those two are mathematically
     identical anyway (averaging commutes through every linear step).
-    Phase and homodyne intensity are NONLINEAR functions of chi, so
+    Phase and |χ⁽²⁾|² are NONLINEAR functions of chi, so
     they're always derived from that same single averaged chi -- never
     by averaging each frame's own phase/intensity, which would be a
-    systematically biased-high estimator for homodyne intensity
+    systematically biased-high estimator for |χ⁽²⁾|²
     (E[|X|^2] >= |E[X]|^2, Jensen's inequality) and wraparound-prone
     for phase. Only the *spread* across frames (the error bars) needs
     the per-frame decomposition.
     """
-    from .result import HDSFGResult
+    from .result import PRSFGResult
 
     # per-frame normalization -- both the point estimate and the error
     # statistics come from this one decomposition
@@ -341,28 +344,28 @@ def step_normalize(
     stack = np.array(per_frame)
     chi_avg = stack.mean(axis=0)
     phase = _phase_degrees(chi_avg)
-    homodyne = chi_avg.real**2 + chi_avg.imag**2
+    abs2 = chi_avg.real**2 + chi_avg.imag**2
 
     if n_frames > 1:
         factor    = 1.96 / np.sqrt(n_frames)
         real_err  = stack.real.std(axis=0) * factor
         imag_err  = stack.imag.std(axis=0) * factor
         phases    = np.array([_phase_degrees(f) for f in per_frame])
-        homodyne_per_frame = np.array([f.real**2 + f.imag**2 for f in per_frame])
+        abs2_per_frame = np.array([f.real**2 + f.imag**2 for f in per_frame])
         phase_err    = phases.std(axis=0) * factor
-        homodyne_err = homodyne_per_frame.std(axis=0) * factor
+        abs2_err = abs2_per_frame.std(axis=0) * factor
     else:
         zeros = np.zeros(len(fft_data.wavenumber))
-        real_err = imag_err = phase_err = homodyne_err = zeros
+        real_err = imag_err = phase_err = abs2_err = zeros
 
-    return HDSFGResult(
+    return PRSFGResult(
         wavenumber   = fft_data.wavenumber,
         complex_chi  = chi_avg,
         phase        = phase,
-        homodyne     = homodyne,
+        abs2     = abs2,
         real_err     = real_err,
         imag_err     = imag_err,
         phase_err    = phase_err,
-        homodyne_err = homodyne_err,
+        abs2_err = abs2_err,
         n_frames     = n_frames,
     )

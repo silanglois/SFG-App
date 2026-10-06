@@ -130,52 +130,52 @@ class Ui_Form(object):
         self.verticalLayout_2.addItem(self.verticalSpacer)
 
         self.visualizationParamsTabWidget.addTab(self.dataDisplayTab, "")
-        self.hdComponentsTab = QWidget()
-        self.hdComponentsTab.setObjectName(u"hdComponentsTab")
-        self.verticalLayout_6 = QVBoxLayout(self.hdComponentsTab)
+        self.prComponentsTab = QWidget()
+        self.prComponentsTab.setObjectName(u"prComponentsTab")
+        self.verticalLayout_6 = QVBoxLayout(self.prComponentsTab)
         self.verticalLayout_6.setObjectName(u"verticalLayout_6")
-        self.hdComponentGridLayout = QGridLayout()
-        self.hdComponentGridLayout.setObjectName(u"hdComponentGridLayout")
-        self.hdCheckReal = QCheckBox(self.hdComponentsTab)
-        self.hdCheckReal.setObjectName(u"hdCheckReal")
-        self.hdCheckReal.setChecked(True)
+        self.prComponentGridLayout = QGridLayout()
+        self.prComponentGridLayout.setObjectName(u"prComponentGridLayout")
+        self.prCheckReal = QCheckBox(self.prComponentsTab)
+        self.prCheckReal.setObjectName(u"prCheckReal")
+        self.prCheckReal.setChecked(True)
 
-        self.hdComponentGridLayout.addWidget(self.hdCheckReal, 0, 1, 1, 1)
+        self.prComponentGridLayout.addWidget(self.prCheckReal, 0, 1, 1, 1)
 
-        self.hdCheckHomodyne = QCheckBox(self.hdComponentsTab)
-        self.hdCheckHomodyne.setObjectName(u"hdCheckHomodyne")
+        self.prCheckAbs2 = QCheckBox(self.prComponentsTab)
+        self.prCheckAbs2.setObjectName(u"prCheckAbs2")
 
-        self.hdComponentGridLayout.addWidget(self.hdCheckHomodyne, 1, 1, 1, 1)
+        self.prComponentGridLayout.addWidget(self.prCheckAbs2, 1, 1, 1, 1)
 
-        self.hdCheckPhase = QCheckBox(self.hdComponentsTab)
-        self.hdCheckPhase.setObjectName(u"hdCheckPhase")
+        self.prCheckPhase = QCheckBox(self.prComponentsTab)
+        self.prCheckPhase.setObjectName(u"prCheckPhase")
 
-        self.hdComponentGridLayout.addWidget(self.hdCheckPhase, 1, 0, 1, 1)
+        self.prComponentGridLayout.addWidget(self.prCheckPhase, 1, 0, 1, 1)
 
-        self.hdCheckImaginary = QCheckBox(self.hdComponentsTab)
-        self.hdCheckImaginary.setObjectName(u"hdCheckImaginary")
-        self.hdCheckImaginary.setChecked(True)
+        self.prCheckImaginary = QCheckBox(self.prComponentsTab)
+        self.prCheckImaginary.setObjectName(u"prCheckImaginary")
+        self.prCheckImaginary.setChecked(True)
 
-        self.hdComponentGridLayout.addWidget(self.hdCheckImaginary, 0, 0, 1, 1)
+        self.prComponentGridLayout.addWidget(self.prCheckImaginary, 0, 0, 1, 1)
 
         self.horizontalSpacer = QSpacerItem(40, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
 
-        self.hdComponentGridLayout.addItem(self.horizontalSpacer, 1, 2, 1, 1)
+        self.prComponentGridLayout.addItem(self.horizontalSpacer, 1, 2, 1, 1)
 
 
-        self.verticalLayout_6.addLayout(self.hdComponentGridLayout)
+        self.verticalLayout_6.addLayout(self.prComponentGridLayout)
 
-        self.hdCheckShowError = QCheckBox(self.hdComponentsTab)
-        self.hdCheckShowError.setObjectName(u"hdCheckShowError")
-        self.hdCheckShowError.setChecked(True)
+        self.prCheckShowError = QCheckBox(self.prComponentsTab)
+        self.prCheckShowError.setObjectName(u"prCheckShowError")
+        self.prCheckShowError.setChecked(True)
 
-        self.verticalLayout_6.addWidget(self.hdCheckShowError)
+        self.verticalLayout_6.addWidget(self.prCheckShowError)
 
         self.verticalSpacer_2 = QSpacerItem(20, 40, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding)
 
         self.verticalLayout_6.addItem(self.verticalSpacer_2)
 
-        self.visualizationParamsTabWidget.addTab(self.hdComponentsTab, "")
+        self.visualizationParamsTabWidget.addTab(self.prComponentsTab, "")
         self.colorsTab = QWidget()
         self.colorsTab.setObjectName(u"colorsTab")
         self.verticalLayout_5 = QVBoxLayout(self.colorsTab)
@@ -347,12 +347,12 @@ class Ui_Form(object):
 
         self.label.setText(QCoreApplication.translate("Form", u"Offset:", None))
         self.visualizationParamsTabWidget.setTabText(self.visualizationParamsTabWidget.indexOf(self.dataDisplayTab), QCoreApplication.translate("Form", u"Data display", None))
-        self.hdCheckReal.setText(QCoreApplication.translate("Form", u"Real", None))
-        self.hdCheckHomodyne.setText(QCoreApplication.translate("Form", u"|\u03c7\u207d\u00b2\u207e|\u00b2 (Homodyne)", None))
-        self.hdCheckPhase.setText(QCoreApplication.translate("Form", u"Phase", None))
-        self.hdCheckImaginary.setText(QCoreApplication.translate("Form", u"Imaginary", None))
-        self.hdCheckShowError.setText(QCoreApplication.translate("Form", u"Show error", None))
-        self.visualizationParamsTabWidget.setTabText(self.visualizationParamsTabWidget.indexOf(self.hdComponentsTab), QCoreApplication.translate("Form", u"HD-SFG components", None))
+        self.prCheckReal.setText(QCoreApplication.translate("Form", u"Real", None))
+        self.prCheckAbs2.setText(QCoreApplication.translate("Form", u"|\u03c7\u207d\u00b2\u207e|\u00b2", None))
+        self.prCheckPhase.setText(QCoreApplication.translate("Form", u"Phase", None))
+        self.prCheckImaginary.setText(QCoreApplication.translate("Form", u"Imaginary", None))
+        self.prCheckShowError.setText(QCoreApplication.translate("Form", u"Show error", None))
+        self.visualizationParamsTabWidget.setTabText(self.visualizationParamsTabWidget.indexOf(self.prComponentsTab), QCoreApplication.translate("Form", u"PR-SFG components", None))
         self.visualizationParamsTabWidget.setTabText(self.visualizationParamsTabWidget.indexOf(self.colorsTab), QCoreApplication.translate("Form", u"Colors", None))
         self.xAxisLabelLabel.setText(QCoreApplication.translate("Form", u"X axis label:", None))
         self.yAxisLabelLabel.setText(QCoreApplication.translate("Form", u"Y axis label:", None))

@@ -1,17 +1,16 @@
 # Fitting
 
-The **Fitting** tab fits peaks/lineshapes to a single processed
-spectrum. Homodyne data is fit as
+The **Fitting** tab fits peaks/lineshapes to one spectrum, or to many
+at once. Conventional data is fit as
 $\lvert \chi_{\mathrm{NR}}\,e^{i\varphi} + \sum_j \chi_j(\omega)\rvert^2$
-against measured intensity; heterodyne data is fit as simultaneous
+against measured intensity; phase-resolved data is fit as simultaneous
 real/imaginary fits of the same complex χ⁽²⁾ against measured
-Real/Imaginary data. The fit mode is chosen automatically from the
-kind of spectrum you load.
+Real/Imaginary data. The kind is detected from each spectrum.
 
 !!! warning "Experimental"
     The Fitting tab is still under active development — results,
-    especially from Batch/Sequential/global (shared-parameter) fits,
-    should be independently sanity-checked rather than relied on as-is.
+    especially from multi-spectrum (sequential/global) fits, should be
+    independently sanity-checked rather than relied on as-is.
 
 ## The fitting equation
 
@@ -53,13 +52,13 @@ These sum to one complex susceptibility:
 
 $$\chi_{\mathrm{eff}}(\omega) = \chi_{\mathrm{NR}} + \sum_j \chi_j(\omega)$$
 
-which is where **homodyne** and **heterodyne** fitting diverge:
+which is where **conventional** and **phase-resolved** fitting diverge:
 
-- **Homodyne** only ever measures intensity, so it fits against
+- **Conventional SFG** only ever measures intensity, so it fits against
   $I(\omega) = \lvert\chi_{\mathrm{eff}}(\omega)\rvert^2$ — the model
   curve you see is this squared magnitude, and the fit itself works on
   the intensity residual.
-- **Heterodyne** measures Real(ω) and Imaginary(ω) directly, so it
+- **Phase-resolved** measures Real(ω) and Imaginary(ω) directly, so it
   fits Re(χ_eff(ω)) and Im(χ_eff(ω)) simultaneously against them — one
   joint least-squares problem, both channels sharing the same
   parameters, rather than two separate fits.
@@ -68,8 +67,8 @@ Because the sum happens *before* squaring, cross-terms between peaks
 (and between peaks and the non-resonant background) matter —
 $\lvert\chi_a + \chi_b\rvert^2$ is not
 $\lvert\chi_a\rvert^2 + \lvert\chi_b\rvert^2$, which is why peaks can
-constructively or destructively interfere in a homodyne spectrum. It's
-also why the Display dock's per-peak "Individual features" curves (each
+constructively or destructively interfere in a conventional spectrum. It's
+also why the per-peak **Peak N** curves (each
 peak's $\lvert\chi_j\rvert^2$ in isolation) are a visual aid for
 locating a peak, not a literal
 decomposition of the total — the real total includes interference terms
@@ -83,144 +82,193 @@ that no single curve captures alone.
 | $\Gamma_j$ | Peak *j* → Width, halved | Half-width-at-half-max (the table shows the full width). On a Voigt this column is labelled **Lorentzian width** |
 | $\sigma_j$ | Peak *j* → Gaussian width | Inhomogeneous broadening, shown as a full width. Voigt only — the other two shapes have a single width |
 
-Panels are dockable and rearrangeable; the natural order to work
-through them is:
+## The fit job: four chips and a Fit button
 
-## 1. Data source
+Everything you set up reads as one row of numbered chips along the top
+of the tab, followed by a **Fit** button:
 
-Load a spectrum either **from the Spectra Library tab** (pick from a
-dropdown, Refresh, then **Load selected**) or **directly from a
-file**. A status label always shows what's currently loaded.
+**① Spectra · ② Model · ③ Strategy · ④ Fit settings · ▶ Fit**
 
-## 2. Model
+Each chip shows a one-line summary of its step (for example
+"3 spectra", "2 peaks + NR · Lorentzian", "Global · centers, widths
+shared"); click it to open that step's controls. A chip that still
+needs something is marked ⚠, and a **Start here →** hint sits in front
+of the first one, so a new job is simply worked left to right. Once you
+know the tab, you can skip straight to **Fit**. Its label always says
+what will run: *Fit spectrum*, *Fit 12 independently*, *Fit 12 in
+sequence* or *Fit 3 globally*. The first time you open the tab a short
+tour points at each chip; the **?** at the end of the bar replays it.
 
-Pick a **lineshape** from the dropdown *before* adding a peak — that
-choice is what the next placed peak will use. Then click **Add
-peak**: it's a checkable button, so clicking it "arms" placement mode
-(the button stays visibly pressed while armed) rather than adding a
-peak immediately. With it armed, click anywhere on the plot to drop a
-new peak centered at that x-position; right-click cancels placement
-without adding one. The initial amplitude/width guess is estimated
-from the data itself around the clicked point (not a fixed default),
-so a fit is more likely to converge without manual adjustment first.
-Hold **Ctrl** while clicking to seed a negative amplitude instead of
-positive. Repeat for as many peaks as you need, switching
-the lineshape dropdown between clicks if you want a mix of
-lineshapes across peaks. An **Include non-resonant background**
-checkbox is on by default. The peak table lists every current peak
-with a **Remove** action per row.
+Below the bar is the **workspace**: the **Plot** (Plot 1, with Plot 2
+underneath showing the residual by default), the **Parameters** table
+next to it, and the **Results** table below. The panels can be moved,
+floated or closed (**View → Fitting panels** brings them back).
 
-!!! note
-    Which curves are actually *shown* on the plot is controlled by the
-    **Display** dock below, not this table.
+### ① Spectra
 
-## 3. Parameters
+The spectra in the job. Nothing is added automatically:
+**Add from library…** opens a checklist of the Spectra Library (with
+every metadata field as a column and a filter box, so e.g. typing
+"ssp" narrows it down), and **Add file(s)…** loads exported CSVs
+directly. **Remove** (or right-click) takes spectra out again.
 
-An editable table with one row per parameter across the non-resonant
-term and every peak — label, value, error, min/max bounds, a
-**fixed** checkbox, an **expr** field for writing lmfit expression
-constraints between parameters, and a **shared** checkbox (see
-**Batch fit** below — it has no effect on a single-spectrum "Run fit").
+One spectrum is marked **★**: the one shown in the workspace, on which
+you build the model. Double-click another spectrum (or use
+**★ Show in workspace**) to look at it instead; the model is the job's
+model and stays as it is. With one spectrum in the job, **Fit** simply
+fits it.
 
-Rows can optionally be tinted by which peak they belong to — enable
-**Preferences → Fitting → Color parameter table by peak** (off by
-default; see **Settings & Preferences**).
+### ② Model
 
-## 4. Display
+- **New peaks** lineshape, then **Add peaks**: while it's on, every
+  click on Plot 1 places a peak there (Ctrl+click seeds a negative
+  amplitude); right-click, **Esc** or the button again stops. The
+  starting amplitude and width are estimated from the data around the
+  click, against what the model doesn't explain yet.
+- The peak list shows each peak's center; change a peak's lineshape
+  in place, or **Remove** it.
+- **Non-resonant background** is on by default.
+- **Amplitude sign rules** (optional, see *Fitting several
+  polarizations* below).
+- **Templates**: apply a saved model (with its fit range and
+  weighting), **Save as…**, or **Manage…** (rename, delete,
+  export/import as `.json`).
 
-Controls which computed series — Data, Fit total/real/imaginary,
-Residual, and per-peak curves (the exact set differs for homodyne vs.
-heterodyne) — appear on Plot 1 vs. Plot 2, each with its own color
-and line style.
+### ③ Strategy: fitting several spectra
 
-## 5. Fit
+With two or more spectra in the job, choose how they're fit:
 
-- **Fit range** — two spinboxes defining the lower/upper bound of
-  what actually gets fit. The app shades that x-range on Plot 1 so
-  you can see it at a glance, but that shading is purely a display
-  aid — it has nothing to do with the plot's own zoom/pan state.
-  Zooming in or out never changes what gets fit, and moving the Fit
-  range spinboxes never moves the view; if a fit looks like it's
-  ignoring part of your data, check these spinboxes rather than the
-  zoom level. A **Set range to current view** button next to the
-  spinboxes copies the plot's current zoomed x-axis into the fit range
-  in one click, if you'd rather not type the bounds by hand.
-- **Weighting** — for homodyne: None, Statistical (1/√intensity), or
-  Measurement error (SEM). For heterodyne: None or Measurement error
-  (95% CI, per channel) — there's no statistical option here, since
+- **Independent** — each spectrum is fit on its own, all from the same
+  starting model (replicates, unrelated samples).
+- **Sequential** — spectra are fit in the order of the ① list (drag to
+  reorder; the list then shows the order numbers), each one starting
+  from the previous fit's result: for a temperature, concentration or
+  time series where peaks drift. **Pause for review** can stop after
+  every spectrum or at the ones you tick in ①. While paused, the bar
+  shows **Continue ▸** / **Stop**; the paused spectrum's fit is shown in
+  the workspace, where you can adjust it and **Refit this spectrum**.
+  Continue then seeds the next spectrum from that (possibly refit) row.
+- **Global** — all spectra are fit together: parameters marked
+  **Shared** take one common value fitted jointly across every
+  spectrum, the rest are fit per spectrum. Choosing Global shares the
+  peak centers and widths for you (the usual case); the **Share across
+  all spectra** checkboxes and the Parameters table's **Shared ⇄**
+  column (shown only in Global mode) fine-tune that. **Seed amplitudes
+  per spectrum** is explained below.
+
+All spectra in a job must be the same kind (conventional or
+phase-resolved).
+
+### ④ Fit settings
+
+- **Fit range** — what actually gets fit, shaded on Plot 1. It's
+  independent of the plot's zoom: zooming never changes what gets fit.
+  **Use current plot view** copies the visible x-range; **Full range**
+  resets it. The range applies to every spectrum in the job.
+- **Weighting** — for conventional: None, Statistical (1/√intensity), or
+  Measurement error (SEM). For phase-resolved: None or Measurement error
+  (95% CI, per channel) — there's no statistical option there, since
   shot-noise weighting doesn't apply to signed real/imaginary values.
-  Despite the similar names, homodyne's "SEM" and heterodyne's "95% CI"
-  are computed differently (one's a plain standard error, the other's
-  1.96× that) — see the error/uncertainty glossary in
-  **Reference & Tips** if you want the exact formulas.
-- **Run fit** — runs the optimization; a quality readout summarizes
-  the result (redchi/R²/AIC/BIC and a covariance-based "Value ± stderr"
-  per parameter in the table above — the only uncertainty estimate this
-  app computes; see **Reference & Tips** for what it is and isn't).
-- **Fit templates** — save the current model (lineshapes, peaks,
-  constraints, fit range, and weighting) as a named, reusable preset,
-  and apply saved templates to new spectra later. **Manage templates...**
-  opens a dedicated dialog to rename, delete, or export/import templates
-  as a portable `.json` file (e.g. to share with a colleague or back up
-  outside the app's own settings folder).
-- **Export fit (CSV with provenance)** — writes the fit result back
-  out, including full model/weighting/statistics metadata.
+  Despite the similar names, the conventional "SEM" and the
+  phase-resolved "95% CI" are computed differently (one's a plain
+  standard error, the other's 1.96× that) — see the error/uncertainty
+  glossary in **Reference & Tips**.
 
-## 6. Batch fit
+## Parameters
 
-Fits every spectrum in a list **independently**, using whatever
-model/parameters are currently configured in the Model/Parameters/Fit
-docks (list order doesn't matter). Pull spectra in from the Spectra
-Library and/or load files directly; right-click a row to remove it. All
-spectra in a batch must be the same kind (homodyne or heterodyne) —
-mixed kinds are rejected with a warning. Progress is shown in a
-cancelable dialog.
+One row per parameter of the non-resonant term and every peak: value,
+**±** (its standard error after a fit), min/max bounds, **Fixed**, and,
+in Global mode, **Shared ⇄**. Right-click the header to show the
+**Expr** column for lmfit expression constraints between parameters.
+Edits update the plot live and can be undone (**Edit → Undo**). A value
+that ends a fit at one of its bounds is highlighted. An amplitude with
+sign rules shows them next to its name, e.g. "Amplitude (ppp −, ssp +)".
 
-**Shared parameters:** check a parameter's **shared** box in the
-Parameters table before running a batch fit, and that parameter is
-optimized as one value held in common across every spectrum in the
-batch — a true joint fit, not fit-then-average — while everything else
-stays independent per spectrum as usual. Any shared parameter
-automatically turns the next **Run batch fit** into this joint mode;
-no separate button. The Multi-fit results table's per-row redchi is
-then that spectrum's own diagnostic (shared parameters count as fixed,
-not free, for that row), not the one combined redchi for the whole
-joint fit shown in the status line above the table. Has no effect on
-Sequential fit, whose seeded-chain design is a different thing
-entirely.
+Above the table, a line says what you're editing: normally **the
+starting model**. Below it are the fit's χ²ᵣ/R²/AIC/BIC,
+**Export fit…** (a CSV with full provenance) and **Send to Spectra
+Library**, which adds the spectrum with its fit straight to the
+library, where the fit curves can be plotted.
 
-**Export batch summary (CSV)** writes one summary CSV covering every
-row (label, status, redchi/R²/AIC/BIC, and every parameter's
-value/stderr), and — in the same export — one additional per-spectrum
-CSV per row, in the same folder, with the exact same full
-model/weighting/statistics provenance header as the single-spectrum
-**Export fit (CSV with provenance)** button.
+Rows can optionally be tinted by peak — **Preferences → Fitting →
+Color parameter table by peak**.
 
-## 7. Sequential fit
+## Plot
 
-A **seeded chain**: each spectrum in list order is fit starting from
-the *previous* spectrum's converged parameters — useful for a series
-where peaks drift gradually and a fresh fit might not converge
-reliably on its own. Drag rows to reorder the chain.
+Plot 1 shows the data, the fit and the shaded fit range; Plot 2 (toggle
+**Show Plot 2**) the residual. **Curves…** chooses which curves appear
+on which plot — data, fit total/real/imaginary, residual(s), and each
+peak — with their color and line style.
 
-Mark any row as a **checkpoint** if you want to inspect that spectrum
-before the chain continues past it. Concretely: running the chain
-fits row 1, feeds its converged result into row 2 as the starting
-point, and so on; when it reaches a checkpointed row, it pauses
-immediately after that spectrum finishes, loads it into the normal
-single-spectrum workspace above (Model / Parameters / Fit docks) so
-you can check the fit quality or manually re-run it with different
-settings, and waits there — it does **not** resume on its own.
-Continuing the run seeds the next row from whatever is currently in
-the workspace, including any manual edits you made during the pause.
+## Results
 
-## 8. Multi-fit results & plots
+A multi-spectrum fit fills the **Results** table: one row per spectrum
+with a status mark (✓ converged, ⚠ did not converge, ✗ failed), χ²ᵣ,
+R², and one column per fitted parameter as value ± error (shared ones
+marked ⇄). A global fit adds the combined χ²ᵣ and what was shared to
+the line above the table; each row's χ²ᵣ is that spectrum's own
+diagnostic.
 
-Both Batch and Sequential runs populate a shared results table with
-per-row drill-down, plus dedicated multi-fit, primary, and secondary
-plot panels.
+- **Click a row** (or move with ↑/↓) to view that fit in the workspace.
+  The line above the Parameters table then reads *Viewing: …*, and the
+  starting model is untouched — you can explore and edit the viewed
+  values freely. From there: **Refit this spectrum** (fits it again from
+  the values shown, with the current fit range and weighting, and
+  updates its row), **Use as starting model**, or **Back to starting
+  model**.
+- **Sort** by any column (e.g. worst χ²ᵣ first) by clicking its header.
+- **Right-click a column header** to **Plot trend**: the **Trend** tab
+  plots that parameter across the spectra, against their order or any
+  numeric metadata field (temperature, concentration, …). **Overlay**
+  shows every spectrum with its fit.
+- **Refit selected** fits the selected rows again from the starting
+  model — e.g. after improving it for a spectrum that failed. Rows of a
+  global fit can only be refit together (run the global fit again).
+- **Send to Spectra Library** adds the selected fits (all, if none is
+  selected); **Export summary…** writes one summary CSV (every row's
+  status, statistics and parameter values/errors) plus one fit CSV with
+  full provenance per spectrum.
 
-Fitted curves can be exported and reloaded into the **Spectra
-Library**, where
-they appear as additional plottable columns alongside the original
-spectrum.
+Every run and refit is one undo step.
+
+## Fitting several polarizations of one sample
+
+The same sample measured as ssp, ppp, sps, ... has the same resonances
+— so the same peak centers and widths — but amplitudes that can differ
+by orders of magnitude or in sign, or nearly vanish in one combination.
+That makes a single good starting point hard to find. The workflow:
+
+1. **①** Add every polarization, and build the model on the clearest
+   one (★, often ssp).
+2. **③** Choose **Global** — peak centers and widths become shared.
+3. **Fit**.
+
+With **Seed amplitudes per spectrum** checked (the default), the joint
+fit doesn't start every spectrum from the reference's amplitudes.
+First, with the shared shapes held fixed, each spectrum's own
+amplitudes and non-resonant background are solved on their own. For
+phase-resolved data that is an exact linear solve that needs no starting
+guess. For conventional data the app tries every combination of
+amplitude signs, which is where |χ|² fits usually go wrong. The joint
+fit then starts from those values. It also runs once from the plain
+starting model, and the better of the two (lower combined χ²ᵣ) is kept,
+so seeding never does worse than an unseeded joint fit. The results
+line says "amplitudes seeded per spectrum" when the seeded start won.
+
+A peak that is absent in one polarization is fine: its amplitude goes
+to about zero there and doesn't disturb the shared shape.
+
+**Sign rules.** If you know a peak's sign in a polarization (for
+instance + in ssp and − in ppp), open **②** and pick the metadata field
+that holds the polarization under **Polarization field** (from your
+filename patterns or metadata edits; a field whose name starts with
+"pol" is picked automatically). Then **Sign rules…** shows a grid of
+peaks × polarizations where each cell is +, − or free. A rule keeps that
+amplitude ≥ 0 or ≤ 0 whenever a spectrum with that polarization is fit,
+in every kind of fit. The rules are part of the model, saved in
+templates and exported fits. For conventional data, where only |χ|² is
+measured and the whole model with every sign flipped fits equally well,
+a rule chooses which of those two mirror solutions you get. If a rule
+disagrees with the data, the amplitude ends up pinned at 0 and its
+value is highlighted as being at a bound — the signal to recheck the
+rule.

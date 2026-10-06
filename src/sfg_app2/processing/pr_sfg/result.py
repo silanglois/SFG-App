@@ -5,13 +5,13 @@ import pandas as pd
 
 
 @dataclass
-class HDSFGResult:
-    """Output of the HD-SFG processing pipeline.
+class PRSFGResult:
+    """Output of the PR-SFG processing pipeline.
 
     Contains the complex χ⁽²⁾ (from the per-frame mean -- mathematically
     identical to normalizing the once-averaged signal, since every step
     of the pipeline up to normalization is linear), its derived phase
-    and homodyne intensity (always computed from that single averaged
+    and |χ⁽²⁾|² (always computed from that single averaged
     χ, never by averaging each frame's own phase/intensity separately --
     see step_normalize()'s docstring for why), and per-frame statistics
     (95% CI error bars, signal-frame variability only).
@@ -21,11 +21,11 @@ class HDSFGResult:
     wavenumber:    uniform wavenumber axis (cm⁻¹)
     complex_chi:   complex χ⁽²⁾ (per-frame mean)
     phase:         phase in degrees (-180, 180], from complex_chi
-    homodyne:      |χ⁽²⁾|², from complex_chi
+    abs2:      |χ⁽²⁾|², from complex_chi
     real_err:      95% CI on real part (per-frame)
     imag_err:      95% CI on imaginary part (per-frame)
     phase_err:     95% CI on phase (per-frame)
-    homodyne_err:  95% CI on homodyne (per-frame)
+    abs2_err:  95% CI on |χ⁽²⁾|² (per-frame)
     n_frames:      number of frames processed
     metadata:      inherited from signal DataFile
     history:       processing step labels
@@ -34,12 +34,12 @@ class HDSFGResult:
     wavenumber: np.ndarray
     complex_chi: np.ndarray
     phase: np.ndarray
-    homodyne: np.ndarray
+    abs2: np.ndarray
 
     real_err: np.ndarray
     imag_err: np.ndarray
     phase_err: np.ndarray
-    homodyne_err: np.ndarray
+    abs2_err: np.ndarray
 
     n_frames: int
     metadata: dict = field(default_factory=dict)
@@ -57,11 +57,11 @@ class HDSFGResult:
             "Real":          self.complex_chi.real,
             "Imaginary":     self.complex_chi.imag,
             "Phase":         self.phase,
-            "Homodyne":      self.homodyne,
+            "Chi2_abs2":      self.abs2,
             "Real_err":      self.real_err,
             "Imag_err":      self.imag_err,
             "Phase_err":     self.phase_err,
-            "Homodyne_err":  self.homodyne_err,
+            "Chi2_abs2_err":  self.abs2_err,
         })
 
     # ── Plotting ──────────────────────────────────────────────────────────────
@@ -74,11 +74,11 @@ class HDSFGResult:
         xlim: tuple[float, float] | None = None,
         **kwargs,
     ):
-        """Plot one component of the HD-SFG result.
+        """Plot one component of the PR-SFG result.
 
         Parameters
         ----------
-        component : 'real' | 'imaginary' | 'phase' | 'homodyne'
+        component : 'real' | 'imaginary' | 'phase' | 'abs2'
         show_error : show 95% CI bands (only meaningful when n_frames > 1)
         xlim : optional (x_min, x_max) wavenumber range to display
         """
@@ -94,7 +94,7 @@ class HDSFGResult:
             "real":      (self.complex_chi.real, self.real_err),
             "imaginary": (self.complex_chi.imag, self.imag_err),
             "phase":     (self.phase,            self.phase_err),
-            "homodyne":  (self.homodyne,          self.homodyne_err),
+            "abs2":  (self.abs2,          self.abs2_err),
         }.get(comp, (self.complex_chi.imag, self.imag_err))
 
         label = kwargs.pop("label", component)
@@ -112,7 +112,7 @@ class HDSFGResult:
             "real":      r"Re($\chi^{(2)}$) (a.u.)",
             "imaginary": r"Im($\chi^{(2)}$) (a.u.)",
             "phase":     "Phase (°)",
-            "homodyne":  r"$|\chi^{(2)}|^2$ (a.u.)",
+            "abs2":  r"$|\chi^{(2)}|^2$ (a.u.)",
         }.get(comp, "Amplitude (a.u.)")
         ax.set_ylabel(ylabel)
 
@@ -120,6 +120,6 @@ class HDSFGResult:
 
     def __repr__(self) -> str:
         return (
-            f"HDSFGResult(n_frames={self.n_frames}, "
+            f"PRSFGResult(n_frames={self.n_frames}, "
             f"wavenumber=[{self.wavenumber[0]:.0f}–{self.wavenumber[-1]:.0f}] cm⁻¹)"
         )

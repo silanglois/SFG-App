@@ -14,7 +14,7 @@ SETTINGS_FILE = CONFIG_DIR / "dock_layout_settings.json"
 class DockLayoutSettings:
     """Load, save, and expose per-panel QMainWindow.saveState() blobs
     (base64-encoded for JSON), keyed by an arbitrary panel name (e.g.
-    "homodyne", "hd_sfg"). QMainWindow.restoreState() silently ignores
+    "conventional", "pr_sfg"). QMainWindow.restoreState() silently ignores
     dock object names it doesn't recognize, so a saved layout stays valid
     even after docks are added/removed/renamed in a later version.
     """

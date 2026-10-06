@@ -12,10 +12,12 @@ SETTINGS_FILE = CONFIG_DIR / "fitting_display_settings.json"
 
 class FittingDisplaySettings:
     """Load, save, and hold the user's Fitting-tab display preferences.
-    Off by default."""
+    Off by default. `tour_seen` records that the first-use tour of the
+    job chips bar has been shown (or skipped)."""
 
     def __init__(self):
         self.color_parameter_table_by_peak: bool = False
+        self.tour_seen: bool = False
         self.load()
 
     def load(self):
@@ -25,18 +27,21 @@ class FittingDisplaySettings:
                 self.color_parameter_table_by_peak = bool(
                     data.get("color_parameter_table_by_peak", False)
                 )
+                self.tour_seen = bool(data.get("tour_seen", False))
                 logger.info("Loaded fitting display settings from %s.", SETTINGS_FILE)
             else:
                 logger.info("No fitting display settings file found — using defaults (off).")
         except Exception as e:
             logger.warning("Failed to load fitting display settings: %s — using defaults.", e)
             self.color_parameter_table_by_peak = False
+            self.tour_seen = False
 
     def save(self) -> bool:
         try:
             CONFIG_DIR.mkdir(parents=True, exist_ok=True)
             SETTINGS_FILE.write_text(json.dumps({
                 "color_parameter_table_by_peak": self.color_parameter_table_by_peak,
+                "tour_seen": self.tour_seen,
             }, indent=2))
             logger.info("Fitting display settings saved to %s.", SETTINGS_FILE)
             return True

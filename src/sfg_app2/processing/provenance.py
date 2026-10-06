@@ -6,6 +6,9 @@ from pathlib import Path
 
 import pandas as pd
 
+from .kinds import PHASE_RESOLVED, header_token, normalize_kind
+from .smoothing import SmoothingSpec
+
 
 def build_provenance_from_history(spectrum) -> dict:
     """Fallback provenance for spectra not processed via the pipeline."""
@@ -16,9 +19,18 @@ def build_provenance_from_history(spectrum) -> dict:
     }
 
 
+# Data columns renamed since earlier versions wrote them: phase-resolved
+# exports called the |chi|^2 column "Homodyne". Renamed on read, so nothing
+# downstream ever sees the old name.
+LEGACY_COLUMNS = {"Homodyne": "Chi2_abs2", "Homodyne_err": "Chi2_abs2_err"}
+
+
 def load_csv_skip_comments(path: Path) -> pd.DataFrame:
     """Load CSV, skipping # comment lines in the header."""
-    return pd.read_csv(path, comment="#")
+    df = pd.read_csv(path, comment="#")
+    legacy = {old: new for old, new in LEGACY_COLUMNS.items()
+              if old in df.columns and new not in df.columns}
+    return df.rename(columns=legacy) if legacy else df
 
 
 def format_markers(markers) -> str:
@@ -44,7 +56,44 @@ def parse_markers(text: str | None) -> list[list[float]]:
     return points
 
 
-def format_homodyne_provenance(provenance: dict) -> list[str]:
+def format_bg_smoothing(provenance: dict) -> list[str]:
+    """Background smoothing as one JSON line per background -- JSON keeps
+    the method + its parameters lossless whatever the method is, and the
+    header parser splits only on the first colon, so the JSON's own
+    colons survive."""
+    smoothing = provenance.get("bg_smoothing") or {}
+    lines = []
+    for key, label in (("sample", "Sample"), ("reference", "Reference")):
+        spec = SmoothingSpec.from_dict(smoothing.get(key))
+        lines.append(f"# {label} BG smoothing json:  {json.dumps(spec.to_dict())}")
+    return lines
+
+
+def parse_bg_smoothing(raw: dict) -> dict:
+    """Inverse of format_bg_smoothing(). An older phase-resolved export only
+    has the Savitzky-Golay "BG smoothing window/order" pair (applied to
+    both backgrounds); a file with neither had no smoothing."""
+    out = {}
+    for key in ("sample", "reference"):
+        text = raw.get(f"{key} bg smoothing json")
+        try:
+            out[key] = SmoothingSpec.from_dict(json.loads(text)).to_dict() if text else None
+        except (ValueError, TypeError):
+            out[key] = None
+    if out["sample"] is None and out["reference"] is None:
+        try:
+            window = int(float(raw.get("bg smoothing window") or 0))
+            order = int(float(raw.get("bg smoothing order") or 0))
+        except ValueError:
+            window = order = 0
+        if window > 0 and order > 0:
+            legacy = SmoothingSpec("savgol", {"window": window, "order": order}).to_dict()
+            return {"sample": legacy, "reference": dict(legacy)}
+    none = SmoothingSpec().to_dict()
+    return {key: value or dict(none) for key, value in out.items()}
+
+
+def format_conventional_provenance(provenance: dict) -> list[str]:
     lines = []
 
     d = provenance.get("despike", {})
@@ -85,6 +134,7 @@ def format_homodyne_provenance(provenance: dict) -> list[str]:
         ]
     else:
         lines.append("# Background subtraction: not applied")
+    lines += format_bg_smoothing(provenance)
 
     norm = provenance.get("normalization", {})
     lines.append(
@@ -103,7 +153,7 @@ def format_homodyne_provenance(provenance: dict) -> list[str]:
     return lines
 
 
-def format_heterodyne_provenance(provenance: dict) -> list[str]:
+def format_phase_resolved_provenance(provenance: dict) -> list[str]:
     d = provenance.get("despike", {})
     bg = provenance.get("background_subtraction", {})
     fft = provenance.get("fft_filter", {})
@@ -138,8 +188,9 @@ def format_heterodyne_provenance(provenance: dict) -> list[str]:
         f"# BG subtraction offset:              {bg.get('bg_offset', 'N/A')}",
         f"# BG subtraction edge_left_pts:       {bg.get('edge_left', 'N/A')}",
         f"# BG subtraction edge_right_pts:      {bg.get('edge_right', 'N/A')}",
-        f"# BG smoothing window:                {bg.get('bg_smoothing_window', 'N/A')}",
-        f"# BG smoothing order:                 {bg.get('bg_smoothing_order', 'N/A')}",
+    ]
+    lines += format_bg_smoothing(provenance)
+    lines += [
         f"# Signal smoothing window:            {bg.get('sig_smoothing_window', 'N/A')}",
         f"# Signal smoothing order:             {bg.get('sig_smoothing_order', 'N/A')}",
         f"# FFT window_type:                    {fft.get('window_type', 'N/A')}",
@@ -167,7 +218,7 @@ def format_fit_section(model_dict: dict, weighting: str, redchi: float,
     one compact JSON line (rather than a bespoke per-parameter line
     format) so it round-trips exactly via parse_fit_json() — colons
     inside the JSON are safe since header parsing only splits on the
-    *first* colon in a line. `kind` ("homodyne"/"heterodyne") records
+    *first* colon in a line. `kind` ("conventional"/"phase_resolved") records
     which fit function produced this payload, since a restored
     FitModelSpec looks identical either way. `param_errors` (local
     param key -> stderr|None, e.g. from FitResult.param_results) is
@@ -216,8 +267,7 @@ def csv_with_provenance_text(spectrum, kind: str, label: str,
         build_provenance_from_history(spectrum)
 
     header_lines = ["# SFG-App export"]
-    if kind == "heterodyne":
-        header_lines.append("# Type:        heterodyne")
+    header_lines.append(f"# Type:        {header_token(kind)}")
     header_lines += [
         f"# Label:       {label}",
         f"# Exported:    {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
@@ -232,10 +282,10 @@ def csv_with_provenance_text(spectrum, kind: str, label: str,
         "# --- Processing parameters ---",
     ]
 
-    if kind == "heterodyne":
-        header_lines += format_heterodyne_provenance(provenance)
+    if normalize_kind(kind) == PHASE_RESOLVED:
+        header_lines += format_phase_resolved_provenance(provenance)
     else:
-        header_lines += format_homodyne_provenance(provenance)
+        header_lines += format_conventional_provenance(provenance)
 
     if spectrum.metadata:
         header_lines += ["#", "# --- Sample metadata ---"]
@@ -258,8 +308,8 @@ def csv_with_provenance_text(spectrum, kind: str, label: str,
 def write_csv_with_provenance(spectrum, kind: str, label: str, out_path: Path,
                                fit_section: list[str] | None = None):
     """Write a CSV with a commented provenance header, readable by pandas
-    via pd.read_csv(path, comment='#'). `kind` is "homodyne" or
-    "heterodyne". `fit_section` (from format_fit_section()) is appended
+    via pd.read_csv(path, comment='#'). `kind` is "conventional" or
+    "phase_resolved". `fit_section` (from format_fit_section()) is appended
     after sample metadata, if given.
     """
     text = csv_with_provenance_text(spectrum, kind, label, fit_section)
@@ -306,8 +356,9 @@ def parse_export_header(path: Path) -> tuple[list[str], dict, dict]:
         if history_str else ["loaded_from_file"]
     )
 
-    is_heterodyne = raw.get("type", "").strip().lower() == "heterodyne"
-    provenance["kind"] = "heterodyne" if is_heterodyne else "homodyne"
+    # normalize_kind() also accepts the pre-rename "heterodyne".
+    provenance["kind"] = normalize_kind(raw.get("type"))
+    is_phase_resolved = provenance["kind"] == PHASE_RESOLVED
 
     def parse_excluded(key: str) -> list[int]:
         v = raw.get(key, "").strip().lower()
@@ -322,7 +373,7 @@ def parse_export_header(path: Path) -> tuple[list[str], dict, dict]:
         "reference_background": parse_excluded("excluded frames reference_background"),
     }
 
-    if is_heterodyne:
+    if is_phase_resolved:
         provenance["despike"] = {
             "signal": {"window": raw.get("despike signal window"),
                        "threshold": raw.get("despike signal threshold")},
@@ -339,8 +390,6 @@ def parse_export_header(path: Path) -> tuple[list[str], dict, dict]:
             "bg_offset": raw.get("bg subtraction offset"),
             "edge_left": raw.get("bg subtraction edge_left_pts"),
             "edge_right": raw.get("bg subtraction edge_right_pts"),
-            "bg_smoothing_window": raw.get("bg smoothing window"),
-            "bg_smoothing_order": raw.get("bg smoothing order"),
             "sig_smoothing_window": raw.get("signal smoothing window"),
             "sig_smoothing_order": raw.get("signal smoothing order"),
         }
@@ -390,6 +439,7 @@ def parse_export_header(path: Path) -> tuple[list[str], dict, dict]:
             "wavelength_nm": raw.get("wavelength"),
         }
 
+    provenance["bg_smoothing"] = parse_bg_smoothing(raw)
     provenance["fit_json"] = raw.get("fit json")
 
     metadata["source_filename"] = path.name

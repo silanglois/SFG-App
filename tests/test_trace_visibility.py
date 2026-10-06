@@ -36,12 +36,12 @@ def test_hide_data_does_not_suppress_fit_curves():
     assert _resolve(is_fit=True, hide_data=True) is None
 
 
-def test_unchecked_hd_component_is_reported_as_such():
-    assert _resolve(component_checked=False) is HiddenReason.HD_COMPONENT_UNCHECKED
+def test_unchecked_pr_component_is_reported_as_such():
+    assert _resolve(component_checked=False) is HiddenReason.PR_COMPONENT_UNCHECKED
 
 
 def test_unchecked_fit_component_is_reported_separately():
-    """A fit curve and an HD component are hidden by different panels, so
+    """A fit curve and a PR component are hidden by different panels, so
     they must not share one explanation."""
     assert _resolve(is_fit=True, component_checked=False) is HiddenReason.FIT_COMPONENT_UNCHECKED
 
@@ -57,7 +57,7 @@ def test_panel_reason_wins_over_trace_override():
     assert reason is HiddenReason.HIDE_DATA
 
 
-def test_homodyne_amplitude_is_never_gated_by_a_component_panel():
+def test_conventional_amplitude_is_never_gated_by_a_component_panel():
     assert _resolve(component=AMPLITUDE_COMPONENT, component_checked=True) is None
 
 

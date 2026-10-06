@@ -1,5 +1,5 @@
 """Tests for src/sfg_app2/processing/fitting.py -- pure-Python physics
-and lmfit wiring for homodyne fitting, no Qt involved.
+and lmfit wiring for conventional fitting, no Qt involved.
 
 Run with:
     uv run pytest tests/test_fitting.py -v
@@ -9,8 +9,8 @@ import pytest
 
 from sfg_app2.processing.fitting import (
     FitParam, PeakInstance, FitModelSpec, default_peak, estimate_peak_seed,
-    evaluate_homodyne, evaluate_peak_component,
-    fit_homodyne, compute_weights, get_lineshape, available_lineshapes,
+    evaluate_conventional, evaluate_peak_component,
+    fit_conventional, compute_weights, get_lineshape, available_lineshapes,
     fit_model_spec_from_provenance_payload,
 )
 
@@ -228,14 +228,14 @@ def test_new_lineshapes_recover_known_parameters(key, truth):
     spec.peaks = [default_peak(key, center=truth["center"])]
     for name, value in truth.items():
         spec.peaks[0].params[name] = FitParam(value=value)
-    clean = evaluate_homodyne(omega, spec)
+    clean = evaluate_conventional(omega, spec)
     noisy = clean + rng.normal(0.0, 0.002 * clean.max(), omega.size)
 
     start = FitModelSpec.empty()
     start.peaks = [default_peak(key, center=truth["center"] - 2.0,
                                 amplitude=truth["amplitude"] * 0.7,
                                 width=truth["width"] * 1.5)]
-    fitted = fit_homodyne(omega, noisy, start).spec.peaks[0].params
+    fitted = fit_conventional(omega, noisy, start).spec.peaks[0].params
 
     for name, value in truth.items():
         assert fitted[name].value == pytest.approx(value, rel=0.05), name
@@ -250,11 +250,11 @@ def test_voigt_widths_are_separately_identifiable():
     spec.peaks[0].params["amplitude"] = FitParam(value=30.0)
     spec.peaks[0].params["width"] = FitParam(value=6.0)
     spec.peaks[0].params["gauss_width"] = FitParam(value=18.0)
-    y = evaluate_homodyne(omega, spec)
+    y = evaluate_conventional(omega, spec)
 
     start = FitModelSpec.empty()
     start.peaks = [default_peak("voigt", center=2900.0, amplitude=30.0, width=12.0)]
-    fitted = fit_homodyne(omega, y, start).spec.peaks[0].params
+    fitted = fit_conventional(omega, y, start).spec.peaks[0].params
     assert fitted["width"].value == pytest.approx(6.0, rel=0.1)
     assert fitted["gauss_width"].value == pytest.approx(18.0, rel=0.1)
 
@@ -268,7 +268,7 @@ def test_saved_voigt_fit_round_trips_through_provenance():
     spec.peaks = [default_peak("voigt", center=2900.0, amplitude=3.0, width=10.0)]
     lines = provenance.format_fit_section(
         spec.to_dict(), weighting="none", redchi=1.0, r_squared=0.99,
-        aic=1.0, bic=1.0, kind="homodyne",
+        aic=1.0, bic=1.0, kind="conventional",
     )
     fit_json = next(l for l in lines if "Fit json:" in l).split("Fit json:", 1)[1].strip()
     restored = fit_model_spec_from_provenance_payload(
@@ -325,7 +325,7 @@ def test_coherent_sum_differs_from_incoherent_sum_of_squares():
         ],
     )
     omega = np.linspace(3200, 3400, 50)
-    coherent = evaluate_homodyne(omega, spec)
+    coherent = evaluate_conventional(omega, spec)
     incoherent = evaluate_peak_component(omega, spec.peaks[0]) + evaluate_peak_component(omega, spec.peaks[1])
     assert not np.allclose(coherent, incoherent), \
         "|sum|^2 should differ from sum(|.|^2) -- proves cross-interference terms are present"
@@ -333,7 +333,7 @@ def test_coherent_sum_differs_from_incoherent_sum_of_squares():
 
 # ── Ground-truth fit recovery ────────────────────────────────────────────────
 
-def test_fit_homodyne_recovers_ground_truth_single_peak():
+def test_fit_conventional_recovers_ground_truth_single_peak():
     true_spec = FitModelSpec(
         nonresonant={"amplitude": FitParam(value=2.0), "phase": FitParam(value=0.3)},
         peaks=[PeakInstance("lorentzian", {
@@ -341,7 +341,7 @@ def test_fit_homodyne_recovers_ground_truth_single_peak():
         })],
     )
     omega = np.linspace(3200, 3400, 200)
-    true_intensity = evaluate_homodyne(omega, true_spec)
+    true_intensity = evaluate_conventional(omega, true_spec)
     noisy_intensity = true_intensity + rng.normal(0, 0.02 * true_intensity.max(), size=omega.shape)
 
     guess_spec = FitModelSpec(
@@ -350,7 +350,7 @@ def test_fit_homodyne_recovers_ground_truth_single_peak():
             "amplitude": FitParam(value=6.0), "center": FitParam(value=3290.0), "width": FitParam(value=20.0, min=0.0),
         })],
     )
-    result = fit_homodyne(omega, noisy_intensity, guess_spec)
+    result = fit_conventional(omega, noisy_intensity, guess_spec)
     assert result.success
     fitted = result.spec.peaks[0].params
     assert abs(fitted["center"].value - 3300.0) < 2.0
@@ -359,7 +359,7 @@ def test_fit_homodyne_recovers_ground_truth_single_peak():
     assert result.r_squared > 0.9
 
 
-def test_fit_homodyne_expr_constraint_ties_two_peak_widths():
+def test_fit_conventional_expr_constraint_ties_two_peak_widths():
     tied_spec = FitModelSpec(
         nonresonant={"amplitude": FitParam(value=0.5, min=0.0), "phase": FitParam(value=0.0, min=-np.pi, max=np.pi)},
         peaks=[
@@ -380,14 +380,14 @@ def test_fit_homodyne_expr_constraint_ties_two_peak_widths():
         ],
     )
     omega = np.linspace(3200, 3400, 200)
-    intensity = evaluate_homodyne(omega, two_peak_true) + rng.normal(0, 0.5, size=omega.shape)
-    result = fit_homodyne(omega, intensity, tied_spec)
+    intensity = evaluate_conventional(omega, two_peak_true) + rng.normal(0, 0.5, size=omega.shape)
+    result = fit_conventional(omega, intensity, tied_spec)
     w0 = result.spec.peaks[0].params["width"].value
     w1 = result.spec.peaks[1].params["width"].value
     assert abs(w0 - w1) < 1e-6
 
 
-def test_fit_homodyne_flags_parameter_pinned_at_bound():
+def test_fit_conventional_flags_parameter_pinned_at_bound():
     true_spec = FitModelSpec(
         nonresonant={"amplitude": FitParam(value=2.0), "phase": FitParam(value=0.3)},
         peaks=[PeakInstance("lorentzian", {
@@ -403,8 +403,8 @@ def test_fit_homodyne_flags_parameter_pinned_at_bound():
             "width": FitParam(value=15.0, vary=False),
         })],
     )
-    pinned_intensity = evaluate_homodyne(omega, true_spec)  # true amplitude ~8, will hit max=1.0
-    result = fit_homodyne(omega, pinned_intensity, pinned_spec)
+    pinned_intensity = evaluate_conventional(omega, true_spec)  # true amplitude ~8, will hit max=1.0
+    result = fit_conventional(omega, pinned_intensity, pinned_spec)
     assert result.param_results["p0_amplitude"].at_bound
     assert abs(result.param_results["p0_amplitude"].value - 1.0) < 1e-6
 
@@ -533,7 +533,7 @@ def test_estimate_peak_seed_handles_edge_click(idx):
     assert np.isfinite(width) and width > 0
 
 
-def test_estimate_peak_seed_heterodyne_linear_relation():
+def test_estimate_peak_seed_phase_resolved_linear_relation():
     ls = get_lineshape("lorentzian")
     omega = np.linspace(3200.0, 3400.0, 400)
     true_amplitude, true_center, true_width = 4.0, 3300.0, 12.0

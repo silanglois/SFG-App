@@ -1,7 +1,7 @@
 # processor.py — now a thin wrapper over steps.py
 from __future__ import annotations
-from .config import HDSFGConfig
-from .result import HDSFGResult
+from .config import PRSFGConfig
+from .result import PRSFGResult
 from .steps import (
     DeSpikeParams,
     step_despike, step_average, step_bg_smooth,
@@ -9,12 +9,12 @@ from .steps import (
 )
 
 
-def process_hd_sfg(
+def process_pr_sfg(
     matched_set,
-    config: HDSFGConfig,
+    config: PRSFGConfig,
     return_diagnostics: bool = False,
-) -> HDSFGResult:
-    """Full HD-SFG pipeline in one call.
+) -> PRSFGResult:
+    """Full PR-SFG pipeline in one call.
     return_diagnostics kept for notebook compatibility but now returns
     the step data classes directly rather than a separate Diagnostics object.
     """
@@ -29,7 +29,7 @@ def process_hd_sfg(
     result    = step_normalize(fft_data, config)
 
     result.metadata   = matched_set.signal.metadata.copy()
-    result.history    = ["hd_sfg_processing"]
+    result.history    = ["pr_sfg_processing"]
     result.provenance = {"config": config.__dict__,
                          "signal": matched_set.signal.path.name}
 

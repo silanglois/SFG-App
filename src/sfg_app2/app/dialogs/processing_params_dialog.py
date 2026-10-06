@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 
 from sfg_app2.app.dialogs._multi_entry_table import merge_entries_into_wide_rows
+from sfg_app2.processing.smoothing import SmoothingSpec
 
 
 def _fmt(value) -> str:
@@ -26,6 +27,14 @@ def _despike_rows(despike: dict) -> list[tuple[str, str]]:
     return rows
 
 
+def _bg_smoothing_rows(provenance: dict) -> list[tuple[str, str]]:
+    smoothing = provenance.get("bg_smoothing") or {}
+    return [
+        (f"{label} BG smoothing", SmoothingSpec.from_dict(smoothing.get(key)).describe())
+        for key, label in (("sample", "Sample"), ("reference", "Reference"))
+    ]
+
+
 def _source_rows(provenance: dict) -> list[tuple[str, str]]:
     return [
         ("Signal file",               _fmt(provenance.get("signal"))),
@@ -35,7 +44,7 @@ def _source_rows(provenance: dict) -> list[tuple[str, str]]:
     ]
 
 
-def _homodyne_rows(provenance: dict) -> list[tuple[str, str]]:
+def _conventional_rows(provenance: dict) -> list[tuple[str, str]]:
     rows = _source_rows(provenance)
     rows += _despike_rows(provenance.get("despike", {}))
 
@@ -45,6 +54,7 @@ def _homodyne_rows(provenance: dict) -> list[tuple[str, str]]:
         ("Background subtraction — signal offset", _fmt(bg.get("signal_offset"))),
         ("Background subtraction — ref offset",    _fmt(bg.get("ref_offset"))),
     ]
+    rows += _bg_smoothing_rows(provenance)
 
     norm = provenance.get("normalization", {})
     rows.append(("Normalization", "applied" if norm.get("applied") else "not applied"))
@@ -57,7 +67,7 @@ def _homodyne_rows(provenance: dict) -> list[tuple[str, str]]:
     return rows
 
 
-def _heterodyne_rows(provenance: dict) -> list[tuple[str, str]]:
+def _phase_resolved_rows(provenance: dict) -> list[tuple[str, str]]:
     rows = _source_rows(provenance)
     rows += _despike_rows(provenance.get("despike", {}))
 
@@ -66,8 +76,9 @@ def _heterodyne_rows(provenance: dict) -> list[tuple[str, str]]:
         ("BG subtraction — offset",          _fmt(bg.get("bg_offset"))),
         ("BG subtraction — edge left (pts)", _fmt(bg.get("edge_left"))),
         ("BG subtraction — edge right (pts)", _fmt(bg.get("edge_right"))),
-        ("BG smoothing — window",            _fmt(bg.get("bg_smoothing_window"))),
-        ("BG smoothing — order",             _fmt(bg.get("bg_smoothing_order"))),
+    ]
+    rows += _bg_smoothing_rows(provenance)
+    rows += [
         ("Signal smoothing — window",        _fmt(bg.get("sig_smoothing_window"))),
         ("Signal smoothing — order",         _fmt(bg.get("sig_smoothing_order"))),
     ]
@@ -162,9 +173,9 @@ class ProcessingParamsDialog(QDialog):
     @staticmethod
     def _rows_for_entry(entry) -> list[tuple[str, str]]:
         provenance = getattr(entry.spectrum, "provenance", None) or {}
-        if entry.kind == "heterodyne":
-            return _heterodyne_rows(provenance)
-        return _homodyne_rows(provenance)
+        if entry.kind == "phase_resolved":
+            return _phase_resolved_rows(provenance)
+        return _conventional_rows(provenance)
 
     def _on_mode_changed(self, combined: bool):
         self._prev_button.setVisible(not combined)

@@ -6,8 +6,8 @@ import matplotlib.gridspec as gridspec
 
 
 @dataclass
-class HDSFGDiagnostics:
-    """Intermediate arrays from the HD-SFG pipeline, captured during processing.
+class PRSFGDiagnostics:
+    """Intermediate arrays from the PR-SFG pipeline, captured during processing.
     Used for visual inspection in notebooks or a future review UI.
 
     All arrays share the same uniform wavenumber/time axis unless noted.
@@ -214,5 +214,5 @@ class HDSFGDiagnostics:
         self.plot_ifft(ax=fig.add_subplot(gs[2, 0]), xlim=xlim)
         self.plot_final(ax=fig.add_subplot(gs[2, 1]), xlim=xlim)
 
-        fig.suptitle("HD-SFG Processing Diagnostics", fontsize=13, y=1.01)
+        fig.suptitle("PR-SFG Processing Diagnostics", fontsize=13, y=1.01)
         return fig

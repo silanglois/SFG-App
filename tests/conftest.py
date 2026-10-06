@@ -74,18 +74,18 @@ def _frame(**columns) -> pd.DataFrame:
 
 
 @pytest.fixture
-def make_homodyne_entry():
-    """Builds a checked homodyne SpectrumEntry (Frame/Wavenumber/Intensity).
+def make_conventional_entry():
+    """Builds a checked conventional SpectrumEntry (Frame/Wavenumber/Intensity).
 
-    The Frame column is required: _refresh_plot routes homodyne entries
+    The Frame column is required: _refresh_plot routes conventional entries
     through ProcessedSpectrum.frame(1).
     """
     from sfg_app2.app.tabs.processed_results import SpectrumEntry
 
-    def _make(label="homodyne-1", amplitude=1.0, metadata=None, checked=True):
+    def _make(label="conventional-1", amplitude=1.0, metadata=None, checked=True):
         df = _frame(Frame=1, Intensity=amplitude * np.sin(_WAVENUMBERS / 40.0))
         spectrum = ProcessedSpectrum(df=df, metadata=dict(metadata or {}), history=[])
-        entry = SpectrumEntry(spectrum, label, kind="homodyne")
+        entry = SpectrumEntry(spectrum, label, kind="conventional")
         entry.checked = checked
         return entry
 
@@ -93,25 +93,25 @@ def make_homodyne_entry():
 
 
 @pytest.fixture
-def make_heterodyne_entry():
-    """Builds a checked heterodyne SpectrumEntry with all four plottable
+def make_phase_resolved_entry():
+    """Builds a checked phase-resolved SpectrumEntry with all four plottable
     components plus their 95%-CI error columns."""
     from sfg_app2.app.tabs.processed_results import SpectrumEntry
 
-    def _make(label="heterodyne-1", metadata=None, checked=True):
+    def _make(label="phase-resolved-1", metadata=None, checked=True):
         real = np.sin(_WAVENUMBERS / 40.0)
         imag = np.cos(_WAVENUMBERS / 40.0)
         df = _frame(
             Real=real, Imaginary=imag,
             Phase=np.degrees(np.arctan2(imag, real)),
-            Homodyne=real**2 + imag**2,
+            Chi2_abs2=real**2 + imag**2,
             Real_err=np.full_like(real, 0.05),
             Imag_err=np.full_like(imag, 0.05),
             Phase_err=np.full_like(real, 1.0),
-            Homodyne_err=np.full_like(real, 0.05),
+            Chi2_abs2_err=np.full_like(real, 0.05),
         )
         spectrum = ProcessedSpectrum(df=df, metadata=dict(metadata or {}), history=[])
-        entry = SpectrumEntry(spectrum, label, kind="heterodyne")
+        entry = SpectrumEntry(spectrum, label, kind="phase_resolved")
         entry.checked = checked
         return entry
 
@@ -119,11 +119,11 @@ def make_heterodyne_entry():
 
 
 @pytest.fixture
-def make_fitted_entry(make_homodyne_entry):
-    """A homodyne entry carrying a reloaded fit's derived curves, as
+def make_fitted_entry(make_conventional_entry):
+    """A conventional entry carrying a reloaded fit's derived curves, as
     _add_fit_component_columns would have produced them."""
     def _make(label="fitted-1", components=("Fit (total)",), checked=True):
-        entry = make_homodyne_entry(label=label, checked=checked)
+        entry = make_conventional_entry(label=label, checked=checked)
         df = entry.spectrum.data
         for column in components:
             df[column] = np.cos(_WAVENUMBERS / 40.0)
@@ -141,12 +141,12 @@ def raw_matched_files(tmp_path):
     1030.7 nm, they land on the C-H stretch region (~2800-3000 cm^-1) --
     a nonsense range would send the pipeline negative and make any
     resulting plot meaningless. `fringes` adds the interference the
-    heterodyne FFT step expects to isolate.
+    phase-resolved FFT step expects to isolate.
     """
     def _make(fringes: bool = False):
         rng = np.random.default_rng(0)
         wl = np.linspace(787.27, 799.86, 512)     # nm -> ~3000..2800 cm^-1
-        folder = tmp_path / ("raw_het" if fringes else "raw_homo")
+        folder = tmp_path / ("raw_pr" if fringes else "raw_homo")
         folder.mkdir(exist_ok=True)
 
         def write(name, scale, peak_nm=None):
@@ -196,3 +196,29 @@ def load_entries(results_tab):
         return results_tab
 
     return _load
+
+
+@pytest.fixture
+def process_tab(qtbot, raw_matched_files):
+    """A Process & Review tab holding one matched set of the given kind."""
+    from sfg_app2.app.tabs.process_review import ProcessReviewTab
+    from sfg_app2.processing.data_file import DataFile
+    from sfg_app2.processing.matcher import MatchedSet
+
+    def _make(kind="conventional"):
+        folder, roles = raw_matched_files(fringes=(kind == "phase_resolved"))
+        matched = MatchedSet(
+            signal=DataFile(folder / roles["signal"]),
+            background=DataFile(folder / roles["background"]),
+            reference=DataFile(folder / roles["reference"]),
+            reference_background=DataFile(folder / roles["reference_background"]),
+            spectrum_type=kind,
+        )
+        tab = ProcessReviewTab()
+        qtbot.addWidget(tab)
+        tab.set_matched_sets([matched])
+        if kind == "phase_resolved":
+            tab._pr_sfg_panel.set_matched_set(matched, 0)
+        return tab, matched
+
+    return _make

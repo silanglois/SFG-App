@@ -9,6 +9,7 @@ from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib as mpl
+from matplotlib.legend_handler import HandlerTuple
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QUndoStack
@@ -25,6 +26,7 @@ from sfg_app2.processing.processed_spectrum import ProcessedSpectrum
 from sfg_app2.app.utils.loading_indicator import show_loading
 from sfg_app2.app.utils.phase_wrap import wrap_phase_for_plot
 from sfg_app2.app.utils.plotting_settings import PlottingSettings
+from sfg_app2.app.utils.legend_utils import build_legend
 # Re-exported for the dialogs and for callers that still import these
 # from here; they live in trace_style.py so those dialogs don't have to
 # import this tab module back.
@@ -37,6 +39,7 @@ from sfg_app2.app.utils.app_logging import LOG_FILE
 from sfg_app2.app.utils import recent_paths_settings
 from sfg_app2.processing import provenance as provenance_mod
 from sfg_app2.processing import fitting as fitting_mod
+from sfg_app2.processing.kinds import normalize_kind
 from sfg_app2.app.tabs.processed_results_undo import (
     AddEntryCommand, OverwriteEntryCommand, RemoveEntriesCommand,
     ReplaceAnnotationsCommand, ResetTraceStylesCommand, SetTraceStylesCommand,
@@ -66,61 +69,85 @@ def _all_colormaps() -> list[str]:
     return CURATED_COLORMAPS + extras
 
 
-# HD-SFG component checkboxes — display name -> to_dataframe() column name
-_HD_COMPONENT_COLUMN = {
+# PR-SFG component checkboxes — display name -> to_dataframe() column name
+_PR_COMPONENT_COLUMN = {
     "Imaginary": "Imaginary",
     "Real": "Real",
     "Phase": "Phase",
-    "|χ⁽²⁾|² (Homodyne)": "Homodyne",
+    "|χ⁽²⁾|²": "Chi2_abs2",
 }
 
 # display name -> to_dataframe() 95%-CI error column name
-_HD_ERROR_COLUMN = {
+_PR_ERROR_COLUMN = {
     "Imaginary": "Imag_err",
     "Real": "Real_err",
     "Phase": "Phase_err",
-    "|χ⁽²⁾|² (Homodyne)": "Homodyne_err",
+    "|χ⁽²⁾|²": "Chi2_abs2_err",
 }
 
 # display name -> matplotlib mathtext y-axis label (plain Unicode
 # superscript/subscript glyphs render as missing-glyph boxes in most fonts,
 # so plotted labels use mathtext while the checkbox text itself stays plain
 # Unicode — Qt widgets don't interpret mathtext syntax)
-_HD_YLABEL = {
+_PR_YLABEL = {
     "Imaginary": r"Im($\chi^{(2)}$) (a.u.)",
     "Real": r"Re($\chi^{(2)}$) (a.u.)",
     "Phase": "Phase (°)",
-    "|χ⁽²⁾|² (Homodyne)": r"$|\chi^{(2)}|^2$ (a.u.)",
+    "|χ⁽²⁾|²": r"$|\chi^{(2)}|^2$ (a.u.)",
 }
 
 # display name -> mathtext-safe legend label suffix (same reasoning as
-# _HD_YLABEL — the checkbox display name itself contains raw Unicode
+# _PR_YLABEL — the checkbox display name itself contains raw Unicode
 # superscript parentheses that most fonts lack a glyph for)
-_HD_LEGEND_LABEL = {
+_PR_LEGEND_LABEL = {
     "Imaginary": "Im($\\chi^{(2)}$)",
     "Real": "Re($\\chi^{(2)}$)",
     "Phase": "Phase",
-    "|χ⁽²⁾|² (Homodyne)": r"$|\chi^{(2)}|^2$",
+    "|χ⁽²⁾|²": r"$|\chi^{(2)}|^2$",
 }
 
 
-# fit-derived column name -> the HD component display name (matching
-# _HD_COMPONENT_COLUMN's keys) it's derived from -- heterodyne only, used
+# fit-derived column name -> the PR component display name (matching
+# _PR_COMPONENT_COLUMN's keys) it's derived from -- phase-resolved only, used
 # to match a fit curve's color to its corresponding data component's
 # color when that component is currently checked (see _assign_spec_colors)
-_FIT_TO_HD_COMPONENT = {
+_FIT_TO_PR_COMPONENT = {
     "Fit (real)": "Real",
     "Fit (imaginary)": "Imaginary",
-    "Fit (homodyne)": "|χ⁽²⁾|² (Homodyne)",
+    "Fit (|χ|²)": "|χ⁽²⁾|²",
 }
+
+
+def _data_key(spec) -> tuple:
+    """(entry, component) identifying a data trace -- what a fit pairs with."""
+    return (spec.entry, spec.component if spec.component is not None else AMPLITUDE_COMPONENT)
+
+
+def _fit_partner_key(spec) -> tuple | None:
+    """The _data_key() of the data trace whose color a fit curve takes --
+    on a conventional entry every fit curve (peaks included) shares the one
+    amplitude trace's color."""
+    key = (_FIT_TO_PR_COMPONENT.get(spec.y_col)
+           if spec.entry.kind == "phase_resolved" else AMPLITUDE_COMPONENT)
+    return (spec.entry, key) if key else None
+
+
+def _fit_legend_partner_key(spec) -> tuple | None:
+    """The _data_key() of the data trace a fit curve *models* -- stricter
+    than _fit_partner_key(): only the curve directly comparable to the
+    data (PR real/imaginary/conventional, conventional "Fit (total)") pairs; peaks
+    and the conventional entry's real/imaginary chi stay separate."""
+    if spec.entry.kind != "phase_resolved" and spec.y_col != "Fit (total)":
+        return None
+    return _fit_partner_key(spec)
 
 
 class SpectrumEntry:
     """Lightweight container binding a ProcessedSpectrum to a display label."""
-    def __init__(self, spectrum: ProcessedSpectrum, label: str, kind: str = "homodyne"):
+    def __init__(self, spectrum: ProcessedSpectrum, label: str, kind: str = "conventional"):
         self.spectrum = spectrum
         self.label = label
-        self.kind = kind   # "homodyne" | "heterodyne"
+        self.kind = kind   # "conventional" | "phase_resolved"
         self.styles: dict[str, TraceStyle] = {}
         # (column_name, display_label) pairs for a reloaded fit's derived
         # curves (fit total/real/imaginary, each peak) -- column_name
@@ -151,7 +178,7 @@ def _customized_components(entry: SpectrumEntry) -> list[str]:
 def _entry_display_text(entry: SpectrumEntry) -> str:
     """List-item text for an entry -- appends "(fitted)" when it carries
     a loaded fit's derived curves, mirroring fitting_tab.py's own
-    _entry_display_text()'s "[heterodyne] " prefix convention for the
+    _entry_display_text()'s "[phase-resolved] " prefix convention for the
     same kind of "extra fact about this entry" labeling. A "◆" marks
     per-trace style overrides, which are otherwise invisible until you
     open the trace properties dialog -- and which can hide a line on
@@ -164,13 +191,13 @@ def _entry_display_text(entry: SpectrumEntry) -> str:
 class PlotSpec:
     """One plotted line, flattened out of an entry.
 
-    A heterodyne entry yields one spec per checked HD component, a
-    homodyne entry one for its amplitude, and either kind adds one per
+    A phase-resolved entry yields one spec per checked PR component, a
+    conventional entry one for its amplitude, and either kind adds one per
     fit-derived curve -- so colors and styling are resolved per line
     while the offset stays keyed to the owning entry.
     """
     entry: SpectrumEntry
-    component: str | None   # HD component display name; None for amplitude/fit rows
+    component: str | None   # PR component display name; None for amplitude/fit rows
     y_col: str
     err_col: str | None
     label: str
@@ -182,8 +209,8 @@ class PlotSpec:
 class _AxisUsage:
     """Which quantities ended up on each axis, for labeling them after
     the traces are drawn."""
-    primary_hd: list[str] = field(default_factory=list)
-    secondary_hd: list[str] = field(default_factory=list)
+    primary_pr: list[str] = field(default_factory=list)
+    secondary_pr: list[str] = field(default_factory=list)
     primary_amp: bool = False
     secondary_amp: bool = False
 
@@ -210,7 +237,7 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         self._setup_list()
         self._setup_colormap_combo()
         self._setup_normalization()
-        self._setup_hd_component_checkboxes()
+        self._setup_pr_component_checkboxes()
         self._setup_legend_fields()
         self._connect_signals()
 
@@ -243,7 +270,7 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         fit_components_widget = self._setup_fit_component_checkboxes()
         sections = [
             ("data_display", "Data display", self.ui.dataDisplayTab, True),
-            ("hd_components", "HD-SFG components", self.ui.hdComponentsTab, False),
+            ("pr_components", "PR-SFG components", self.ui.prComponentsTab, False),
             ("fit_components", "Fit components", fit_components_widget, False),
             ("colors", "Colors", self.ui.colorsTab, True),
             ("labels", "Labels, legend & annotations", self.ui.labelsTab, True),
@@ -397,21 +424,21 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         self._hide_data_checkbox.toggled.connect(self._refresh_plot)
         self.ui.verticalLayout_2.addWidget(self._hide_data_checkbox)
 
-    def _setup_hd_component_checkboxes(self):
-        self._hd_checkboxes = {
-            "Imaginary": self.ui.hdCheckImaginary,
-            "Real": self.ui.hdCheckReal,
-            "Phase": self.ui.hdCheckPhase,
-            "|χ⁽²⁾|² (Homodyne)": self.ui.hdCheckHomodyne,
+    def _setup_pr_component_checkboxes(self):
+        self._pr_checkboxes = {
+            "Imaginary": self.ui.prCheckImaginary,
+            "Real": self.ui.prCheckReal,
+            "Phase": self.ui.prCheckPhase,
+            "|χ⁽²⁾|²": self.ui.prCheckAbs2,
         }
-        for cb in self._hd_checkboxes.values():
+        for cb in self._pr_checkboxes.values():
             cb.setToolTip(
-                "Plot this component for heterodyne (HD-SFG) entries — "
-                "has no effect on homodyne entries. Check multiple to overlay them."
+                "Plot this component for phase-resolved (PR-SFG) entries — "
+                "has no effect on conventional entries. Check multiple to overlay them."
             )
-        self.ui.hdCheckShowError.setToolTip(
-            "Shade the 95% CI error band around each heterodyne (HD-SFG) "
-            "line — has no effect on homodyne entries."
+        self.ui.prCheckShowError.setToolTip(
+            "Shade the 95% CI error band around each phase-resolved (PR-SFG) "
+            "line — has no effect on conventional entries."
         )
 
         phase_row = QHBoxLayout()
@@ -423,12 +450,12 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         phase_row.addStretch()
         self.ui.verticalLayout_6.addLayout(phase_row)
 
-    def _checked_hd_components(self) -> list[str]:
-        return [name for name, cb in self._hd_checkboxes.items() if cb.isChecked()]
+    def _checked_pr_components(self) -> list[str]:
+        return [name for name, cb in self._pr_checkboxes.items() if cb.isChecked()]
 
     def _setup_fit_component_checkboxes(self) -> QWidget:
         """Global toggle panel for a reloaded fit's derived curves,
-        mirroring the HD-SFG component checkboxes above. Peaks are
+        mirroring the PR-SFG component checkboxes above. Peaks are
         collapsed into a single "Individual features" checkbox rather
         than one per peak index (peak count varies per entry, and
         Trace Properties already lists them individually for anyone
@@ -467,14 +494,15 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         outer.addWidget(self._markers_checkbox)
 
         # Session-only (not persisted): resets to unchecked on every launch.
-        self._hide_fit_legend = False
-        self._hide_fit_legend_checkbox = QCheckBox("Hide fit traces from legend")
-        self._hide_fit_legend_checkbox.setToolTip(
-            "Keep fit-derived curves on the plot but leave them out of "
-            "the legend."
+        self._combine_fit_legend = False
+        self._combine_fit_legend_checkbox = QCheckBox("Combine fit and data in legend")
+        self._combine_fit_legend_checkbox.setToolTip(
+            "Show each fit curve and the data it was fit to as one legend "
+            "entry (the data's marker drawn over the fit's line), labelled "
+            "with the data's name. Individual peaks stay separate entries."
         )
-        self._hide_fit_legend_checkbox.toggled.connect(self._on_hide_fit_legend_toggled)
-        outer.addWidget(self._hide_fit_legend_checkbox)
+        self._combine_fit_legend_checkbox.toggled.connect(self._on_combine_fit_legend_toggled)
+        outer.addWidget(self._combine_fit_legend_checkbox)
 
         outer.addStretch()
         return widget
@@ -482,7 +510,7 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
     def _fit_component_concept(self, column_name: str) -> str:
         """Maps a fit-derived column name to one of the four global
         panel keys above."""
-        if column_name in ("Fit (total)", "Fit (homodyne)"):
+        if column_name in ("Fit (total)", "Fit (|χ|²)"):
             return "Fit total"
         if column_name == "Fit (real)":
             return "Fit real"
@@ -513,9 +541,9 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         self.ui.colormapStartSpinner.valueChanged.connect(self._refresh_plot)
         self.ui.colormapStopSpinner.valueChanged.connect(self._refresh_plot)
         self.ui.offsetSpectraSpinner.valueChanged.connect(self._refresh_plot)
-        for cb in self._hd_checkboxes.values():
+        for cb in self._pr_checkboxes.values():
             cb.toggled.connect(self._refresh_plot)
-        self.ui.hdCheckShowError.toggled.connect(self._refresh_plot)
+        self.ui.prCheckShowError.toggled.connect(self._refresh_plot)
         self._phase_range_combo.currentIndexChanged.connect(self._refresh_plot)
         self.ui.legendFieldButton.clicked.connect(self._on_edit_legend_fields)
         self.ui.xAxisLabelEdit.editingFinished.connect(self._refresh_plot)
@@ -532,7 +560,7 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         return self._undo_stack
 
     def add_results(self, results: dict):
-        from sfg_app2.processing.hd_sfg import HDSFGResult
+        from sfg_app2.processing.pr_sfg import PRSFGResult
         from sfg_app2.processing.processed_spectrum import ProcessedSpectrum
 
         remembered: dict = {}
@@ -543,11 +571,11 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         try:
             for filename, spectrum in results.items():
                 try:
-                    kind = "homodyne"
-                    # convert HDSFGResult to ProcessedSpectrum for display, keeping
-                    # every component (Real/Imaginary/Phase/Homodyne + per-frame-avg
+                    kind = "conventional"
+                    # convert PRSFGResult to ProcessedSpectrum for display, keeping
+                    # every component (Real/Imaginary/Phase/Conventional + per-frame-avg
                     # and error-bar variants) intact — no lossy column renaming
-                    if isinstance(spectrum, HDSFGResult):
+                    if isinstance(spectrum, PRSFGResult):
                         df = spectrum.to_dataframe()
                         df.insert(0, "Frame", 1)
                         ps = ProcessedSpectrum(
@@ -557,7 +585,7 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
                         )
                         ps.provenance = spectrum.provenance
                         spectrum = ps
-                        kind = "heterodyne"
+                        kind = "phase_resolved"
 
                     label = Path(filename).stem
                     existing_idx = next(
@@ -683,10 +711,37 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
                 result.append(self._entries[idx])
         return result
 
+    def add_fitted_spectrum(self, spectrum, label: str, kind: str, fit_json: str) -> str:
+        """Add a copy of `spectrum` carrying a fit (the Fitting tab's "Send
+        to Spectra Library"), exactly as if its fit export had been
+        loaded: the fit lives in provenance["fit_json"], and its curves
+        become plottable fit components. Undoable. Returns the entry's
+        label, made unique with a " (fit)" suffix when needed."""
+        df = spectrum.data.copy()
+        if "Frame" not in df.columns:
+            df.insert(0, "Frame", 1)
+        prov = dict(getattr(spectrum, "provenance", None) or {})
+        prov["fit_json"] = fit_json
+        prov["kind"] = kind
+        fit_components = self._add_fit_component_columns(df, prov, kind)
+        new = ProcessedSpectrum(df, metadata=dict(spectrum.metadata or {}),
+                                history=list(spectrum.history) + ["fit"])
+        new.provenance = prov
+        existing = {e.label for e in self._entries}
+        name = label if label not in existing else f"{label} (fit)"
+        n = 2
+        while name in existing:
+            name = f"{label} (fit {n})"
+            n += 1
+        entry = SpectrumEntry(new, name, kind=kind)
+        entry.fit_components = fit_components
+        self._undo_stack.push(AddEntryCommand(self, entry, description="Add fitted spectrum"))
+        return name
+
     def entries(self, kind: str | None = None) -> list[SpectrumEntry]:
         """Public accessor for other tabs (e.g. Fitting) to read the
         currently-held, already-processed spectra without reaching into
-        private state. `kind` filters to "homodyne"/"heterodyne" if given."""
+        private state. `kind` filters to "conventional"/"phase_resolved" if given."""
         ordered = self._ordered_entries()
         if kind is None:
             return ordered
@@ -779,7 +834,7 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         total/real/imaginary, peaks) reuses its own entry's matching
         data-trace color, so a fit visually matches the data it was fit
         against. Falls back to that entry's first data color (peaks, or
-        a heterodyne component that isn't currently checked), then --
+        a phase-resolved component that isn't currently checked), then --
         only if the entry has no visible data at all (e.g. "Hide data")
         -- a fresh positional color, same as today's fit-only behavior.
         """
@@ -790,8 +845,7 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         entry_fallback_color = {}
         for idx, color in zip(data_indices, data_colors):
             spec = specs[idx]
-            key = spec.component if spec.component is not None else AMPLITUDE_COMPONENT
-            data_color_by_key[(spec.entry, key)] = color
+            data_color_by_key[_data_key(spec)] = color
             entry_fallback_color.setdefault(spec.entry, color)
             result[idx] = color
 
@@ -800,9 +854,8 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
             if not spec.is_fit:
                 continue   # already colored above
             entry = spec.entry
-            matched_key = (_FIT_TO_HD_COMPONENT.get(spec.y_col)
-                           if entry.kind == "heterodyne" else AMPLITUDE_COMPONENT)
-            color = data_color_by_key.get((entry, matched_key)) if matched_key else None
+            partner = _fit_partner_key(spec)
+            color = data_color_by_key.get(partner) if partner else None
             if color is None:
                 color = entry_fallback_color.get(entry)
             if color is None:
@@ -828,10 +881,10 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
                 parts.append(str(value) if value not in (None, "") else entry.label)
         return " - ".join(parts)
 
-    def _ylabel_for(self, hd_components: list[str], has_amplitude_line: bool) -> str:
-        if hd_components:
-            return (_HD_YLABEL.get(hd_components[0], "Amplitude (a.u.)")
-                    if len(set(hd_components)) == 1 else "Amplitude (a.u.)")
+    def _ylabel_for(self, pr_components: list[str], has_amplitude_line: bool) -> str:
+        if pr_components:
+            return (_PR_YLABEL.get(pr_components[0], "Amplitude (a.u.)")
+                    if len(set(pr_components)) == 1 else "Amplitude (a.u.)")
         if has_amplitude_line:
             # Every entry reaching the Spectra Library has already been
             # through the full pipeline (despike -> background subtract ->
@@ -869,20 +922,20 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
 
     def _update_conditional_dock_state(self, entries: list[SpectrumEntry]):
         """Grey out (not hide -- keeps the dock layout stable and the
-        panel discoverable) the HD-SFG components / Fit components
+        panel discoverable) the PR-SFG components / Fit components
         docks when nothing currently checked would respond to them --
-        their checkboxes are otherwise silently inert for a homodyne-
+        their checkboxes are otherwise silently inert for a conventional-
         only or fit-free selection. Called from _refresh_plot(), which
         already runs on every state change that can affect this (check/
         uncheck, Check All/None, add, remove, sort/reorder)."""
-        has_heterodyne = any(e.kind == "heterodyne" for e in entries)
+        has_phase_resolved = any(e.kind == "phase_resolved" for e in entries)
         has_fit = any(e.fit_components for e in entries)
-        hd_dock = self._docks.get("hd_components")
-        if hd_dock is not None:
-            hd_dock.setEnabled(has_heterodyne)
-            hd_dock.setToolTip(
-                "" if has_heterodyne else
-                "Enabled when at least one checked spectrum is heterodyne (HD-SFG)."
+        pr_dock = self._docks.get("pr_components")
+        if pr_dock is not None:
+            pr_dock.setEnabled(has_phase_resolved)
+            pr_dock.setToolTip(
+                "" if has_phase_resolved else
+                "Enabled when at least one checked spectrum is phase-resolved (PR-SFG)."
             )
         fit_dock = self._docks.get("fit_components")
         if fit_dock is not None:
@@ -911,8 +964,8 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         self._decorate_axes(entries, axis_usage, specs)
         self.plot_widget.sync_x_range()
 
-    def _on_hide_fit_legend_toggled(self, checked: bool):
-        self._hide_fit_legend = checked
+    def _on_combine_fit_legend_toggled(self, checked: bool):
+        self._combine_fit_legend = checked
         self._refresh_plot()
 
     def _update_export_button_text(self, checked_count: int):
@@ -954,7 +1007,7 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         """Flatten the checked entries into one PlotSpec per line to draw,
         applying the global component panels, "Hide data", and each
         trace's own visibility override, and resolving legend labels."""
-        checked_components = self._checked_hd_components()
+        checked_components = self._checked_pr_components()
         checked_fit_concepts = self._checked_fit_concepts()
         hide_data = self._hide_data_checkbox.isChecked()
 
@@ -977,8 +1030,8 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         for entry in entries:
             base_label = self._legend_base(entry, self._legend_fields)
 
-            if entry.kind == "heterodyne":
-                for component in _HD_COMPONENT_COLUMN:
+            if entry.kind == "phase_resolved":
+                for component in _PR_COMPONENT_COLUMN:
                     style = entry.style_for(component)
                     reason = resolve_visibility(
                         style=style, component=component, is_fit=False,
@@ -989,22 +1042,22 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
                         self._hidden_tally[reason] += 1
                         continue
                     if single_entry:
-                        label = _HD_LEGEND_LABEL[component]
+                        label = _PR_LEGEND_LABEL[component]
                     elif suppress_suffix:
                         label = base_label
                     elif multi_line:
-                        label = f"{base_label} ({_HD_LEGEND_LABEL[component]})"
+                        label = f"{base_label} ({_PR_LEGEND_LABEL[component]})"
                     else:
                         label = base_label
                     specs.append(PlotSpec(
                         entry=entry, component=component,
-                        y_col=_HD_COMPONENT_COLUMN[component],
-                        err_col=_HD_ERROR_COLUMN[component],
+                        y_col=_PR_COMPONENT_COLUMN[component],
+                        err_col=_PR_ERROR_COLUMN[component],
                         label=style.label or label, style=style, is_fit=False,
                     ))
             else:
                 style = entry.style_for(AMPLITUDE_COMPONENT)
-                # No panel gates a homodyne entry's single line.
+                # No panel gates a conventional entry's single line.
                 reason = resolve_visibility(
                     style=style, component=AMPLITUDE_COMPONENT, is_fit=False,
                     hide_data=hide_data, component_checked=True,
@@ -1044,12 +1097,15 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
     def _draw_specs(self, specs: list[PlotSpec]) -> _AxisUsage:
         """Draw every spec, returning which quantities landed on each axis."""
         offset_step = self.ui.offsetSpectraSpinner.value()
-        show_error = self.ui.hdCheckShowError.isChecked()
+        show_error = self.ui.prCheckShowError.isChecked()
         markers_mode = self._markers_checkbox.isChecked()
         colors = self._assign_spec_colors(specs)
+        # The Line2D each spec drew, for _decorate_axes() to pair fits with
+        # their data in a combined legend.
+        self._spec_lines = {}
         # Offset is per *spectrum*, not per plotted line: every component
         # and fit curve of one entry shares its entry's slot, so enabling
-        # a second HD component doesn't widen the spacing or push a fit
+        # a second PR component doesn't widen the spacing or push a fit
         # curve away from the data it was fit against.
         offset_slots = {}
         for spec in specs:
@@ -1059,9 +1115,9 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         for i, spec in enumerate(specs):
             entry, style = spec.entry, spec.style
             try:
-                if entry.kind == "heterodyne":
+                if entry.kind == "phase_resolved":
                     # already one row per wavenumber point — bypass .frame(),
-                    # which sorts by a "Wavelength" column heterodyne data
+                    # which sorts by a "Wavelength" column phase-resolved data
                     # doesn't have
                     data = entry.spectrum.data
                     x_col = "Wavenumber"
@@ -1102,9 +1158,10 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
                         plot_kwargs["linewidth"] = style.linewidth
                     if style.alpha is not None:
                         plot_kwargs["alpha"] = style.alpha
-                target_ax.plot(x, y_offset, **plot_kwargs)
+                line, = target_ax.plot(x, y_offset, **plot_kwargs)
+                self._spec_lines[id(spec)] = line
 
-                if show_error and entry.kind == "heterodyne" and spec.err_col in data.columns:
+                if show_error and entry.kind == "phase_resolved" and spec.err_col in data.columns:
                     y_err = data[spec.err_col].to_numpy() * factor
                     # scale the band's own alpha by the trace's alpha so a
                     # faded-out line fades its error band too, instead of
@@ -1115,8 +1172,8 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
                         color=color, alpha=band_alpha, linewidth=0,
                     )
 
-                if entry.kind == "heterodyne":
-                    (usage.secondary_hd if is_secondary else usage.primary_hd).append(spec.component)
+                if entry.kind == "phase_resolved":
+                    (usage.secondary_pr if is_secondary else usage.primary_pr).append(spec.component)
                 elif is_secondary:
                     usage.secondary_amp = True
                 else:
@@ -1124,6 +1181,38 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
             except Exception as e:
                 logger.warning("Could not plot %s: %s", spec.label, e)
         return usage
+
+    def _combine_fit_handles(self, handles: list, labels: list[str],
+                             specs: list[PlotSpec]) -> tuple[list, list[str]]:
+        """Fold each fit curve into its data trace's legend entry.
+
+        A matched fit's own entry is dropped and its data trace's handle
+        becomes a (fit_line, data_line) tuple -- drawn by HandlerTuple as
+        one overlaid entry, the data last so its marker sits on top of the
+        fit's line -- keeping the data trace's label. Fits with no data
+        partner on the plot (see _fit_legend_partner_key) stay as their
+        own entries; a data trace takes only its first matched fit.
+        """
+        lines = getattr(self, "_spec_lines", {})
+        data_line_by_key = {}
+        for spec in specs:
+            if not spec.is_fit and id(spec) in lines:
+                data_line_by_key.setdefault(_data_key(spec), lines[id(spec)])
+        fit_for_data = {}
+        for spec in specs:
+            if not spec.is_fit or id(spec) not in lines:
+                continue
+            data_line = data_line_by_key.get(_fit_legend_partner_key(spec))
+            if data_line is not None and data_line not in fit_for_data:
+                fit_for_data[data_line] = lines[id(spec)]
+        absorbed = set(fit_for_data.values())
+        out_handles, out_labels = [], []
+        for h, label in zip(handles, labels):
+            if h in absorbed:
+                continue
+            out_handles.append((fit_for_data[h], h) if h in fit_for_data else h)
+            out_labels.append(label)
+        return out_handles, out_labels
 
     def _decorate_axes(
         self, entries: list[SpectrumEntry], usage: _AxisUsage, specs: list[PlotSpec],
@@ -1133,20 +1222,23 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         if self.plot_widget.ax2 is not None:
             h2, l2 = self.plot_widget.ax2.get_legend_handles_labels()
             handles, labels = handles + h2, labels + l2
-        if self._hide_fit_legend:
-            fit_labels = {s.label for s in specs if s.is_fit}
-            kept = [(h, l) for h, l in zip(handles, labels) if l not in fit_labels]
-            handles, labels = ([list(t) for t in zip(*kept)] if kept else ([], []))
-        if len(handles) > 1 and self._legend_fields != ["None"]:
-            self.plot_widget.ax.legend(handles, labels, fontsize=8)
+        legend_kwargs = {"fontsize": 8}
+        if self._combine_fit_legend:
+            handles, labels = self._combine_fit_handles(handles, labels, specs)
+            legend_kwargs["handler_map"] = {tuple: HandlerTuple(ndivide=1, pad=0)}
+        # One entry is normally not worth a legend -- unless it is a
+        # combined data+fit entry, which still names two curves.
+        worth_it = len(handles) > 1 or (handles and isinstance(handles[0], tuple))
+        if worth_it and self._legend_fields != ["None"]:
+            build_legend(self.plot_widget.ax, handles, labels, **legend_kwargs)
 
         # determine x column — use Wavenumber if available, else Wavelength
         first_data = entries[0].spectrum.data
         first_x_col = "Wavenumber" if "Wavenumber" in first_data.columns else "Wavelength"
         x_label = "Wavenumber (cm$^{-1}$)" if first_x_col == "Wavenumber" else "Wavelength (nm)"
 
-        primary_ylabel = self._ylabel_for(usage.primary_hd, usage.primary_amp)
-        secondary_ylabel = (self._ylabel_for(usage.secondary_hd, usage.secondary_amp)
+        primary_ylabel = self._ylabel_for(usage.primary_pr, usage.primary_amp)
+        secondary_ylabel = (self._ylabel_for(usage.secondary_pr, usage.secondary_amp)
                              if self.plot_widget.ax2 is not None else None)
 
         self.ui.xAxisLabelEdit.setPlaceholderText(x_label)
@@ -1266,11 +1358,11 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         df["Fit (imaginary)"] = chi.imag
         components.append(("Fit (imaginary)", "Fit (imaginary)"))
 
-        if kind == "heterodyne":
-            df["Fit (homodyne)"] = np.abs(chi) ** 2
-            components.append(("Fit (homodyne)", "Fit (homodyne)"))
+        if kind == "phase_resolved":
+            df["Fit (|χ|²)"] = np.abs(chi) ** 2
+            components.append(("Fit (|χ|²)", "Fit (|χ|²)"))
         else:
-            df["Fit (total)"] = fitting_mod.evaluate_homodyne(omega, fit_spec)
+            df["Fit (total)"] = fitting_mod.evaluate_conventional(omega, fit_spec)
             components.append(("Fit (total)", "Fit (total)"))
 
         for i, peak in enumerate(fit_spec.peaks):
@@ -1340,9 +1432,9 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
                 kind = provenance.get("kind")
                 if kind is None:
                     # no/old-style header — fall back to sniffing columns
-                    kind = ("heterodyne"
-                            if {"Real", "Imaginary", "Phase", "Homodyne"}.issubset(df.columns)
-                            else "homodyne")
+                    kind = ("phase_resolved"
+                            if {"Real", "Imaginary", "Phase", "Chi2_abs2"}.issubset(df.columns)
+                            else "conventional")
 
                 # a "Fit json:" header line (written by FittingTab's own
                 # export) reconstructs into extra derived columns (fit
@@ -1519,7 +1611,7 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         return provenance_mod.format_fit_section(
             payload["model"], payload.get("weighting"), payload.get("redchi"),
             payload.get("r_squared"), payload.get("aic"), payload.get("bic"),
-            kind=payload.get("kind", entry.kind), param_errors=payload.get("param_errors"),
+            kind=normalize_kind(payload.get("kind") or entry.kind), param_errors=payload.get("param_errors"),
         )
 
     def _write_csv_with_provenance(self, entry: SpectrumEntry, out_path: Path):
@@ -1536,7 +1628,7 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
             fit_section = provenance_mod.format_fit_section(
                 payload["model"], payload.get("weighting"), payload.get("redchi"),
                 payload.get("r_squared"), payload.get("aic"), payload.get("bic"),
-                kind=payload.get("kind", entry.kind), param_errors=payload.get("param_errors"),
+                kind=normalize_kind(payload.get("kind") or entry.kind), param_errors=payload.get("param_errors"),
             )
         provenance_mod.write_csv_with_provenance(
             entry.spectrum, entry.kind, entry.label, out_path, fit_section=fit_section,
@@ -1551,12 +1643,12 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
         return provenance_mod.parse_markers(text)
 
     @staticmethod
-    def _format_homodyne_provenance(provenance: dict) -> list[str]:
-        return provenance_mod.format_homodyne_provenance(provenance)
+    def _format_conventional_provenance(provenance: dict) -> list[str]:
+        return provenance_mod.format_conventional_provenance(provenance)
 
     @staticmethod
-    def _format_heterodyne_provenance(provenance: dict) -> list[str]:
-        return provenance_mod.format_heterodyne_provenance(provenance)
+    def _format_phase_resolved_provenance(provenance: dict) -> list[str]:
+        return provenance_mod.format_phase_resolved_provenance(provenance)
 
     def _on_export_checked(self):
         self._export_entries(self._checked_entries())
@@ -1635,11 +1727,11 @@ class ProcessedResultsTab(QWidget, DockablePlotPanel):
 
     def _entry_component_rows(self, entry: SpectrumEntry) -> list[tuple[str, str]]:
         """(style_key, display_name) rows to show in the trace properties
-        dialog for this entry — all HD components for heterodyne entries
+        dialog for this entry — all PR components for phase-resolved entries
         (not just the currently-checked ones), or a single amplitude row
-        for homodyne entries."""
-        if entry.kind == "heterodyne":
-            rows = [(component, component) for component in _HD_COMPONENT_COLUMN]
+        for conventional entries."""
+        if entry.kind == "phase_resolved":
+            rows = [(component, component) for component in _PR_COMPONENT_COLUMN]
         else:
             rows = [(AMPLITUDE_COMPONENT, "Amplitude")]
         return rows + list(entry.fit_components)

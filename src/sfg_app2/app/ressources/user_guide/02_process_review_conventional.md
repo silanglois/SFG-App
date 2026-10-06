@@ -1,10 +1,10 @@
-# Process & Review — Homodyne
+# Process & Review — Conventional
 
 Once matched sets are ready, **Process / Review** lets you configure
 and preview the processing pipeline before committing a result to
-the **Spectra Library**. This page covers the **homodyne** panel; heterodyne
-(HD-SFG) data uses a different panel — see **Process & Review —
-Heterodyne**.
+the **Spectra Library**. This page covers the **conventional** panel; phase-resolved
+(PR-SFG) data uses a different panel — see **Process & Review —
+Phase-resolved**.
 
 ## Picking what to work on
 
@@ -12,7 +12,7 @@ The list on the left shows every matched set (✓ = complete, ✗ =
 incomplete). Choose **Single** or **Compare** view above the list:
 
 - **Single** — work on one set at a time.
-- **Compare** — select multiple homodyne sets to preview their
+- **Compare** — select multiple conventional sets to preview their
   processing overlaid on the same plot, useful for checking
   consistency across a series before committing.
 
@@ -80,6 +80,19 @@ BG Subtracted → Normalized**, checking the plot at each stage:
   higher order) fits a least-squares curve through whichever markers
   you've placed, and that curve becomes the offset subtracted from
   the background before the rest of the pipeline runs.
+
+- **Background smoothing** — at the bottom of the Background
+  Correction dock, choose a smoothing method separately for the
+  **Sample BG** and the **Reference BG**: Savitzky–Golay (window,
+  polynomial order), moving average (window), Gaussian (sigma) or
+  median (window, which also shrugs off leftover spikes). Windows and
+  widths are in data points. The frame-averaged background is smoothed
+  before the offset is added and before it's subtracted; in the
+  "Signal + Background" view, the raw background is drawn faintly
+  behind the smoothed one so you can judge it. Smoothing applies
+  whether or not the offset correction is ticked, and the method and
+  its parameters are written to the export header and to an exported
+  notebook.
 
 - **Frame exclusion** — per-component checkboxes let you exclude
   specific acquisition frames from averaging (e.g. a frame with a

@@ -7,6 +7,7 @@ from PySide6.QtGui import QUndoStack
 from PySide6.QtWidgets import QWidget, QFileDialog, QMessageBox
 
 from sfg_app2.app.ui.ui_load_match_tab import Ui_loadmatchTab
+from sfg_app2.processing.kinds import kind_label
 from sfg_app2.app.widgets.file_list_widget import FileListWidget
 from sfg_app2.app.widgets.match_table import MatchTableView
 from sfg_app2.processing.utils import load_datafiles
@@ -501,7 +502,7 @@ class LoadMatchTab(QWidget):
             add(row, 1, m.background)
             add(row, 2, m.reference)
             add(row, 3, m.reference_background)
-            model.set_type(row, m.spectrum_type.capitalize())
+            model.set_type(row, kind_label(m.spectrum_type))
 
         table_after = model.snapshot()
         if table_before != table_after:
